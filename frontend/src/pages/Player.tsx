@@ -14,6 +14,9 @@ export default function Player() {
   const [currentIndex, setCurrentIndex] = useState(initialEp);
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const keyDownTime = useRef<Record<string, number>>({});
+  const longPressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!site_id || !original_id) return;
@@ -66,12 +69,74 @@ export default function Player() {
     };
   }, [current, currentIndex, site_id, original_id]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    const container = containerRef.current;
+    if (!video || !container) return;
+
+    const LONG_PRESS_THRESHOLD = 2000;
+    const CONTINUOUS_INTERVAL = 200;
+    const SHORT_JUMP = 15;
+    const CONTINUOUS_JUMP = 5;
+
+    const clamp = (val: number, min: number, max: number) =>
+      Math.max(min, Math.min(max, val));
+
+    const seek = (delta: number) => {
+      video.currentTime = clamp(
+        video.currentTime + delta,
+        0,
+        video.duration || 0
+      );
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+
+      const now = Date.now();
+      if (keyDownTime.current[e.key]) return;
+      keyDownTime.current[e.key] = now;
+
+      const delta = e.key === "ArrowLeft" ? -SHORT_JUMP : SHORT_JUMP;
+      seek(delta);
+
+      longPressTimer.current = setInterval(() => {
+        const elapsed = Date.now() - (keyDownTime.current[e.key] || now);
+        if (elapsed >= LONG_PRESS_THRESHOLD) {
+          const continuousDelta =
+            e.key === "ArrowLeft" ? -CONTINUOUS_JUMP : CONTINUOUS_JUMP;
+          seek(continuousDelta);
+        }
+      }, CONTINUOUS_INTERVAL);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      delete keyDownTime.current[e.key];
+      if (longPressTimer.current) {
+        clearInterval(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+    };
+
+    container.addEventListener("keydown", handleKeyDown);
+    container.addEventListener("keyup", handleKeyUp);
+    container.focus();
+
+    return () => {
+      container.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("keyup", handleKeyUp);
+      if (longPressTimer.current) clearInterval(longPressTimer.current);
+    };
+  }, []);
+
   if (!site_id || !original_id) {
     return <div className="empty">参数缺失</div>;
   }
 
   return (
-    <div className="col">
+    <div className="col" ref={containerRef} tabIndex={0}>
       <div
         style={{
           aspectRatio: "16/9",
