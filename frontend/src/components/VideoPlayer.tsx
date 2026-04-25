@@ -6,6 +6,8 @@ import {
   useState,
 } from "react";
 import CKPlayer from "ckplayer";
+import "ckplayer/css/ckplayer.css";
+import Hls from "hls.js";
 
 export interface VideoPlayerHandle {
   seekTo: (seconds: number) => void;
@@ -15,6 +17,7 @@ export interface VideoPlayerHandle {
 
 interface VideoPlayerProps {
   src: string;
+  suffix?: string;
   autoplay?: boolean;
   onError?: (message: string) => void;
   onReady?: () => void;
@@ -22,9 +25,10 @@ interface VideoPlayerProps {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ src, autoplay = true, onError, onReady, onEnded }, ref) => {
+  ({ src, suffix = "", autoplay = true, onError, onReady, onEnded }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const playerRef = useRef<CKPlayer | null>(null);
+    const playerRef = useRef<any>(null);
+    const hlsRef = useRef<Hls | null>(null);
     const [buffering, setBuffering] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -37,40 +41,56 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     useImperativeHandle(ref, () => ({
       seekTo: (seconds: number) => {
-        const video = playerRef.current?.video;
-        if (video) {
-          video.currentTime = Math.max(
-            0,
-            Math.min(seconds, video.duration || seconds)
-          );
-        }
+        playerRef.current?.seek(seconds);
       },
-      getCurrentTime: () => playerRef.current?.video?.currentTime || 0,
-      getDuration: () => playerRef.current?.video?.duration || 0,
+      getCurrentTime: () => playerRef.current?.time() || 0,
+      getDuration: () => playerRef.current?.duration() || 0,
     }));
 
     useEffect(() => {
       const container = containerRef.current;
-      if (!container) return;
+      if (!container || !src) return;
 
       setError(null);
       setBuffering(true);
 
       try {
+        const isM3u8 =
+          suffix === "m3u8" || suffix === "ckplayer" || suffix === "ffm3u8";
+
         const player = new CKPlayer({
           container,
-          video: src,
+          video: isM3u8 ? "" : src,
           autoplay,
-          html5m3u8: true,
         });
         playerRef.current = player;
 
-        const video = player.video;
+        const video = container.querySelector("video") as HTMLVideoElement | null;
         if (!video) {
           setError("播放器初始化失败");
-          onError?.("播放器初始化失败");
+          onErrorRef.current?.("播放器初始化失败");
           setBuffering(false);
+          player.remove();
+          playerRef.current = null;
           return;
+        }
+
+        if (isM3u8 && Hls.isSupported()) {
+          const hls = new Hls();
+          hlsRef.current = hls;
+          hls.loadSource(src);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {});
+          });
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              const msg = "视频加载失败 (HLS)";
+              setError(msg);
+              onErrorRef.current?.(msg);
+              setBuffering(false);
+            }
+          });
         }
 
         const handleWaiting = () => setBuffering(true);
@@ -102,6 +122,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           video.removeEventListener("error", handleError);
           video.removeEventListener("stalled", handleStalled);
           video.removeEventListener("ended", handleEnded);
+          hlsRef.current?.destroy();
+          hlsRef.current = null;
           player.remove();
           playerRef.current = null;
         };
@@ -111,7 +133,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onErrorRef.current?.(msg);
         setBuffering(false);
       }
-    }, [src, autoplay]);
+    }, [src, suffix, autoplay]);
 
     return (
       <div

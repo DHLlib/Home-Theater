@@ -217,6 +217,7 @@ export default function Player() {
         <VideoPlayer
           ref={playerRef}
           src={current?.url || ""}
+          suffix={current?.suffix || ""}
           autoplay
           onError={(msg) => console.error("播放错误:", msg)}
           onEnded={handleEnded}
