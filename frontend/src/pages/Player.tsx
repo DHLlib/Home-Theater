@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { getEpisodes } from "../api/play";
-import { upsertProgress } from "../api/progress";
-import type { Episode } from "../types";
+import { getProgress, upsertProgress } from "../api/progress";
+import VideoPlayer from "../components/VideoPlayer";
+import type { Episode, PlayProgress } from "../types";
 
 export default function Player() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const site_id = Number(searchParams.get("site_id"));
   const original_id = searchParams.get("original_id") || "";
+  const title = searchParams.get("title") || "";
+  const yearRaw = searchParams.get("year");
+  const year = yearRaw ? Number(yearRaw) : null;
   const initialEp = Number(searchParams.get("ep") || "0");
 
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(initialEp);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [progressRestored, setProgressRestored] = useState(false);
+  const playerRef = useRef<{
+    seekTo: (seconds: number) => void;
+    getCurrentTime: () => number;
+    getDuration: () => number;
+  } | null>(null);
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const keyDownTime = useRef<Record<string, number>>({});
   const longPressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!site_id || !original_id) return;
@@ -26,13 +35,35 @@ export default function Player() {
   const current = episodes[currentIndex];
 
   useEffect(() => {
+    if (!title || episodes.length === 0 || progressRestored) return;
+
+    getProgress(title, year)
+      .then((res: PlayProgress) => {
+        if (
+          res.source_site_id === site_id &&
+          res.source_video_id === original_id &&
+          res.episode_index >= 0 &&
+          res.episode_index < episodes.length
+        ) {
+          setCurrentIndex(res.episode_index);
+          setTimeout(() => {
+            playerRef.current?.seekTo(res.position_seconds);
+          }, 500);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProgressRestored(true));
+  }, [title, year, site_id, original_id, episodes, progressRestored]);
+
+  useEffect(() => {
     if (!current) return;
+
     progressTimer.current = setInterval(() => {
-      const pos = Math.floor(videoRef.current?.currentTime || 0);
-      const dur = Math.floor(videoRef.current?.duration || 0);
+      const pos = Math.floor(playerRef.current?.getCurrentTime() || 0);
+      const dur = Math.floor(playerRef.current?.getDuration() || 0);
       upsertProgress({
-        title: current.ep_name,
-        year: null,
+        title,
+        year,
         source_site_id: site_id,
         source_video_id: original_id,
         episode_index: currentIndex,
@@ -43,11 +74,11 @@ export default function Player() {
     }, 15000);
 
     const handleBeforeUnload = () => {
-      const pos = Math.floor(videoRef.current?.currentTime || 0);
-      const dur = Math.floor(videoRef.current?.duration || 0);
+      const pos = Math.floor(playerRef.current?.getCurrentTime() || 0);
+      const dur = Math.floor(playerRef.current?.getDuration() || 0);
       const data = JSON.stringify({
-        title: current.ep_name,
-        year: null,
+        title,
+        year,
         source_site_id: site_id,
         source_video_id: original_id,
         episode_index: currentIndex,
@@ -67,12 +98,21 @@ export default function Player() {
       if (progressTimer.current) clearInterval(progressTimer.current);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [current, currentIndex, site_id, original_id]);
+  }, [current, currentIndex, site_id, original_id, title, year]);
 
   useEffect(() => {
-    const video = videoRef.current;
+    setSearchParams(
+      (prev) => {
+        prev.set("ep", String(currentIndex));
+        return prev;
+      },
+      { replace: true }
+    );
+  }, [currentIndex, setSearchParams]);
+
+  useEffect(() => {
     const container = containerRef.current;
-    if (!video || !container) return;
+    if (!container) return;
 
     const LONG_PRESS_THRESHOLD = 2000;
     const CONTINUOUS_INTERVAL = 200;
@@ -83,11 +123,14 @@ export default function Player() {
       Math.max(min, Math.min(max, val));
 
     const seek = (delta: number) => {
-      video.currentTime = clamp(
-        video.currentTime + delta,
+      const video = playerRef.current;
+      if (!video) return;
+      const next = clamp(
+        video.getCurrentTime() + delta,
         0,
-        video.duration || 0
+        video.getDuration() || 0
       );
+      video.seekTo(next);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -131,6 +174,12 @@ export default function Player() {
     };
   }, []);
 
+  const handleEnded = () => {
+    if (currentIndex < episodes.length - 1) {
+      setCurrentIndex((i) => i + 1);
+    }
+  };
+
   if (!site_id || !original_id) {
     return <div className="empty">参数缺失</div>;
   }
@@ -145,12 +194,12 @@ export default function Player() {
           overflow: "hidden",
         }}
       >
-        <video
-          ref={videoRef}
-          src={current?.url}
-          controls
-          style={{ width: "100%", height: "100%" }}
-          autoPlay
+        <VideoPlayer
+          ref={playerRef}
+          src={current?.url || ""}
+          autoplay
+          onError={(msg) => console.error("播放错误:", msg)}
+          onEnded={handleEnded}
         />
       </div>
 
