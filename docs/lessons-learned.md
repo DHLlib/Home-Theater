@@ -1,0 +1,196 @@
+# 错题本 — Home Theater 项目踩坑记录
+
+> 遇到异常时，优先从本文档中搜索相似症状，再尝试新方案。
+
+---
+
+## 1. 端口冲突：WinError 10013
+
+**症状**：`uvicorn app.main:app --host 0.0.0.0 --port 8000` 报错 `WinError 10013: 以一种访问权限不允许的方式做了一个访问套接字的尝试`。
+
+**原因**：Windows 上其他进程已占用 8000 端口。
+
+**解决**：更换端口。本项目最终统一使用 **8181**（前端 `vite.config.ts` 代理目标同步改为 `http://localhost:8181`）。
+
+```bash
+# 查找占用端口的进程
+netstat -ano | grep 8000
+# 强制终止
+taskkill //PID <PID> //F
+# 启动时使用新端口
+cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+```
+
+---
+
+## 2. fetch-categories 返回 404
+
+**症状**：`GET /api/sites/{id}/fetch-categories` 返回 `404 Not Found`。
+
+**原因**：接口定义为 `POST`，但测试时误用 `GET`。
+
+**解决**：使用 `POST`：
+```bash
+curl -X POST "http://localhost:8181/api/sites/3/fetch-categories"
+```
+
+---
+
+## 3. 分类查询返回 0 条结果（父分类陷阱）
+
+**症状**：`t=1`（电影片）查询返回 `total: 0`，但 `ac=list` 不带 `t` 能返回数万条。
+
+**原因**：AppleCMS `class` 数组包含**父分类**（`type_pid=0`：电影片、连续剧、综艺片、动漫片）和**子分类**（`type_pid>0`：动作片、科幻片等）。`t` 参数**只能查询子分类**，父分类 ID 作为 `t` 永远返回空。
+
+**验证**：
+```bash
+# 父分类 → 0 条
+curl "https://cj.ffzyapi.com/api.php/provide/vod/?ac=list&t=1"
+# 子分类 → 有数据
+curl "https://cj.ffzyapi.com/api.php/provide/vod/?ac=list&t=6"  # 动作片
+```
+
+**解决**：`fetch_remote_categories` 中过滤 `type_pid=0`：
+```python
+type_pid = raw.get("type_pid")
+if type_pid == 0 or type_pid == "0":
+    continue
+```
+
+**教训**：站点返回的分类列表 ≠ 可直接查询的分类。必须用 `type_pid` 区分父子。
+
+---
+
+## 4. 360zy 分类参数：中文名 vs 数字 ID
+
+**症状**：360zy `t=1` 返回 0 条，但 `t=电影`（URL 编码后）返回 20 条。
+
+**原因**：360zy 的**父分类**支持中文名查询（`t=电影`），但**子分类**必须用数字 ID（`t=6`）。
+
+**验证**：
+```bash
+# 父分类中文名 → 有效（但只返回少量数据）
+curl "https://360zy.com/api.php/provide/vod/?ac=list&t=电影"
+# 子分类数字 ID → 有效（返回完整列表）
+curl "https://360zy.com/api.php/provide/vod/?ac=list&t=6"
+```
+
+**解决**：统一使用子分类的数字 ID 查询，不依赖中文名。`fetch-categories` 过滤父分类后，前端只映射子分类。
+
+---
+
+## 5. ffzy 分类参数行为误解
+
+**症状**：误以为 ffzy 不支持 `t` 参数，因为 `t=1`、`t=电影`、`t=电影片` 都返回 0。
+
+**原因**：
+1. 测试时混用了不同域名（`cj.ffzyapi.com` vs `api.ffzyapi.com`）
+2. 用了父分类 ID（`t=1`）而不是子分类 ID（`t=6`）
+
+**验证**：
+```bash
+curl "https://cj.ffzyapi.com/api.php/provide/vod/?ac=list&t=6"  # 动作片 → 4468 条
+```
+
+**解决**：确认 ffzy 完全支持 `t` 参数，但必须是**子分类的数字 ID**。
+
+---
+
+## 6. 后端代码修改后 API 行为未变
+
+**症状**：修改了 `backend/app/api/sites.py` 的 `fetch_remote_categories` 逻辑，但 API 仍返回旧数据（包含父分类）。
+
+**原因**：旧 Python/uvicorn 进程仍在运行，没有加载新代码。Windows 上 `taskkill` 可能未彻底终止，或进程被自动重启。
+
+**解决**：
+```bash
+# 1. 强制终止所有 Python 进程
+taskkill //F //IM python.exe
+
+# 2. 清理 Python 字节码缓存
+rm -rf backend/app/api/__pycache__
+
+# 3. 重新启动
+cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+```
+
+**教训**：修改后端代码后如果行为未变，**先怀疑进程是否真正重启**，不要反复检查代码逻辑。
+
+---
+
+## 7. 前端分类筛选用错 API 参数
+
+**症状**：`GET /api/videos?t=动作片` 返回 20 条不相关的视频（如战争片）。
+
+**原因**：`t` 参数是**透传给资源站的原始参数**，系统分类查询应该用 `category` 参数。
+
+**解决**：
+```bash
+# 错误：t 直接透传，360zy 把"动作片"当成原始参数处理
+curl "http://localhost:8181/api/videos?t=动作片"
+
+# 正确：category 走系统分类映射逻辑
+curl "http://localhost:8181/api/videos?category=动作片"
+```
+
+**教训**：前端分类筛选必须使用 `category=`，不是 `t=`。
+
+---
+
+## 8. curl 发送复杂 JSON 解析失败
+
+**症状**：`curl -X PUT -d '{"categories": [...]}'` 返回 `There was an error parsing the body`。
+
+**原因**：命令行直接传复杂 JSON，shell 对引号、特殊字符的转义容易出错。
+
+**解决**：将 JSON 写入文件，用 `--data-binary @file`：
+```bash
+cat > /tmp/body.json << 'EOF'
+{"categories":[{"remote_id":"6","name":"动作片"}]}
+EOF
+curl -X PUT -H "Content-Type: application/json" --data-binary @/tmp/body.json \
+  "http://localhost:8181/api/sites/3/categories"
+```
+
+---
+
+## 9. git init 位置错误
+
+**症状**：在项目根目录执行 `git status` 显示 `not a git repository`，但 `frontend/.git` 存在。
+
+**原因**：`git init` 误在前端子目录执行。
+
+**解决**：
+```bash
+# 删除错误位置的仓库
+rm -rf frontend/.git
+# 在项目根目录重新初始化
+cd "D:\workspace_py\Home Theater"
+git init
+```
+
+---
+
+## 10. CategoryBar 展开按钮跑到第二行
+
+**症状**：分类折叠时，"⬇️ 展开更多" 按钮显示在第二行（被截断区域外）。
+
+**原因**：展开按钮作为独立 DOM 元素放在 flex 容器下方，自然另起一行。
+
+**解决**：按钮改为 `position: absolute` 定位到容器右上角，容器右侧预留 `paddingRight` 避免分类按钮被遮挡。
+
+---
+
+## 快速检索表
+
+| 关键词 | 对应问题 |
+|--------|---------|
+| 端口、8000、10013 | #1 端口冲突 |
+| 404、fetch-categories | #2 404 + #3 父分类 |
+| 分类、0 条、total:0 | #3 父分类陷阱 |
+| 中文、电影、t= | #4 360zy 中文名 |
+| 代码改了没效果 | #6 进程未重启 |
+| 动作片、返回不对 | #7 用错参数 |
+| curl、JSON、解析 | #8 curl JSON |
+| git、not a repo | #9 git init 位置 |
+| 展开、第二行 | #10 按钮位置 |
