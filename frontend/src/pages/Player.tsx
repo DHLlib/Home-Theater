@@ -24,7 +24,8 @@ export default function Player() {
   } | null>(null);
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const keyDownTime = useRef<Record<string, number>>({});
-  const longPressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const repeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -137,29 +138,47 @@ export default function Player() {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
 
+      const key = e.key;
       const now = Date.now();
-      if (keyDownTime.current[e.key]) return;
-      keyDownTime.current[e.key] = now;
+      if (keyDownTime.current[key]) return;
+      keyDownTime.current[key] = now;
 
-      const delta = e.key === "ArrowLeft" ? -SHORT_JUMP : SHORT_JUMP;
-      seek(delta);
-
-      longPressTimer.current = setInterval(() => {
-        const elapsed = Date.now() - (keyDownTime.current[e.key] || now);
-        if (elapsed >= LONG_PRESS_THRESHOLD) {
-          const continuousDelta =
-            e.key === "ArrowLeft" ? -CONTINUOUS_JUMP : CONTINUOUS_JUMP;
+      // 2s 后进入连续控制模式（不再执行初始 15s）
+      longPressTimer.current = setTimeout(() => {
+        const continuousDelta =
+          key === "ArrowLeft" ? -CONTINUOUS_JUMP : CONTINUOUS_JUMP;
+        repeatInterval.current = setInterval(() => {
           seek(continuousDelta);
-        }
-      }, CONTINUOUS_INTERVAL);
+        }, CONTINUOUS_INTERVAL);
+      }, LONG_PRESS_THRESHOLD);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+
+      const downAt = keyDownTime.current[e.key];
       delete keyDownTime.current[e.key];
+
+      // 清除 2s 定时器
       if (longPressTimer.current) {
-        clearInterval(longPressTimer.current);
+        clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
+      }
+
+      // 若连续模式已启动，只停止 interval（不执行初始 15s）
+      if (repeatInterval.current) {
+        clearInterval(repeatInterval.current);
+        repeatInterval.current = null;
+        return;
+      }
+
+      // 短按（< 2s）执行一次 15s 跳转
+      if (downAt) {
+        const held = Date.now() - downAt;
+        if (held < LONG_PRESS_THRESHOLD) {
+          const delta = e.key === "ArrowLeft" ? -SHORT_JUMP : SHORT_JUMP;
+          seek(delta);
+        }
       }
     };
 
@@ -170,7 +189,8 @@ export default function Player() {
     return () => {
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
-      if (longPressTimer.current) clearInterval(longPressTimer.current);
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      if (repeatInterval.current) clearInterval(repeatInterval.current);
     };
   }, []);
 

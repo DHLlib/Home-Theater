@@ -64,7 +64,9 @@ export default function Detail() {
       navigate(
         `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
           source.original_id
-        )}&ep=0`
+        )}&ep=0&title=${encodeURIComponent(item.title)}&year=${
+          item.year ?? ""
+        }`
       );
     } else if (pickerAction === "download" && d.episodes.length > 0) {
       const ep = d.episodes[0];
@@ -130,7 +132,9 @@ export default function Detail() {
               navigate(
                 `/player?site_id=${s.site_id}&original_id=${encodeURIComponent(
                   s.original_id
-                )}&ep=${idx}`
+                )}&ep=${idx}&title=${encodeURIComponent(item.title)}&year=${
+                  item.year ?? ""
+                }`
               );
             }}
           />

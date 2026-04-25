@@ -28,6 +28,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [buffering, setBuffering] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const onErrorRef = useRef(onError);
+    const onReadyRef = useRef(onReady);
+    const onEndedRef = useRef(onEnded);
+    onErrorRef.current = onError;
+    onReadyRef.current = onReady;
+    onEndedRef.current = onEnded;
+
     useImperativeHandle(ref, () => ({
       seekTo: (seconds: number) => {
         const video = playerRef.current?.video;
@@ -69,17 +76,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const handleWaiting = () => setBuffering(true);
         const handlePlaying = () => {
           setBuffering(false);
-          onReady?.();
+          onReadyRef.current?.();
         };
         const handleCanPlay = () => setBuffering(false);
         const handleError = () => {
           const msg = "视频加载失败";
           setError(msg);
-          onError?.(msg);
+          onErrorRef.current?.(msg);
           setBuffering(false);
         };
         const handleStalled = () => setBuffering(true);
-        const handleEnded = () => onEnded?.();
+        const handleEnded = () => onEndedRef.current?.();
 
         video.addEventListener("waiting", handleWaiting);
         video.addEventListener("playing", handlePlaying);
@@ -101,10 +108,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         const msg = err instanceof Error ? err.message : "播放器初始化异常";
         setError(msg);
-        onError?.(msg);
+        onErrorRef.current?.(msg);
         setBuffering(false);
       }
-    }, [src, autoplay, onError, onReady, onEnded]);
+    }, [src, autoplay]);
 
     return (
       <div
