@@ -1,0 +1,2 @@
+# 用户手工把 ckplayer 资源（ckplayer.js / swf / 图片）放进本目录。
+# Player.tsx 暂时以原生 <video> 兜底；接入 ckplayer 时再切换。
