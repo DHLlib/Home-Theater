@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,10 +76,28 @@ async def resume_download(task_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{task_id}")
-async def delete_download(task_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_download(
+    task_id: int,
+    delete_file: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
     task = await db.get(DownloadTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    file_deleted = False
+    file_error = None
+    if delete_file and task.file_path:
+        try:
+            os.remove(task.file_path)
+            file_deleted = True
+        except FileNotFoundError:
+            file_error = "源文件已被删除或不存在"
+        except PermissionError:
+            file_error = "无权限删除源文件，请检查文件权限"
+        except Exception as exc:
+            file_error = f"删除源文件失败: {exc}"
+
     await db.delete(task)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "file_deleted": file_deleted, "file_error": file_error}
