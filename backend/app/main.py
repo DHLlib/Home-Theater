@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -6,12 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
+from app.services.downloader import download_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    worker_task = asyncio.create_task(download_worker())
     yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Home Theater", lifespan=lifespan)
