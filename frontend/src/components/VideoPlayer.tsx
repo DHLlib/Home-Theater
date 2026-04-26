@@ -49,14 +49,29 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     useEffect(() => {
       const container = containerRef.current;
-      if (!container || !src) return;
+      if (!container || !src) {
+        console.log("[VideoPlayer] skip init: no container or no src");
+        return;
+      }
 
+      console.log("[VideoPlayer] init start", { src, suffix, autoplay });
       setError(null);
       setBuffering(true);
 
       try {
         const isM3u8 =
           suffix === "m3u8" || suffix === "ckplayer" || suffix === "ffm3u8";
+        const isDirectVideo =
+          isM3u8 || suffix === "mp4" || suffix === "webm" || suffix === "";
+
+        if (!isDirectVideo) {
+          console.log("[VideoPlayer] unsupported suffix:", suffix);
+          const msg = `暂不支持播放该格式 (${suffix})`;
+          setError(msg);
+          onErrorRef.current?.(msg);
+          setBuffering(false);
+          return;
+        }
 
         const player = new CKPlayer({
           container,
@@ -64,8 +79,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           autoplay,
         });
         playerRef.current = player;
+        console.log("[VideoPlayer] ckplayer created");
 
         const video = container.querySelector("video") as HTMLVideoElement | null;
+        console.log("[VideoPlayer] video element:", video ? "found" : "NOT FOUND");
         if (!video) {
           setError("播放器初始化失败");
           onErrorRef.current?.("播放器初始化失败");
@@ -75,59 +92,108 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           return;
         }
 
-        if (isM3u8 && Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (isM3u8) {
+          if (Hls.isSupported()) {
+            console.log("[VideoPlayer] Hls.js supported, attaching...");
+            const hls = new Hls({ debug: false });
+            hlsRef.current = hls;
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+              console.log("[VideoPlayer] HLS manifest parsed, levels:", data.levels.length);
+              video.play().catch((e) => {
+                console.log("[VideoPlayer] autoplay blocked:", e.message);
+              });
+            });
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              console.log("[VideoPlayer] HLS error:", data.type, data.details, "fatal:", data.fatal);
+              if (data.fatal) {
+                const msg = "视频加载失败 (HLS)";
+                setError(msg);
+                onErrorRef.current?.(msg);
+                setBuffering(false);
+              }
+            });
+          } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            console.log("[VideoPlayer] native HLS support detected");
+            video.src = src;
             video.play().catch(() => {});
-          });
-          hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              const msg = "视频加载失败 (HLS)";
-              setError(msg);
-              onErrorRef.current?.(msg);
-              setBuffering(false);
-            }
-          });
+          } else {
+            console.log("[VideoPlayer] HLS not supported");
+            const msg = "当前浏览器不支持播放该视频格式";
+            setError(msg);
+            onErrorRef.current?.(msg);
+            setBuffering(false);
+          }
         }
 
-        const handleWaiting = () => setBuffering(true);
+        const handleWaiting = () => {
+          console.log("[VideoPlayer] event: waiting");
+          setBuffering(true);
+        };
         const handlePlaying = () => {
+          console.log("[VideoPlayer] event: playing");
           setBuffering(false);
           onReadyRef.current?.();
         };
-        const handleCanPlay = () => setBuffering(false);
+        const handleCanPlay = () => {
+          console.log("[VideoPlayer] event: canplay");
+          setBuffering(false);
+        };
+        const handleLoadStart = () => {
+          console.log("[VideoPlayer] event: loadstart");
+        };
+        const handleLoadedMetadata = () => {
+          console.log("[VideoPlayer] event: loadedmetadata, duration:", video.duration);
+        };
         const handleError = () => {
+          const ve = video.error;
+          console.log("[VideoPlayer] event: error, code:", ve?.code, "message:", ve?.message);
           const msg = "视频加载失败";
           setError(msg);
           onErrorRef.current?.(msg);
           setBuffering(false);
         };
-        const handleStalled = () => setBuffering(true);
-        const handleEnded = () => onEndedRef.current?.();
+        const handleStalled = () => {
+          console.log("[VideoPlayer] event: stalled");
+          setBuffering(true);
+        };
+        const handleEnded = () => {
+          console.log("[VideoPlayer] event: ended");
+          onEndedRef.current?.();
+        };
+        const handleTimeUpdate = () => {
+          // 只在开发环境偶尔输出，避免刷屏
+        };
 
         video.addEventListener("waiting", handleWaiting);
         video.addEventListener("playing", handlePlaying);
         video.addEventListener("canplay", handleCanPlay);
+        video.addEventListener("loadstart", handleLoadStart);
+        video.addEventListener("loadedmetadata", handleLoadedMetadata);
         video.addEventListener("error", handleError);
         video.addEventListener("stalled", handleStalled);
         video.addEventListener("ended", handleEnded);
+        video.addEventListener("timeupdate", handleTimeUpdate);
 
         return () => {
+          console.log("[VideoPlayer] cleanup");
           video.removeEventListener("waiting", handleWaiting);
           video.removeEventListener("playing", handlePlaying);
           video.removeEventListener("canplay", handleCanPlay);
+          video.removeEventListener("loadstart", handleLoadStart);
+          video.removeEventListener("loadedmetadata", handleLoadedMetadata);
           video.removeEventListener("error", handleError);
           video.removeEventListener("stalled", handleStalled);
           video.removeEventListener("ended", handleEnded);
+          video.removeEventListener("timeupdate", handleTimeUpdate);
           hlsRef.current?.destroy();
           hlsRef.current = null;
           player.remove();
           playerRef.current = null;
         };
       } catch (err) {
+        console.error("[VideoPlayer] init error:", err);
         const msg = err instanceof Error ? err.message : "播放器初始化异常";
         setError(msg);
         onErrorRef.current?.(msg);
@@ -160,6 +226,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               justifyContent: "center",
               color: "var(--danger)",
               fontSize: 14,
+              padding: 16,
+              textAlign: "center",
             }}
           >
             {error}

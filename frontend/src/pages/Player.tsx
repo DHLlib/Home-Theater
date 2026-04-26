@@ -265,6 +265,7 @@ export default function Player() {
               onClick={() => setCurrentIndex(ep.index)}
             >
               {ep.ep_name}
+              {ep.suffix ? ` (${ep.suffix})` : ""}
             </button>
           ))}
         </div>
