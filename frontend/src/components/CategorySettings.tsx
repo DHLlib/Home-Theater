@@ -14,6 +14,75 @@ interface CategorySettingsProps {
   sites: Site[];
 }
 
+/** 系统分类清单（扁平叶子节点） */
+const DEFAULT_SYSTEM_CATEGORIES = [
+  "动作片",
+  "科幻片",
+  "喜剧片",
+  "爱情片",
+  "剧情片",
+  "战争片",
+  "恐怖片",
+  "伦理片",
+  "纪录片",
+  "动画片",
+  "短片",
+  "国产剧",
+  "香港剧",
+  "韩国剧",
+  "欧美剧",
+  "台湾剧",
+  "日本剧",
+  "泰国剧",
+  "海外剧",
+  "大陆综艺",
+  "港台综艺",
+  "日韩综艺",
+  "欧美综艺",
+  "国产动漫",
+  "日韩动漫",
+  "欧美动漫",
+  "港台动漫",
+  "海外动漫",
+  "体育",
+  "短剧",
+  "其他",
+];
+
+/** 自动匹配关键词：系统分类 -> 关键词列表（按优先级） */
+const MATCH_RULES: Record<string, string[]> = {
+  动作片: ["动作片", "动作"],
+  科幻片: ["科幻片", "科幻"],
+  喜剧片: ["喜剧片", "喜剧"],
+  爱情片: ["爱情片", "爱情"],
+  剧情片: ["剧情片", "剧情"],
+  战争片: ["战争片", "战争"],
+  恐怖片: ["恐怖片", "惊悚片", "灾难片", "恐怖", "惊悚", "灾难"],
+  伦理片: ["伦理片", "伦理"],
+  纪录片: ["纪录片", "纪录"],
+  动画片: ["动画片", "动画"],
+  短片: ["短片"],
+  国产剧: ["国产剧", "国产电视", "国产连续"],
+  香港剧: ["香港剧", "港台剧"],
+  韩国剧: ["韩国剧", "韩剧"],
+  欧美剧: ["欧美剧", "美国剧"],
+  台湾剧: ["台湾剧", "台剧"],
+  日本剧: ["日本剧", "日剧"],
+  泰国剧: ["泰国剧", "泰剧"],
+  海外剧: ["海外剧"],
+  大陆综艺: ["大陆综艺", "内地综艺", "国产综艺"],
+  港台综艺: ["港台综艺", "香港综艺", "台湾综艺"],
+  日韩综艺: ["日韩综艺", "韩国综艺", "日本综艺"],
+  欧美综艺: ["欧美综艺"],
+  国产动漫: ["国产动漫", "国产动画"],
+  日韩动漫: ["日韩动漫", "日本动漫", "韩国动漫"],
+  欧美动漫: ["欧美动漫"],
+  港台动漫: ["港台动漫"],
+  海外动漫: ["海外动漫"],
+  体育: ["足球", "篮球", "NBA", "体育"],
+  短剧: ["短剧"],
+};
+
 /** 计算占用关系：site_id -> remote_id -> rowIdx */
 function buildOccupancy(
   rows: CategoryRow[]
@@ -121,6 +190,81 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
     });
   };
 
+  /** 加载默认系统分类（不覆盖已有行） */
+  const loadDefaults = () => {
+    setRows((prev) => {
+      const existing = new Set(prev.map((r) => r.system_name));
+      const toAdd = DEFAULT_SYSTEM_CATEGORIES.filter((c) => !existing.has(c));
+      if (toAdd.length === 0) return prev;
+      return [...prev, ...toAdd.map((c) => ({ system_name: c, mappings: {} }))];
+    });
+  };
+
+  /** 根据远程分类名称自动匹配到系统分类 */
+  const autoMatch = () => {
+    setRows((prevRows) => {
+      // 1. 确保默认分类已加载
+      const existing = new Set(prevRows.map((r) => r.system_name));
+      const missing = DEFAULT_SYSTEM_CATEGORIES.filter((c) => !existing.has(c));
+      let newRows: CategoryRow[] = [
+        ...prevRows,
+        ...missing.map((c) => ({ system_name: c, mappings: {} })),
+      ];
+
+      // 2. 深拷贝
+      newRows = newRows.map((r) => ({ ...r, mappings: { ...r.mappings } }));
+
+      // 3. 计算当前 occupancy
+      const occ: Record<number, Record<string, number>> = {};
+      for (let i = 0; i < newRows.length; i++) {
+        for (const [sid, rids] of Object.entries(newRows[i].mappings)) {
+          const siteId = Number(sid);
+          if (!occ[siteId]) occ[siteId] = {};
+          for (const rid of rids) occ[siteId][rid] = i;
+        }
+      }
+
+      // 4. 遍历每个站点的远程分类，尝试匹配
+      for (const site of sites) {
+        const cats = remoteCats[site.id] || [];
+        for (const cat of cats) {
+          // 已占用则跳过
+          if (occ[site.id]?.[cat.remote_id] !== undefined) continue;
+
+          // 找最佳匹配（最长关键词优先）
+          let bestMatchIdx = -1;
+          let bestScore = 0;
+
+          for (let i = 0; i < newRows.length; i++) {
+            const rules = MATCH_RULES[newRows[i].system_name];
+            if (!rules) continue;
+            for (const keyword of rules) {
+              if (cat.name.includes(keyword) && keyword.length > bestScore) {
+                bestScore = keyword.length;
+                bestMatchIdx = i;
+              }
+            }
+          }
+
+          if (bestMatchIdx >= 0) {
+            const current = newRows[bestMatchIdx].mappings[site.id] || [];
+            newRows[bestMatchIdx] = {
+              ...newRows[bestMatchIdx],
+              mappings: {
+                ...newRows[bestMatchIdx].mappings,
+                [site.id]: [...current, cat.remote_id],
+              },
+            };
+            if (!occ[site.id]) occ[site.id] = {};
+            occ[site.id][cat.remote_id] = bestMatchIdx;
+          }
+        }
+      }
+
+      return newRows;
+    });
+  };
+
   const save = async () => {
     setLoading(true);
     try {
@@ -146,9 +290,15 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <button className="btn" onClick={loadAllRemote}>
           重新拉取各站分类
+        </button>
+        <button className="btn" onClick={loadDefaults}>
+          加载默认分类
+        </button>
+        <button className="btn" onClick={autoMatch}>
+          自动匹配
         </button>
         <button className="btn btn-primary" onClick={save} disabled={loading}>
           {loading ? "保存中…" : "保存映射"}
@@ -164,13 +314,18 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
           }}
         >
           <thead>
-            <tr>
+            <tr style={{ background: "var(--muted)" }}>
               <th
                 style={{
                   textAlign: "left",
-                  padding: 8,
+                  padding: "10px 12px",
                   borderBottom: "1px solid var(--border)",
                   minWidth: 120,
+                  fontWeight: 700,
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "var(--text-secondary)",
                 }}
               >
                 系统分类
@@ -180,12 +335,17 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                   key={s.id}
                   style={{
                     textAlign: "left",
-                    padding: 8,
+                    padding: "10px 12px",
                     borderBottom: "1px solid var(--border)",
                     minWidth: 160,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    color: "var(--text-secondary)",
                   }}
                 >
-                  {s.name} 映射
+                  {s.name}
                 </th>
               ))}
               <th
@@ -198,20 +358,40 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx}>
-                <td style={{ padding: 6, borderBottom: "1px solid var(--border)", verticalAlign: "top" }}>
+              <tr
+                key={idx}
+                style={{
+                  transition: "background-color 150ms ease",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = "var(--card-hover)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = "transparent")
+                }
+              >
+                <td
+                  style={{
+                    padding: "10px 12px",
+                    borderBottom: "1px solid var(--border)",
+                    verticalAlign: "top",
+                  }}
+                >
                   <input
                     type="text"
                     value={row.system_name}
                     onChange={(e) => updateRowName(idx, e.target.value)}
-                    placeholder="如：电影"
+                    placeholder="如：动作片"
                     style={{
                       width: "100%",
-                      padding: "6px 8px",
-                      borderRadius: 4,
+                      padding: "8px 10px",
+                      borderRadius: 6,
                       border: "1px solid var(--border)",
                       background: "var(--bg)",
                       color: "var(--fg)",
+                      fontSize: 13,
+                      fontFamily: "inherit",
+                      minHeight: 36,
                     }}
                   />
                 </td>
@@ -221,7 +401,7 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                     <td
                       key={s.id}
                       style={{
-                        padding: 6,
+                        padding: "10px 12px",
                         borderBottom: "1px solid var(--border)",
                         verticalAlign: "top",
                       }}
@@ -230,10 +410,10 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          gap: 4,
-                          maxHeight: 180,
+                          gap: 2,
+                          maxHeight: 220,
                           overflowY: "auto",
-                          padding: "4px 0",
+                          padding: "2px 0",
                         }}
                       >
                         {(remoteCats[s.id] || []).map((c) => {
@@ -251,12 +431,16 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                   fontSize: 12,
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 4,
-                                  padding: "2px 4px",
+                                  gap: 6,
+                                  padding: "6px 8px",
                                   opacity: 0.35,
                                   cursor: "not-allowed",
+                                  borderRadius: 6,
+                                  minHeight: 32,
                                 }}
-                                title={`已被「${occupant?.system_name || "未命名"}」占用`}
+                                title={`已被「${
+                                  occupant?.system_name || "未命名"
+                                }」占用`}
                               >
                                 <input
                                   type="checkbox"
@@ -264,17 +448,25 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                   disabled
                                   style={{ cursor: "not-allowed" }}
                                 />
-                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <span
+                                  style={{
+                                    flex: 1,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
                                   {c.name} ({c.remote_id})
                                 </span>
                                 <button
                                   className="btn"
                                   style={{
-                                    padding: "1px 6px",
-                                    fontSize: 11,
+                                    padding: "4px 8px",
+                                    fontSize: 13,
                                     lineHeight: 1,
                                     opacity: 1,
                                     cursor: "pointer",
+                                    minHeight: 28,
                                   }}
                                   onClick={() =>
                                     releaseRemoteId(
@@ -283,7 +475,9 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                       c.remote_id
                                     )
                                   }
-                                  title={`从「${occupant?.system_name || "未命名"}」中释放`}
+                                  title={`从「${
+                                    occupant?.system_name || "未命名"
+                                  }」中释放`}
                                 >
                                   ×
                                 </button>
@@ -299,16 +493,31 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                 fontSize: 12,
                                 display: "flex",
                                 alignItems: "center",
-                                gap: 4,
+                                gap: 6,
                                 cursor: "pointer",
-                                padding: "2px 4px",
-                                borderRadius: 4,
+                                padding: "6px 8px",
+                                borderRadius: 6,
                                 background: selected
-                                  ? "rgba(10,132,255,0.12)"
+                                  ? "rgba(225,29,72,0.12)"
                                   : "transparent",
                                 border: selected
                                   ? "1px solid var(--accent)"
                                   : "1px solid transparent",
+                                minHeight: 32,
+                                transition:
+                                  "background-color 150ms ease, border-color 150ms ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!selected) {
+                                  e.currentTarget.style.backgroundColor =
+                                    "var(--card-hover)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!selected) {
+                                  e.currentTarget.style.backgroundColor =
+                                    "transparent";
+                                }
                               }}
                             >
                               <input
@@ -318,7 +527,9 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                   const current = row.mappings[s.id] || [];
                                   const next = e.target.checked
                                     ? [...current, c.remote_id]
-                                    : current.filter((id) => id !== c.remote_id);
+                                    : current.filter(
+                                        (id) => id !== c.remote_id
+                                      );
                                   updateRowMapping(idx, s.id, next);
                                 }}
                               />
@@ -332,12 +543,16 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                 })}
                 <td
                   style={{
-                    padding: 6,
+                    padding: "10px 12px",
                     borderBottom: "1px solid var(--border)",
                     verticalAlign: "top",
                   }}
                 >
-                  <button className="btn" onClick={() => removeRow(idx)}>
+                  <button
+                    className="btn"
+                    onClick={() => removeRow(idx)}
+                    style={{ minHeight: 36, padding: "8px 12px" }}
+                  >
                     删除
                   </button>
                 </td>

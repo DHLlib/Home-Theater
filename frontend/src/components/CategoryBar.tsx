@@ -7,6 +7,42 @@ interface CategoryBarProps {
   onSelect: (category: string | null) => void;
 }
 
+function ChevronUpIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 export default function CategoryBar({
   sites,
   activeCategory,
@@ -35,7 +71,8 @@ export default function CategoryBar({
   if (categories.length === 0) return null;
 
   return (
-    <div style={{ position: "relative", marginBottom: 16 }}>
+    <div className="row" style={{ gap: 8, marginBottom: 16, alignItems: "flex-start" }}>
+      {/* 分类列表 */}
       <div
         ref={containerRef}
         className="row"
@@ -43,15 +80,16 @@ export default function CategoryBar({
           gap: 8,
           flexWrap: "wrap",
           overflow: "hidden",
-          maxHeight: expanded ? undefined : 40,
-          paddingRight: overflow && !expanded ? 76 : undefined,
+          maxHeight: expanded ? undefined : 44,
+          flex: 1,
         }}
       >
         <button
           className="btn"
           style={{
             background: activeCategory === null ? "var(--primary)" : undefined,
-            color: activeCategory === null ? "#fff" : undefined,
+            color: activeCategory === null ? "var(--primary-fg)" : undefined,
+            borderColor: activeCategory === null ? "var(--primary)" : undefined,
           }}
           onClick={() => onSelect(null)}
         >
@@ -63,7 +101,8 @@ export default function CategoryBar({
             className="btn"
             style={{
               background: activeCategory === name ? "var(--primary)" : undefined,
-              color: activeCategory === name ? "#fff" : undefined,
+              color: activeCategory === name ? "var(--primary-fg)" : undefined,
+              borderColor: activeCategory === name ? "var(--primary)" : undefined,
             }}
             onClick={() => onSelect(name)}
           >
@@ -71,20 +110,24 @@ export default function CategoryBar({
           </button>
         ))}
       </div>
+
+      {/* 更多/收起按钮 — 紧跟列表右侧 */}
       {overflow && (
         <button
           className="btn"
           onClick={() => setExpanded(!expanded)}
           style={{
-            position: "absolute",
-            right: 0,
-            top: 3,
             fontSize: 12,
             padding: "4px 10px",
-            lineHeight: 1,
+            minHeight: 32,
+            flexShrink: 0,
           }}
+          aria-label={expanded ? "收起分类" : "展开更多分类"}
         >
-          {expanded ? "⬆️ 收起" : "⬇️ 更多"}
+          <span className="row" style={{ gap: 4 }}>
+            {expanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+            {expanded ? "收起" : "更多"}
+          </span>
         </button>
       )}
     </div>

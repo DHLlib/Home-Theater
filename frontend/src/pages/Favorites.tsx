@@ -68,6 +68,7 @@ export default function Favorites() {
                 padding: "4px 8px",
                 fontSize: 12,
               }}
+              aria-label={`取消收藏 ${f.title}`}
               onClick={(e) => {
                 e.stopPropagation();
                 removeFavorite(f.id).then(() =>

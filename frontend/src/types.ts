@@ -7,6 +7,7 @@ export interface Episode {
 
 export interface SourceRef {
   site_id: number;
+  site_name?: string | null;
   original_id: string;
   type?: string;
   category?: string;
@@ -28,6 +29,7 @@ export interface AggregatedListResponse {
 
 export interface SourceDetail {
   site_id: number;
+  site_name?: string | null;
   original_id: string;
   title: string;
   year?: number | null;
@@ -74,6 +76,8 @@ export interface DownloadTask {
   file_path: string;
   total_bytes?: number | null;
   downloaded_bytes: number;
+  total_segments?: number | null;
+  downloaded_segments: number;
   status: string;
   error?: string | null;
   created_at?: string | null;

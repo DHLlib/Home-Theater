@@ -18,6 +18,7 @@ class Site(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     categories: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+    auto_disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -68,6 +69,8 @@ class DownloadTask(Base):
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     total_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     downloaded_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_segments: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    downloaded_segments: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(
         String, default="queued", nullable=False, index=True
     )

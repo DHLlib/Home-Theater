@@ -70,10 +70,13 @@ export default function Downloads() {
     <div className="col">
       <h2>下载任务</h2>
       {tasks.map((t) => {
-        const progress =
-          t.total_bytes && t.total_bytes > 0
-            ? Math.round((t.downloaded_bytes / t.total_bytes) * 100)
-            : 0;
+        const totalSegments = t.total_segments ?? 0;
+        const hasSegmentProgress = totalSegments > 0;
+        const progress = hasSegmentProgress
+          ? Math.round((t.downloaded_segments / totalSegments) * 100)
+          : t.total_bytes && t.total_bytes > 0
+          ? Math.round((t.downloaded_bytes / t.total_bytes) * 100)
+          : 0;
         const errorInfo = parseErrorType(t.error);
         const showProgress =
           t.status === "downloading" ||
@@ -101,15 +104,18 @@ export default function Downloads() {
                     {statusText[t.status] || t.status}
                   </span>
                   {" · "}
-                  {formatBytes(t.downloaded_bytes)} /{" "}
-                  {t.total_bytes != null ? formatBytes(t.total_bytes) : "-"}
+                  {hasSegmentProgress
+                    ? `${t.downloaded_segments} / ${t.total_segments} 片段`
+                    : `${formatBytes(t.downloaded_bytes)} / ${
+                        t.total_bytes != null ? formatBytes(t.total_bytes) : "-"
+                      }`}
                 </div>
                 {showProgress && (
                   <div style={{ marginTop: 6 }}>
                     <div
                       style={{
                         height: 6,
-                        background: "var(--bg)",
+                        background: "var(--border)",
                         borderRadius: 3,
                         overflow: "hidden",
                       }}
@@ -163,6 +169,7 @@ export default function Downloads() {
                 {t.status === "downloading" && (
                   <button
                     className="btn"
+                    aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
                     onClick={() => pauseDownload(t.id).then(refresh)}
                   >
                     暂停
@@ -171,6 +178,7 @@ export default function Downloads() {
                 {t.status === "paused" && (
                   <button
                     className="btn"
+                    aria-label={`继续下载 ${t.title} ${t.episode_name}`}
                     onClick={() => resumeDownload(t.id).then(refresh)}
                   >
                     继续
@@ -179,6 +187,7 @@ export default function Downloads() {
                 {t.status === "error" && errorInfo.retryable && (
                   <button
                     className="btn"
+                    aria-label={`重试下载 ${t.title} ${t.episode_name}`}
                     onClick={() => resumeDownload(t.id).then(refresh)}
                   >
                     重试
@@ -186,6 +195,7 @@ export default function Downloads() {
                 )}
                 <button
                   className="btn"
+                  aria-label={`删除下载任务 ${t.title} ${t.episode_name}`}
                   onClick={() => {
                     setConfirmingId(t.id);
                     setDeleteFileMap((prev) => ({ ...prev, [t.id]: false }));

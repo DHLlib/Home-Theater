@@ -33,10 +33,10 @@ def _resolve_remote_categories(site: Site, category: str | None) -> list[str | i
     return results
 
 
-async def _fetch_site(site: Site, t=None, pg=None, h=None, wd=None):
+async def _fetch_site(site: Site, t=None, pg=None, h=None, wd=None, by=None):
     client = SourceClient(site_id=site.id, base_url=site.base_url, name=site.name)
     try:
-        items = await client.list(t=t, pg=pg, h=h, wd=wd)
+        items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
         return items, None
     except Exception as exc:
         return None, FailedSource(
@@ -51,7 +51,9 @@ async def list_videos(
     t: int | str | None = None,
     pg: int | None = 1,
     h: int | None = None,
+    by: str | None = None,
     category: str | None = None,
+    mode: str = "aggregated",
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -66,9 +68,9 @@ async def list_videos(
             if not remote_cats:
                 continue
             for remote_cat in remote_cats:
-                tasks.append(_fetch_site(site, t=remote_cat, pg=pg, h=h))
+                tasks.append(_fetch_site(site, t=remote_cat, pg=pg, h=h, by=by))
         else:
-            tasks.append(_fetch_site(site, t=t, pg=pg, h=h))
+            tasks.append(_fetch_site(site, t=t, pg=pg, h=h, by=by))
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -86,6 +88,28 @@ async def list_videos(
     if not per_source and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
 
+    if mode == "source":
+        raw_items = []
+        for source_items in per_source:
+            for item in source_items:
+                raw_items.append({
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "poster_url": item.get("poster_url"),
+                    "sources": [{
+                        "site_id": item.get("site_id"),
+                        "original_id": item.get("original_id"),
+                        "type": item.get("type"),
+                        "category": item.get("category"),
+                        "remarks": item.get("remarks"),
+                        "updated_at": item.get("updated_at"),
+                    }],
+                })
+        return AggregatedListResponse(
+            items=[AggregatedVideo(**item) for item in raw_items],
+            failed_sources=failed_sources,
+        )
+
     aggregated = aggregate_lists(per_source)
     return AggregatedListResponse(
         items=[AggregatedVideo(**item) for item in aggregated],
@@ -98,6 +122,7 @@ async def search_videos(
     wd: str,
     pg: int | None = 1,
     category: str | None = None,
+    mode: str = "aggregated",
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -131,6 +156,28 @@ async def search_videos(
 
     if not per_source and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
+
+    if mode == "source":
+        raw_items = []
+        for source_items in per_source:
+            for item in source_items:
+                raw_items.append({
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "poster_url": item.get("poster_url"),
+                    "sources": [{
+                        "site_id": item.get("site_id"),
+                        "original_id": item.get("original_id"),
+                        "type": item.get("type"),
+                        "category": item.get("category"),
+                        "remarks": item.get("remarks"),
+                        "updated_at": item.get("updated_at"),
+                    }],
+                })
+        return AggregatedListResponse(
+            items=[AggregatedVideo(**item) for item in raw_items],
+            failed_sources=failed_sources,
+        )
 
     aggregated = aggregate_lists(per_source)
     return AggregatedListResponse(
@@ -179,6 +226,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                     )
             return {
                 "site_id": site.id,
+                "site_name": site.name,
                 "original_id": source_ref.original_id,
                 "title": item.get("title", ""),
                 "year": item.get("year"),

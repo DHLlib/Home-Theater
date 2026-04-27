@@ -12,6 +12,7 @@ class Episode(BaseModel):
 
 class SourceRef(BaseModel):
     site_id: int
+    site_name: str | None = None
     original_id: str
     type: str | None = None
     category: str | None = None
@@ -33,6 +34,7 @@ class AggregatedListResponse(BaseModel):
 
 class SourceDetail(BaseModel):
     site_id: int
+    site_name: str | None = None
     original_id: str
     title: str
     year: int | None = None
@@ -79,6 +81,8 @@ class DownloadTaskOut(BaseModel):
     file_path: str
     total_bytes: int | None
     downloaded_bytes: int
+    total_segments: int | None
+    downloaded_segments: int
     status: str
     error: str | None
     created_at: str | None = None

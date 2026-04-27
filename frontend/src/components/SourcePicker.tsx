@@ -94,7 +94,7 @@ export default function SourcePicker(props: SourcePickerProps) {
                   }}
                 >
                   <div style={{ fontWeight: 500 }}>
-                    站点 #{s.site_id} · 原始 ID {s.original_id}
+                    {s.site_name || `站点 #${s.site_id}`} · 原始 ID {s.original_id}
                   </div>
                   {formatSubtitle && (
                     <div

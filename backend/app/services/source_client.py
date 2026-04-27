@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncio
+
 import httpx
 
 
@@ -36,6 +38,7 @@ class SourceClient:
         pg: int | None = None,
         wd: str | None = None,
         h: int | None = None,
+        by: str | None = None,
         ids: list[str | int] | None = None,
     ) -> dict[str, str]:
         params: dict[str, str] = {"ac": ac}
@@ -47,6 +50,8 @@ class SourceClient:
             params["wd"] = str(wd)
         if h is not None:
             params["h"] = str(h)
+        if by is not None:
+            params["by"] = by
         if ids:
             params["ids"] = ",".join(str(i) for i in ids)
         return params
@@ -57,18 +62,33 @@ class SourceClient:
             "Referer": self.base_url,
         }
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
-            resp = await client.get(self.base_url, params=params)
-        try:
-            data = resp.json()
-        except Exception as exc:
-            raise SourceProtocolError(
-                f"site={self.name} 返回非 JSON：{resp.text[:200]}"
-            ) from exc
-        if not isinstance(data, dict) or not isinstance(data.get("list"), list):
-            raise SourceProtocolError(
-                f"site={self.name} 返回缺少 'list' 列表字段"
-            )
-        return data
+            for attempt in range(3):
+                try:
+                    resp = await client.get(self.base_url, params=params)
+                    if resp.status_code >= 400:
+                        raise SourceProtocolError(
+                            f"site={self.name} HTTP {resp.status_code}"
+                        )
+                    try:
+                        data = resp.json()
+                    except Exception as exc:
+                        raise SourceProtocolError(
+                            f"site={self.name} 返回非 JSON：{resp.text[:200]}"
+                        ) from exc
+                    if not isinstance(data, dict) or not isinstance(data.get("list"), list):
+                        raise SourceProtocolError(
+                            f"site={self.name} 返回缺少 'list' 列表字段"
+                        )
+                    return data
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(1 * (2 ** attempt))
+                    else:
+                        raise SourceProtocolError(
+                            f"site={self.name} 请求重试后仍失败：{exc!s}"
+                        ) from exc
+                except SourceProtocolError:
+                    raise
 
     async def list(
         self,
@@ -77,8 +97,9 @@ class SourceClient:
         pg: int | None = None,
         wd: str | None = None,
         h: int | None = None,
+        by: str | None = None,
     ) -> list[dict[str, Any]]:
-        params = self._build_params("list", t=t, pg=pg, wd=wd, h=h)
+        params = self._build_params("list", t=t, pg=pg, wd=wd, h=h, by=by)
         data = await self._get(params)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:
@@ -103,6 +124,7 @@ class SourceClient:
     def _normalize_list_item(self, raw: dict[str, Any]) -> dict[str, Any]:
         return {
             "site_id": self.site_id,
+            "site_name": self.name,
             "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
             "title": raw.get("vod_name") or raw.get("name") or "",
             "year": _safe_int(raw.get("vod_year") or raw.get("year")),
@@ -119,6 +141,7 @@ class SourceClient:
         down_from = raw.get("vod_down_from") or ""
         return {
             "site_id": self.site_id,
+            "site_name": self.name,
             "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
             "title": raw.get("vod_name") or raw.get("name") or "",
             "year": _safe_int(raw.get("vod_year") or raw.get("year")),

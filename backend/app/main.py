@@ -7,17 +7,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
+from app.logging_config import setup_logging
 from app.services.downloader import download_worker
+from app.services.scheduler import init_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     await init_db()
     worker_task = asyncio.create_task(download_worker())
+    scheduler_task = await init_scheduler()
     yield
     worker_task.cancel()
+    scheduler_task.cancel()
     try:
         await worker_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await scheduler_task
     except asyncio.CancelledError:
         pass
 

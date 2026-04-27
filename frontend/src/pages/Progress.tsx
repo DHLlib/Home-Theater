@@ -19,6 +19,9 @@ export default function Progress() {
           <div
             key={p.id}
             className="row"
+            role="button"
+            tabIndex={0}
+            aria-label={`继续播放 ${p.title} ${p.episode_name}`}
             style={{
               padding: 10,
               background: "var(--card)",
@@ -32,6 +35,16 @@ export default function Progress() {
                 )}&ep=${p.episode_index}`
               )
             }
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                navigate(
+                  `/player?site_id=${p.source_site_id}&original_id=${encodeURIComponent(
+                    p.source_video_id
+                  )}&ep=${p.episode_index}`
+                );
+              }
+            }}
           >
             <div>
               <div style={{ fontWeight: 500 }}>{p.title}</div>

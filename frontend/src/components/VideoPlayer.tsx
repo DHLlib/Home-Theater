@@ -93,9 +93,33 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
 
         if (isM3u8) {
+          video.preload = "auto";
           if (Hls.isSupported()) {
             console.log("[VideoPlayer] Hls.js supported, attaching...");
-            const hls = new Hls({ debug: false });
+            const hls = new Hls({
+              debug: false,
+              autoStartLoad: true,
+              // 缓冲控制：限制单码率预加载长度，降低内存占用并减少卡住概率
+              maxBufferLength: 60,
+              maxMaxBufferLength: 120,
+              maxBufferSize: 60 * 1000 * 1000,
+              backBufferLength: 30,
+              maxBufferHole: 2.0,
+              highBufferWatchdogPeriod: 2,
+              nudgeOffset: 0.3,
+              nudgeMaxRetry: 10,
+              // 重试策略：源站偶尔超时或丢包时自动恢复
+              fragLoadingMaxRetry: 6,
+              fragLoadingRetryDelay: 500,
+              levelLoadingMaxRetry: 4,
+              levelLoadingRetryDelay: 500,
+              manifestLoadingMaxRetry: 4,
+              manifestLoadingRetryDelay: 500,
+              // manifest 解析后立即预取首片，缩短起播等待
+              startFragPrefetch: true,
+              // 在 Web Worker 中解析 TS，减少主线程卡顿
+              enableWorker: true,
+            });
             hlsRef.current = hls;
             hls.loadSource(src);
             hls.attachMedia(video);

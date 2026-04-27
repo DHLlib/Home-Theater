@@ -33,6 +33,7 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
             existing = bucket.get(key)
             source_ref = {
                 "site_id": item.get("site_id"),
+                "site_name": item.get("site_name"),
                 "original_id": item.get("original_id"),
             }
             extra_keys = ("type", "category", "remarks", "updated_at")

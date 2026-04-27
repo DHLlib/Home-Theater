@@ -8,5 +8,5 @@ export const getProgress = (title: string, year?: number | null) => {
   const qs = new URLSearchParams();
   qs.set("title", title);
   if (year != null) qs.set("year", String(year));
-  return get<PlayProgress>(`/api/progress?${qs}`);
+  return get<PlayProgress | null>(`/api/progress?${qs}`);
 };

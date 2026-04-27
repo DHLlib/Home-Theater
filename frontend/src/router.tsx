@@ -1,7 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
-import Search from "./pages/Search";
 import Detail from "./pages/Detail";
 import Player from "./pages/Player";
 import Downloads from "./pages/Downloads";
@@ -15,7 +14,6 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <Home /> },
-      { path: "search", element: <Search /> },
       { path: "detail", element: <Detail /> },
       { path: "player", element: <Player /> },
       { path: "downloads", element: <Downloads /> },
