@@ -124,3 +124,50 @@ export async function getCachedEpisodes<T>(site_id: number, original_id: string)
 export async function setCachedEpisodes<T>(site_id: number, original_id: string, value: T): Promise<void> {
   return set<T>("episodes", cacheEpisodesKey(site_id, original_id), value);
 }
+
+/* ===== 清理过期缓存 ===== */
+
+export async function clearExpiredCache(): Promise<number> {
+  let cleared = 0;
+  try {
+    const db = await openDb();
+    const stores = ["aggregated", "detail", "episodes"] as const;
+    for (const storeName of stores) {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      const ttl = TTL_MS[storeName] || 5 * 60 * 1000;
+      const now = Date.now();
+
+      const entries: [string, CacheEntry<unknown>][] = await new Promise(
+        (resolve, reject) => {
+          const req = store.openCursor();
+          const result: [string, CacheEntry<unknown>][] = [];
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              result.push([cursor.key as string, cursor.value as CacheEntry<unknown>]);
+              cursor.continue();
+            } else {
+              resolve(result);
+            }
+          };
+          req.onerror = () => reject(req.error);
+        }
+      );
+
+      for (const [key, entry] of entries) {
+        if (now - entry.ts > ttl) {
+          await new Promise<void>((resolve, reject) => {
+            const req = store.delete(key);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+          });
+          cleared++;
+        }
+      }
+    }
+  } catch {
+    // 静默失败
+  }
+  return cleared;
+}

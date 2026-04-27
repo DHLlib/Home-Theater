@@ -57,6 +57,20 @@ function PosterPlaceholder() {
   );
 }
 
+const globalObserverCallbacks = new Map<Element, () => void>();
+
+const globalPosterObserver = new IntersectionObserver(
+  (entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        const cb = globalObserverCallbacks.get(entry.target);
+        if (cb) cb();
+      }
+    });
+  },
+  { rootMargin: "200px" }
+);
+
 function VideoCard({
   item,
   width,
@@ -68,6 +82,40 @@ function VideoCard({
   const [loadingPoster, setLoadingPoster] = useState(false);
   const [imgError, setImgError] = useState(false);
   const fetchedRef = useRef(false);
+  const fetchPosterRef = useRef<(() => void) | null>(null);
+
+  fetchPosterRef.current = () => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    setLoadingPoster(true);
+    const first = item.sources[0];
+
+    const tryFetch = (attempt = 0) => {
+      getDetail({
+        title: item.title,
+        year: item.year,
+        sources: [first],
+      })
+        .then((res) => {
+          const found = res.sources.find(
+            (s) =>
+              s.site_id === first.site_id &&
+              s.original_id === first.original_id
+          );
+          if (found?.poster_url) {
+            setPoster(found.poster_url);
+          }
+        })
+        .catch(() => {
+          if (attempt < 1) {
+            setTimeout(() => tryFetch(attempt + 1), 2000);
+            return;
+          }
+        })
+        .finally(() => setLoadingPoster(false));
+    };
+    tryFetch();
+  };
 
   useEffect(() => {
     if (poster || !item.sources.length) return;
@@ -75,48 +123,14 @@ function VideoCard({
     const el = cardRef.current;
     if (!el) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !fetchedRef.current && !poster) {
-            fetchedRef.current = true;
-            setLoadingPoster(true);
-            const first = item.sources[0];
-
-            const tryFetch = (attempt = 0) => {
-              getDetail({
-                title: item.title,
-                year: item.year,
-                sources: [first],
-              })
-                .then((res) => {
-                  const found = res.sources.find(
-                    (s) =>
-                      s.site_id === first.site_id &&
-                      s.original_id === first.original_id
-                  );
-                  if (found?.poster_url) {
-                    setPoster(found.poster_url);
-                  }
-                })
-                .catch(() => {
-                  if (attempt < 1) {
-                    setTimeout(() => tryFetch(attempt + 1), 2000);
-                    return;
-                  }
-                })
-                .finally(() => setLoadingPoster(false));
-            };
-            tryFetch();
-          }
-        });
-      },
-      { rootMargin: "200px" }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [item.poster_url, item.sources, item.title, item.year, poster]);
+    const callback = () => fetchPosterRef.current?.();
+    globalObserverCallbacks.set(el, callback);
+    globalPosterObserver.observe(el);
+    return () => {
+      globalObserverCallbacks.delete(el);
+      globalPosterObserver.unobserve(el);
+    };
+  }, [poster, item.sources.length]);
 
   const displayPoster = poster && !imgError ? poster : null;
 

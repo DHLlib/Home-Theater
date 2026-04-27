@@ -34,12 +34,42 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
 
 const pendingDetails = new Map<string, Promise<DetailResponse>>();
 
+const MAX_CONCURRENT_DETAILS = 3;
+let activeDetailCount = 0;
+const detailQueue: Array<() => void> = [];
+
+function acquireDetailSlot(): Promise<void> {
+  if (activeDetailCount < MAX_CONCURRENT_DETAILS) {
+    activeDetailCount++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    detailQueue.push(resolve);
+  });
+}
+
+function releaseDetailSlot() {
+  activeDetailCount--;
+  const next = detailQueue.shift();
+  if (next) {
+    activeDetailCount++;
+    next();
+  }
+}
+
 export function getDetail(req: DetailRequest): Promise<DetailResponse> {
   const key = `${req.title}::${req.year ?? "null"}`;
   const existing = pendingDetails.get(key);
   if (existing) return existing;
 
-  const promise = post<DetailResponse>("/api/videos/detail", req).finally(() => {
+  const promise = (async () => {
+    await acquireDetailSlot();
+    try {
+      return await post<DetailResponse>("/api/videos/detail", req);
+    } finally {
+      releaseDetailSlot();
+    }
+  })().finally(() => {
     pendingDetails.delete(key);
   });
   pendingDetails.set(key, promise);
