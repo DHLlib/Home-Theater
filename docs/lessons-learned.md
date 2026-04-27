@@ -181,6 +181,131 @@ git init
 
 ---
 
+## 11. 数据库列缺失导致后端启动崩溃
+
+**症状**：`scheduler.py` 报错 `sqlite3.OperationalError: no such column: sites.auto_disabled_at`。
+
+**原因**：`models.py` 新增了 `auto_disabled_at` 列，但现有 SQLite 数据库文件没有该列。`_ensure_columns` 虽然会尝试补列，但某些场景下（如并发启动或字段类型不匹配）可能补列失败。
+
+**解决**：
+```bash
+# 1. 停止后端进程
+# 2. 删除旧数据库（数据会丢失，仅开发阶段适用）
+rm backend/data/app.db
+# 3. 重新启动后端，Base.metadata.create_all 会重建所有表
+```
+
+**教训**：开发阶段新增模型字段后，如果 `_ensure_columns` 未覆盖或补列失败，最直接的方式是删库重建。
+
+---
+
+## 12. SourceClient 改为 async context manager 后的语法陷阱
+
+**症状**：修改 `source_client.py` 后，后端启动报错 `SyntaxError` 或运行时 `AttributeError: 'SourceClient' object has no attribute 'aclose'`。
+
+**原因**：
+1. `_get` 方法内部仍保留旧的 `async with httpx.AsyncClient(...) as client:` 块，与实例级 `_client` 冲突
+2. 忘记实现 `__aenter__` / `__aexit__` / `aclose()`
+
+**正确写法**：
+```python
+class SourceClient:
+    def __init__(self, ...):
+        self._client = httpx.AsyncClient(...)
+
+    async def aclose(self):
+        await self._client.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.aclose()
+
+    async def _get(self, params):
+        # 直接使用实例级 client，不要再 async with
+        resp = await self._client.get(self.base_url, params=params)
+        ...
+```
+
+**教训**：把 `httpx.AsyncClient` 从函数级移到实例级时，必须同时：
+- 删除函数内部的 `async with httpx.AsyncClient(...)`
+- 添加 `aclose` + `__aenter__` / `__aexit__`
+- 所有调用处改为 `async with SourceClient(...) as client:`
+
+---
+
+## 13. health.py try/except 作用域外移
+
+**症状**：修改 `health.py` 后，执行 probe 时报 `SyntaxError: 'try' block expected` 或运行时异常无法被捕获。
+
+**原因**：使用 `Edit` 工具时，`try` 块被截断，`except` 跑到了 `async with` 外面。
+
+**正确结构**：
+```python
+async with SourceClient(...) as client:
+    try:
+        data = await client._get({"ac": "list", "pg": 1})
+        # ...
+    except httpx.TimeoutException:
+        return ProbeResult(ok=False, error="timeout")
+    except Exception as exc:
+        return ProbeResult(ok=False, error=str(exc))
+```
+
+**教训**：使用 Edit 工具修改嵌套结构时，务必读取修改后的完整文件，确认 `try/except` 的缩进和配对正确。
+
+---
+
+## 14. videos.py fetch_one try 块未闭合
+
+**症状**：修改 `videos.py` 后，后端启动报 `SyntaxError`：`try` 块没有匹配的 `except`/`finally`。
+
+**原因**：`Edit` 替换时，新字符串中的 `try` 块被意外截断或重复，导致 Python 语法错误。
+
+**解决**：对复杂嵌套函数（如 `fetch_one` 闭包），宁可重写整个函数，也不要做局部字符串替换。
+
+---
+
+## 15. 多进程残留进程无法通过常规工具终止
+
+**症状**：`netstat` 显示端口被占用，但 `taskkill`、`wmic`、`Stop-Process`、`os.kill` 都返回"找不到进程"或"拒绝访问"。
+
+**原因**：uvicorn 以多进程模式（`--workers` 或 `multiprocessing`）启动时，父进程 PID 在某些 Windows 工具中不可见，子进程（`spawn_main` fork）才是真正的监听进程。
+
+**解决**：终止子进程而非父进程：
+```bash
+# 1. 找到所有 Python 子进程
+wmic process where "name='python.exe'" get ProcessId,CommandLine
+
+# 2. 找到包含 "multiprocessing.spawn" 的子进程 PID
+# 3. 用 taskkill 终止子进程
+taskkill /F /PID <子进程PID>
+```
+
+**教训**：Windows 上 uvicorn 多进程的子进程才是真正的服务进程，kill 子进程才能释放端口。
+
+---
+
+## 16. VideoCard poster 加载策略反复
+
+**症状**：先移除 `getDetail` 调用（期望列表 API 自带 poster_url），结果首页所有封面图消失；恢复后通过优化方案解决。
+
+**原因**：
+1. 列表 API 返回的 `poster_url` 大部分为空
+2. 详情 API 才有完整的 `poster_url`
+3. 完全依赖列表 API 的 poster 会导致大面积空白
+
+**最终方案**：
+- 保留 `IntersectionObserver` + `getDetail` 按需加载
+- `rootMargin: "200px"` 提前预加载
+- 失败时重试 1 次（2 秒后）
+- `img onError` 兜底回退到占位图
+
+**教训**：不要假设列表 API 和详情 API 的字段完整度相同。先分析数据分布，再决定加载策略。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -194,3 +319,8 @@ git init
 | curl、JSON、解析 | #8 curl JSON |
 | git、not a repo | #9 git init 位置 |
 | 展开、第二行 | #10 按钮位置 |
+| auto_disabled_at、no such column | #11 数据库列缺失 |
+| SourceClient、SyntaxError、aclose | #12 async context manager 语法陷阱 |
+| try/except、SyntaxError | #13 + #14 作用域/闭合错误 |
+| netstat、找不到进程、拒绝访问 | #15 多进程残留 |
+| 封面、poster、空白 | #16 VideoCard poster 策略 |
