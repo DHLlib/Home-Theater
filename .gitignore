@@ -62,3 +62,6 @@ htmlcov/
 # Downloads / runtime data
 backend/data/
 .worktrees/
+
+# Docs
+docs/
