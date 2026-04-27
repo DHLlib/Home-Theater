@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from app.db import init_db
 from app.logging_config import setup_logging
@@ -31,11 +32,21 @@ async def lifespan(app: FastAPI):
         pass
 
 
+class CacheControlStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        if path == "" or path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif "." in path:
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+
+
 app = FastAPI(title="Home Theater", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,4 +72,4 @@ _frontend_dist = os.path.join(
     os.path.dirname(__file__), "..", "..", "frontend", "dist"
 )
 if os.path.isdir(_frontend_dist):
-    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="static")
+    app.mount("/", CacheControlStaticFiles(directory=_frontend_dist, html=True), name="static")

@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,17 +36,52 @@ def _resolve_remote_categories(site: Site, category: str | None) -> list[str | i
     return results
 
 
-async def _fetch_site(site: Site, t=None, pg=None, h=None, wd=None, by=None):
-    async with SourceClient(site_id=site.id, base_url=site.base_url, name=site.name) as client:
-        try:
-            items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
-            return items, None
-        except Exception as exc:
-            return None, FailedSource(
-                site_id=site.id,
-                site_name=site.name,
-                error=str(exc),
+async def _fetch_site(client: SourceClient, site: Site, t=None, pg=None, h=None, wd=None, by=None):
+    try:
+        items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
+        return items, None
+    except Exception as exc:
+        return None, FailedSource(
+            site_id=site.id,
+            site_name=site.name,
+            error=str(exc),
+        )
+
+
+async def _trim_video_cache(db: AsyncSession, limit: int = 5000) -> None:
+    """限制 VideoCache 行数，删除最老的记录。"""
+    result = await db.execute(select(func.count()).select_from(VideoCache))
+    count = result.scalar_one()
+    if count > limit:
+        subq = select(VideoCache.id).order_by(VideoCache.cached_at).limit(count - limit)
+        await db.execute(delete(VideoCache).where(VideoCache.id.in_(subq)))
+        await db.commit()
+
+
+async def _write_list_cache(db: AsyncSession, per_source: list[list[dict]]) -> None:
+    """将列表数据的基础字段写入 VideoCache（upsert，不覆盖已有完整字段）。"""
+    for source_items in per_source:
+        for item in source_items:
+            stmt = insert(VideoCache).values(
+                site_id=item.get("site_id"),
+                original_id=item.get("original_id"),
+                title=item.get("title", ""),
+                year=item.get("year"),
+                poster_url=item.get("poster_url"),
+                cached_at=datetime.utcnow(),
             )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["site_id", "original_id"],
+                set_={
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "poster_url": item.get("poster_url"),
+                    "cached_at": datetime.utcnow(),
+                },
+            )
+            await db.execute(stmt)
+    await db.commit()
+    await _trim_video_cache(db)
 
 
 @router.get("")
@@ -64,18 +99,27 @@ async def list_videos(
     )
     sites = result.scalars().all()
 
-    tasks = []
-    for site in sites:
-        if category:
-            remote_cats = _resolve_remote_categories(site, category)
-            if not remote_cats:
-                continue
-            for remote_cat in remote_cats:
-                tasks.append(_fetch_site(site, t=remote_cat, pg=pg, h=h, by=by))
-        else:
-            tasks.append(_fetch_site(site, t=t, pg=pg, h=h, by=by))
+    clients: dict[int, SourceClient] = {}
+    try:
+        for site in sites:
+            clients[site.id] = SourceClient(
+                site_id=site.id, base_url=site.base_url, name=site.name
+            )
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = []
+        for site in sites:
+            if category:
+                remote_cats = _resolve_remote_categories(site, category)
+                if not remote_cats:
+                    continue
+                for remote_cat in remote_cats:
+                    tasks.append(_fetch_site(clients[site.id], site, t=remote_cat, pg=pg, h=h, by=by))
+            else:
+                tasks.append(_fetch_site(clients[site.id], site, t=t, pg=pg, h=h, by=by))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
     per_source = []
     failed_sources = []
@@ -90,6 +134,9 @@ async def list_videos(
 
     if not per_source and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
+
+    # 写入 VideoCache 基础字段
+    await _write_list_cache(db, per_source)
 
     if mode == "source":
         raw_items = []
@@ -133,18 +180,27 @@ async def search_videos(
     )
     sites = result.scalars().all()
 
-    tasks = []
-    for site in sites:
-        if category:
-            remote_cats = _resolve_remote_categories(site, category)
-            if not remote_cats:
-                continue
-            for remote_cat in remote_cats:
-                tasks.append(_fetch_site(site, wd=wd, pg=pg, t=remote_cat))
-        else:
-            tasks.append(_fetch_site(site, wd=wd, pg=pg))
+    clients: dict[int, SourceClient] = {}
+    try:
+        for site in sites:
+            clients[site.id] = SourceClient(
+                site_id=site.id, base_url=site.base_url, name=site.name
+            )
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = []
+        for site in sites:
+            if category:
+                remote_cats = _resolve_remote_categories(site, category)
+                if not remote_cats:
+                    continue
+                for remote_cat in remote_cats:
+                    tasks.append(_fetch_site(clients[site.id], site, wd=wd, pg=pg, t=remote_cat))
+            else:
+                tasks.append(_fetch_site(clients[site.id], site, wd=wd, pg=pg))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
     per_source = []
     failed_sources = []
@@ -159,6 +215,9 @@ async def search_videos(
 
     if not per_source and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
+
+    # 写入 VideoCache 基础字段
+    await _write_list_cache(db, per_source)
 
     if mode == "source":
         raw_items = []
@@ -339,6 +398,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         await db.execute(stmt)
     if cache_entries:
         await db.commit()
+        await _trim_video_cache(db)
 
     if not sources and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
