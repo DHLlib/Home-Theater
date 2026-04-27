@@ -132,6 +132,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - **分类映射**：系统分类是扁平的，禁止新增"电影""连续剧"等父级大类；新增分类时应映射到叶子子分类
 - **fetch-categories**：后端已过滤 `type_pid=0` 的父分类，不要修改此逻辑让父分类重新进入可选列表
 - **CategorySettings 互斥**：一个 remote_id 只能属于一个系统分类，前端用 occupancy map 维护此约束；如需改动映射逻辑，需同步更新 occupancy 计算和 releaseRemoteId 逻辑
+- **feifan/360zy 后缀处理**：`video_detail` 和 `play.py` 都要对 episodes 做后缀归一化（`feifan` → 解析为真实 m3u8 后 suffix 改为 `ffm3u8`；`360zy` → `ffm3u8`）。只改一处会导致详情页播放和直接刷新播放器行为不一致（见 `docs/lessons-learned.md` #17）
 
 ## 排错优先顺序
 
