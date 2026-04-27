@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,7 +18,8 @@ from app.schemas import (
     FailedSource,
 )
 from app.services.aggregator import aggregate_lists
-from app.services.parser import parse_episodes
+from app.services.parser import Episode as EpisodeDataclass, parse_episodes
+from app.services.resolver import resolve_feifan
 from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -46,6 +48,42 @@ async def _fetch_site(client: SourceClient, site: Site, t=None, pg=None, h=None,
             site_name=site.name,
             error=str(exc),
         )
+
+
+async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
+    """把 feifan 解析为真实 m3u8，360zy 统一为 ffm3u8，与 play.py 保持一致。"""
+    if not episodes:
+        return episodes
+
+    has_feifan = any(ep.get("suffix") == "feifan" for ep in episodes)
+    has_360zy = any(ep.get("suffix") == "360zy" for ep in episodes)
+
+    if not has_feifan and not has_360zy:
+        return episodes
+
+    eps = [
+        EpisodeDataclass(ep["ep_name"], ep["url"], ep["suffix"], ep["index"])
+        for ep in episodes
+    ]
+
+    if has_feifan:
+        feifan_indices = [i for i, e in enumerate(eps) if e.suffix == "feifan"]
+        resolved = await asyncio.gather(
+            *[resolve_feifan(eps[i].url) for i in feifan_indices],
+            return_exceptions=True,
+        )
+        for idx, real_url in zip(feifan_indices, resolved):
+            if isinstance(real_url, str) and real_url:
+                eps[idx] = replace(eps[idx], url=real_url, suffix="ffm3u8")
+
+    for i, e in enumerate(eps):
+        if e.suffix == "360zy":
+            eps[i] = replace(eps[i], suffix="ffm3u8")
+
+    return [
+        {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
+        for e in eps
+    ]
 
 
 async def _trim_video_cache(db: AsyncSession, limit: int = 5000) -> None:
@@ -373,6 +411,8 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         if error:
             failed_sources.append(error.model_dump())
         if data:
+            if data.get("episodes"):
+                data["episodes"] = await _normalize_episode_suffixes(data["episodes"])
             sources.append(data)
         if cache_entry:
             cache_entries.append(cache_entry)
