@@ -1,4 +1,4 @@
-import { get, post } from "./client";
+import { del, get, post } from "./client";
 import type {
   AggregatedListResponse,
   DetailRequest,
@@ -32,5 +32,18 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
   return get<AggregatedListResponse>(`/api/videos/search?${qs}`);
 };
 
-export const getDetail = (req: DetailRequest) =>
-  post<DetailResponse>("/api/videos/detail", req);
+const pendingDetails = new Map<string, Promise<DetailResponse>>();
+
+export function getDetail(req: DetailRequest): Promise<DetailResponse> {
+  const key = `${req.title}::${req.year ?? "null"}`;
+  const existing = pendingDetails.get(key);
+  if (existing) return existing;
+
+  const promise = post<DetailResponse>("/api/videos/detail", req).finally(() => {
+    pendingDetails.delete(key);
+  });
+  pendingDetails.set(key, promise);
+  return promise;
+}
+
+export const clearVideoCache = () => del<{ deleted: number }>("/api/videos/cache");

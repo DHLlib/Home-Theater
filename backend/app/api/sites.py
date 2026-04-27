@@ -98,13 +98,13 @@ async def fetch_remote_categories(site_id: int, db: AsyncSession = Depends(get_d
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
-    client = SourceClient(
+    async with SourceClient(
         site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-    )
-    try:
-        data = await client._get({"ac": "list"})
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    ) as client:
+        try:
+            data = await client._get({"ac": "list"})
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
     class_list = data.get("class", [])
     if not isinstance(class_list, list):
         raise HTTPException(status_code=502, detail="资源站未返回 class 分类列表")

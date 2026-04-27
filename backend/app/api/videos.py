@@ -1,10 +1,13 @@
 import asyncio
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import Site
+from app.models import Site, VideoCache
 from app.schemas import (
     AggregatedListResponse,
     AggregatedVideo,
@@ -34,16 +37,16 @@ def _resolve_remote_categories(site: Site, category: str | None) -> list[str | i
 
 
 async def _fetch_site(site: Site, t=None, pg=None, h=None, wd=None, by=None):
-    client = SourceClient(site_id=site.id, base_url=site.base_url, name=site.name)
-    try:
-        items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
-        return items, None
-    except Exception as exc:
-        return None, FailedSource(
-            site_id=site.id,
-            site_name=site.name,
-            error=str(exc),
-        )
+    async with SourceClient(site_id=site.id, base_url=site.base_url, name=site.name) as client:
+        try:
+            items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
+            return items, None
+        except Exception as exc:
+            return None, FailedSource(
+                site_id=site.id,
+                site_name=site.name,
+                error=str(exc),
+            )
 
 
 @router.get("")
@@ -196,70 +199,146 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
     async def fetch_one(source_ref):
         site = sites.get(source_ref.site_id)
         if not site:
-            return None, FailedSource(
+            return None, None, FailedSource(
                 site_id=source_ref.site_id,
                 site_name=None,
                 error="site not found",
             )
-        client = SourceClient(
-            site_id=site.id, base_url=site.base_url, name=site.name
+
+        # 1. 先查缓存
+        cached_result = await db.execute(
+            select(VideoCache).where(
+                VideoCache.site_id == source_ref.site_id,
+                VideoCache.original_id == source_ref.original_id,
+            )
         )
-        try:
-            items = await client.videolist(ids=[source_ref.original_id])
-            if not items:
-                return None, FailedSource(
-                    site_id=site.id,
-                    site_name=site.name,
-                    error="empty detail response",
-                )
-            item = items[0]
-            play_raw = item.get("play_url_raw", "")
+        cached = cached_result.scalar_one_or_none()
+        if cached:
             episodes = []
-            if play_raw:
+            if cached.play_url_raw:
                 try:
-                    episodes = parse_episodes(play_raw)
-                except ValueError as exc:
-                    return None, FailedSource(
+                    parsed = parse_episodes(cached.play_url_raw)
+                    episodes = [
+                        {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
+                        for e in parsed
+                    ]
+                except ValueError:
+                    pass
+            return {
+                "site_id": cached.site_id,
+                "site_name": site.name,
+                "original_id": cached.original_id,
+                "title": cached.title,
+                "year": cached.year,
+                "poster_url": cached.poster_url,
+                "intro": cached.intro,
+                "area": cached.area,
+                "actors": cached.actors,
+                "director": cached.director,
+                "episodes": episodes,
+            }, None, None
+
+        # 2. 缓存未命中，从源站拉取
+        async with SourceClient(
+            site_id=site.id, base_url=site.base_url, name=site.name
+        ) as client:
+            try:
+                items = await client.videolist(ids=[source_ref.original_id])
+                if not items:
+                    return None, None, FailedSource(
                         site_id=site.id,
                         site_name=site.name,
-                        error=f"parse error: {exc}",
+                        error="empty detail response",
                     )
-            return {
-                "site_id": site.id,
-                "site_name": site.name,
-                "original_id": source_ref.original_id,
-                "title": item.get("title", ""),
-                "year": item.get("year"),
-                "poster_url": item.get("poster_url"),
-                "intro": item.get("intro"),
-                "area": item.get("area"),
-                "actors": item.get("actors"),
-                "director": item.get("director"),
-                "episodes": [
-                    {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
-                    for e in episodes
-                ],
-            }, None
-        except Exception as exc:
-            return None, FailedSource(
-                site_id=site.id,
-                site_name=site.name,
-                error=str(exc),
-            )
+                item = items[0]
+                play_raw = item.get("play_url_raw", "")
+                episodes = []
+                if play_raw:
+                    try:
+                        episodes = parse_episodes(play_raw)
+                    except ValueError as exc:
+                        return None, None, FailedSource(
+                            site_id=site.id,
+                            site_name=site.name,
+                            error=f"parse error: {exc}",
+                        )
+
+                data = {
+                    "site_id": site.id,
+                    "site_name": site.name,
+                    "original_id": source_ref.original_id,
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "poster_url": item.get("poster_url"),
+                    "intro": item.get("intro"),
+                    "area": item.get("area"),
+                    "actors": item.get("actors"),
+                    "director": item.get("director"),
+                    "episodes": [
+                        {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
+                        for e in episodes
+                    ],
+                }
+                cache_entry = {
+                    "site_id": site.id,
+                    "original_id": source_ref.original_id,
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "poster_url": item.get("poster_url"),
+                    "intro": item.get("intro"),
+                    "area": item.get("area"),
+                    "actors": item.get("actors"),
+                    "director": item.get("director"),
+                    "play_url_raw": play_raw,
+                    "source_updated_at": item.get("updated_at"),
+                    "cached_at": datetime.utcnow(),
+                }
+                return data, cache_entry, None
+            except Exception as exc:
+                return None, None, FailedSource(
+                    site_id=site.id,
+                    site_name=site.name,
+                    error=str(exc),
+                )
 
     tasks = [fetch_one(s) for s in req.sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     sources = []
+    cache_entries = []
     failed_sources = []
     for raw in results:
         if isinstance(raw, Exception):
             continue
-        data, error = raw
+        data, cache_entry, error = raw
         if error:
             failed_sources.append(error.model_dump())
         if data:
             sources.append(data)
+        if cache_entry:
+            cache_entries.append(cache_entry)
+
+    # 统一写入缓存（upsert）
+    for entry in cache_entries:
+        stmt = insert(VideoCache).values(**entry)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["site_id", "original_id"],
+            set_={
+                "title": entry["title"],
+                "year": entry["year"],
+                "poster_url": entry["poster_url"],
+                "intro": entry["intro"],
+                "area": entry["area"],
+                "actors": entry["actors"],
+                "director": entry["director"],
+                "play_url_raw": entry["play_url_raw"],
+                "source_updated_at": entry["source_updated_at"],
+                "cached_at": entry["cached_at"],
+            },
+        )
+        await db.execute(stmt)
+    if cache_entries:
+        await db.commit()
 
     if not sources and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
@@ -269,3 +348,10 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         year=req.year,
         sources=sources,
     )
+
+
+@router.delete("/cache")
+async def clear_video_cache(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(delete(VideoCache))
+    await db.commit()
+    return {"deleted": result.rowcount}

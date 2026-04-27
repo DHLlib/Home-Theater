@@ -21,20 +21,21 @@ class ProbeResult:
 
 
 async def probe(site_id: int, base_url: str, name: str = "", timeout: float = 5.0) -> ProbeResult:
-    client = SourceClient(site_id=site_id, base_url=base_url, name=name, timeout=timeout)
-    started = time.perf_counter()
-    try:
-        items = await client.list(pg=1)
-    except httpx.TimeoutException as exc:
-        return ProbeResult(ok=False, latency_ms=None, error=f"超时：{exc!s}")
-    except httpx.HTTPError as exc:
-        return ProbeResult(ok=False, latency_ms=None, error=f"网络错误：{exc!s}")
-    except SourceProtocolError as exc:
+    async with SourceClient(site_id=site_id, base_url=base_url, name=name, timeout=timeout) as client:
+        started = time.perf_counter()
+        items = None
+        try:
+            items = await client.list(pg=1)
+        except httpx.TimeoutException as exc:
+            return ProbeResult(ok=False, latency_ms=None, error=f"超时：{exc!s}")
+        except httpx.HTTPError as exc:
+            return ProbeResult(ok=False, latency_ms=None, error=f"网络错误：{exc!s}")
+        except SourceProtocolError as exc:
+            latency = int((time.perf_counter() - started) * 1000)
+            return ProbeResult(ok=False, latency_ms=latency, error=str(exc))
+        except Exception as exc:
+            return ProbeResult(ok=False, latency_ms=None, error=f"未知错误：{exc!s}")
         latency = int((time.perf_counter() - started) * 1000)
-        return ProbeResult(ok=False, latency_ms=latency, error=str(exc))
-    except Exception as exc:
-        return ProbeResult(ok=False, latency_ms=None, error=f"未知错误：{exc!s}")
-    latency = int((time.perf_counter() - started) * 1000)
-    if not items:
-        return ProbeResult(ok=True, latency_ms=latency, error="list 为空，但响应合规")
-    return ProbeResult(ok=True, latency_ms=latency, error=None)
+        if not items:
+            return ProbeResult(ok=True, latency_ms=latency, error="list 为空，但响应合规")
+        return ProbeResult(ok=True, latency_ms=latency, error=None)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getDetail } from "../api/videos";
 import { addFavorite } from "../api/favorites";
@@ -25,7 +25,39 @@ function HeartIcon({ size = 12 }: { size?: number }) {
   );
 }
 
-export default function VideoCard({
+function PosterPlaceholder() {
+  return (
+    <div
+      style={{
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 8,
+        color: "var(--text-secondary)",
+      }}
+    >
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        style={{ opacity: 0.4 }}
+        aria-hidden="true"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="M21 15l-5-5L5 21" />
+      </svg>
+      <span style={{ fontSize: 12, opacity: 0.5 }}>暂无封面</span>
+    </div>
+  );
+}
+
+function VideoCard({
   item,
   width,
   showOverlay = true,
@@ -34,6 +66,7 @@ export default function VideoCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [poster, setPoster] = useState<string | null>(item.poster_url ?? null);
   const [loadingPoster, setLoadingPoster] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const fetchedRef = useRef(false);
 
   useEffect(() => {
@@ -49,34 +82,43 @@ export default function VideoCard({
             fetchedRef.current = true;
             setLoadingPoster(true);
             const first = item.sources[0];
-            getDetail({
-              title: item.title,
-              year: item.year,
-              sources: [first],
-            })
-              .then((res) => {
-                const found = res.sources.find(
-                  (s) =>
-                    s.site_id === first.site_id &&
-                    s.original_id === first.original_id
-                );
-                if (found?.poster_url) {
-                  setPoster(found.poster_url);
-                }
+
+            const tryFetch = (attempt = 0) => {
+              getDetail({
+                title: item.title,
+                year: item.year,
+                sources: [first],
               })
-              .catch(() => {
-                // 静默失败，保持占位图
-              })
-              .finally(() => setLoadingPoster(false));
+                .then((res) => {
+                  const found = res.sources.find(
+                    (s) =>
+                      s.site_id === first.site_id &&
+                      s.original_id === first.original_id
+                  );
+                  if (found?.poster_url) {
+                    setPoster(found.poster_url);
+                  }
+                })
+                .catch(() => {
+                  if (attempt < 1) {
+                    setTimeout(() => tryFetch(attempt + 1), 2000);
+                    return;
+                  }
+                })
+                .finally(() => setLoadingPoster(false));
+            };
+            tryFetch();
           }
         });
       },
-      { rootMargin: "0px" }
+      { rootMargin: "200px" }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
   }, [item.poster_url, item.sources, item.title, item.year, poster]);
+
+  const displayPoster = poster && !imgError ? poster : null;
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -94,7 +136,7 @@ export default function VideoCard({
     addFavorite({
       title: item.title,
       year: item.year,
-      poster_url: poster || item.poster_url || undefined,
+      poster_url: displayPoster || item.poster_url || undefined,
     }).then(() => toastSuccess("已收藏"));
   };
 
@@ -125,43 +167,18 @@ export default function VideoCard({
           position: "relative",
         }}
       >
-        {poster ? (
+        {displayPoster ? (
           <img
-            src={poster}
+            src={displayPoster}
             alt={item.title}
             loading="lazy"
+            onError={() => setImgError(true)}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : loadingPoster ? (
           <div className="skeleton" style={{ width: "100%", height: "100%" }} />
         ) : (
-          <div
-            style={{
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexDirection: "column",
-              gap: 8,
-              color: "var(--text-secondary)",
-            }}
-          >
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              style={{ opacity: 0.4 }}
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-            <span style={{ fontSize: 12, opacity: 0.5 }}>暂无封面</span>
-          </div>
+          <PosterPlaceholder />
         )}
 
         {/* 悬停信息层 */}
@@ -219,3 +236,5 @@ export default function VideoCard({
     </div>
   );
 }
+
+export default React.memo(VideoCard);

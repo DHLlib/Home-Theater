@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { getEpisodes } from "../api/play";
 import { getProgress, upsertProgress } from "../api/progress";
 import VideoPlayer from "../components/VideoPlayer";
@@ -10,6 +10,7 @@ import {
 import type { Episode, PlayProgress } from "../types";
 
 export default function Player() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const site_id = Number(searchParams.get("site_id"));
   const original_id = searchParams.get("original_id") || "";
@@ -17,6 +18,8 @@ export default function Player() {
   const yearRaw = searchParams.get("year");
   const year = yearRaw ? Number(yearRaw) : null;
   const initialEp = Number(searchParams.get("ep") || "0");
+  const passedEpisodes = (location.state as { episodes?: Episode[] } | null)
+    ?.episodes;
 
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(initialEp);
@@ -36,6 +39,13 @@ export default function Player() {
   useEffect(() => {
     if (!site_id || !original_id) return;
 
+    // 优先使用 Detail 页传递过来的 episodes（避免重复请求）
+    if (passedEpisodes && passedEpisodes.length > 0) {
+      setEpisodes(passedEpisodes);
+      setCachedEpisodes(site_id, original_id, passedEpisodes);
+      return;
+    }
+
     // 先读缓存立即渲染
     getCachedEpisodes<Episode[]>(site_id, original_id).then((cached) => {
       if (cached) {
@@ -48,7 +58,7 @@ export default function Player() {
       setEpisodes(eps);
       setCachedEpisodes(site_id, original_id, eps);
     });
-  }, [site_id, original_id]);
+  }, [site_id, original_id, passedEpisodes]);
 
   const current = episodes[currentIndex];
 

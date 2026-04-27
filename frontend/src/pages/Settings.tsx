@@ -7,6 +7,7 @@ import {
   updateSite,
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
+import { clearVideoCache } from "../api/videos";
 import CategorySettings from "../components/CategorySettings";
 import type { ProbeResult, Site } from "../types";
 
@@ -161,12 +162,32 @@ function EditIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-type TabKey = "sites" | "categories" | "download";
+function TrashIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
+type TabKey = "sites" | "categories" | "download" | "cache";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载根目录", icon: <FolderIcon size={14} /> },
+  { key: "cache", label: "缓存管理", icon: <TrashIcon size={14} /> },
 ];
 
 export default function Settings() {
@@ -177,6 +198,8 @@ export default function Settings() {
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
   >({});
+  const [clearing, setClearing] = useState(false);
+  const [clearedCount, setClearedCount] = useState<number | null>(null);
 
   useEffect(() => {
     listSites().then(setSites);
@@ -185,6 +208,18 @@ export default function Settings() {
       if (r) setRoot(r);
     });
   }, []);
+
+  const handleClearCache = () => {
+    if (!confirm("确定要清除所有视频缓存吗？此操作不可恢复。")) return;
+    setClearing(true);
+    clearVideoCache()
+      .then((res) => {
+        setClearedCount(res.deleted);
+        setTimeout(() => setClearedCount(null), 3000);
+      })
+      .catch(() => alert("清除缓存失败"))
+      .finally(() => setClearing(false));
+  };
 
   const addSite = () => {
     const name = prompt("站点名称");
@@ -558,6 +593,69 @@ export default function Settings() {
               >
                 <CheckIcon size={12} />
                 当前配置：{savedRoot}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 缓存管理 */}
+      {activeTab === "cache" && (
+        <section
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: 20,
+          }}
+        >
+          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+            <span style={{ color: "var(--primary)" }}>
+              <TrashIcon size={16} />
+            </span>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 600,
+                textShadow: "0 0 12px rgba(225,29,72,0.35)",
+                letterSpacing: 0.3,
+              }}
+            >
+              缓存管理
+            </h3>
+          </div>
+          <div className="col" style={{ gap: 12 }}>
+            <div style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.6 }}>
+              当采集站更换域名或大量资源失效时，可清除本地视频元数据缓存。
+              <br />
+              清除后访问详情页会重新从源站拉取最新数据。
+            </div>
+            <button
+              className="btn"
+              disabled={clearing}
+              onClick={handleClearCache}
+              style={{
+                alignSelf: "flex-start",
+                gap: 6,
+                color: "var(--danger)",
+                borderColor: "var(--danger)",
+              }}
+            >
+              <TrashIcon size={14} />
+              {clearing ? "清除中..." : "清除失效资源"}
+            </button>
+            {clearedCount !== null && (
+              <div
+                className="row"
+                style={{
+                  gap: 6,
+                  fontSize: 13,
+                  color: "var(--success)",
+                }}
+              >
+                <CheckIcon size={12} />
+                已删除 {clearedCount} 条缓存数据
               </div>
             )}
           </div>

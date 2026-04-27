@@ -24,10 +24,10 @@ async def get_episodes(
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    client = SourceClient(
+    async with SourceClient(
         site_id=site.id, base_url=site.base_url, name=site.name
-    )
-    items = await client.videolist(ids=[original_id])
+    ) as client:
+        items = await client.videolist(ids=[original_id])
     if not items:
         raise HTTPException(status_code=404, detail="Video not found")
 

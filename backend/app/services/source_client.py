@@ -29,6 +29,21 @@ class SourceClient:
         self.base_url = base_url
         self.name = name or str(site_id)
         self.timeout = timeout
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": self.base_url,
+        }
+        self._client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
+
+    async def aclose(self):
+        await self._client.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.aclose()
+        return False
 
     @staticmethod
     def _build_params(
@@ -57,38 +72,33 @@ class SourceClient:
         return params
 
     async def _get(self, params: dict[str, str]) -> dict[str, Any]:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": self.base_url,
-        }
-        async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
-            for attempt in range(3):
+        for attempt in range(3):
+            try:
+                resp = await self._client.get(self.base_url, params=params)
+                if resp.status_code >= 400:
+                    raise SourceProtocolError(
+                        f"site={self.name} HTTP {resp.status_code}"
+                    )
                 try:
-                    resp = await client.get(self.base_url, params=params)
-                    if resp.status_code >= 400:
-                        raise SourceProtocolError(
-                            f"site={self.name} HTTP {resp.status_code}"
-                        )
-                    try:
-                        data = resp.json()
-                    except Exception as exc:
-                        raise SourceProtocolError(
-                            f"site={self.name} 返回非 JSON：{resp.text[:200]}"
-                        ) from exc
-                    if not isinstance(data, dict) or not isinstance(data.get("list"), list):
-                        raise SourceProtocolError(
-                            f"site={self.name} 返回缺少 'list' 列表字段"
-                        )
-                    return data
-                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
-                    if attempt < 2:
-                        await asyncio.sleep(1 * (2 ** attempt))
-                    else:
-                        raise SourceProtocolError(
-                            f"site={self.name} 请求重试后仍失败：{exc!s}"
-                        ) from exc
-                except SourceProtocolError:
-                    raise
+                    data = resp.json()
+                except Exception as exc:
+                    raise SourceProtocolError(
+                        f"site={self.name} 返回非 JSON：{resp.text[:200]}"
+                    ) from exc
+                if not isinstance(data, dict) or not isinstance(data.get("list"), list):
+                    raise SourceProtocolError(
+                        f"site={self.name} 返回缺少 'list' 列表字段"
+                    )
+                return data
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
+                if attempt < 2:
+                    await asyncio.sleep(1 * (2 ** attempt))
+                else:
+                    raise SourceProtocolError(
+                        f"site={self.name} 请求重试后仍失败：{exc!s}"
+                    ) from exc
+            except SourceProtocolError:
+                raise
 
     async def list(
         self,

@@ -95,7 +95,8 @@ export default function Detail() {
           source.original_id
         )}&ep=0&title=${encodeURIComponent(item.title)}&year=${
           item.year ?? ""
-        }`
+        }`,
+        { state: { episodes: d.episodes } }
       );
     } else if (pickerAction === "download") {
       if (d.episodes.length === 0) {
@@ -205,7 +206,8 @@ export default function Detail() {
                   s.original_id
                 )}&ep=${idx}&title=${encodeURIComponent(item.title)}&year=${
                   item.year ?? ""
-                }`
+                }`,
+                { state: { episodes: s.episodes } }
               );
             }}
           />

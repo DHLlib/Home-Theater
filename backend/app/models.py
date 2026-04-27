@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -11,6 +11,7 @@ class Base(DeclarativeBase):
 
 class Site(Base):
     __tablename__ = "sites"
+    __table_args__ = (Index("ix_sites_enabled_sort", "enabled", "sort"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
@@ -35,7 +36,10 @@ class Favorite(Base):
 
 class PlayProgress(Base):
     __tablename__ = "play_progress"
-    __table_args__ = (UniqueConstraint("title", "year", name="uix_progress_title_year"),)
+    __table_args__ = (
+        UniqueConstraint("title", "year", name="uix_progress_title_year"),
+        Index("ix_progress_updated_at", "updated_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -55,6 +59,7 @@ class PlayProgress(Base):
 
 class DownloadTask(Base):
     __tablename__ = "download_tasks"
+    __table_args__ = (Index("ix_download_created_at", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -79,6 +84,28 @@ class DownloadTask(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class VideoCache(Base):
+    __tablename__ = "video_cache"
+    __table_args__ = (
+        UniqueConstraint("site_id", "original_id", name="uix_video_cache"),
+        Index("ix_video_cache_title_year", "title", "year"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
+    original_id: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    intro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    area: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    actors: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    director: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    play_url_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class AppConfig(Base):
