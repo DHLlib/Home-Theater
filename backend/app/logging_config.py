@@ -26,6 +26,11 @@ def setup_logging() -> None:
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
 
+    # 降低第三方库的日志噪音
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers = []

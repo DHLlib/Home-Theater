@@ -43,13 +43,17 @@ async def _probe_all_sites() -> None:
         result = await session.execute(select(Site).order_by(Site.sort))
         sites = result.scalars().all()
 
-    for site in sites:
+    async def _probe_one(site: Site):
         try:
             pr = await probe(site.id, site.base_url, site.name)
         except Exception as exc:
             logger.warning("探测异常 site=%s error=%s", site.name, exc)
             pr = None
+        return site, pr
 
+    results = await asyncio.gather(*[_probe_one(s) for s in sites])
+
+    for site, pr in results:
         if pr and pr.ok:
             await _on_probe_success(site.id, site.name)
         else:

@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re
 import shutil
+import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -170,20 +171,35 @@ async def _run_direct_download(
                         except ValueError:
                             pass
 
-                # 流式写入
+                # 流式写入（批量 commit 优化：每 5 秒或每 100 个 chunk）
+                last_commit = time.monotonic()
+                last_refresh = time.monotonic()
+                chunk_counter = 0
                 try:
                     async with aiofiles.open(task.file_path, "ab") as f:
                         async for chunk in resp.aiter_bytes(CHUNK_SIZE):
-                            # 检查是否被暂停
-                            await session.refresh(task)
-                            if task.status == "paused":
-                                logger.info("任务被暂停 task_id=%s", task_id)
-                                return
+                            now = time.monotonic()
+
+                            # 每 3 秒检查一次暂停状态
+                            if now - last_refresh >= 3:
+                                await session.refresh(task)
+                                last_refresh = now
+                                if task.status == "paused":
+                                    await session.commit()
+                                    logger.info("任务被暂停 task_id=%s", task_id)
+                                    return
 
                             await f.write(chunk)
                             task.downloaded_bytes += len(chunk)
-                            await session.commit()
+                            chunk_counter += 1
+
+                            # 每 5 秒或每 100 个 chunk commit 一次
+                            if now - last_commit >= 5 or chunk_counter >= 100:
+                                await session.commit()
+                                last_commit = now
+                                chunk_counter = 0
                 except Exception as exc:
+                    await session.commit()
                     logger.exception("写盘异常 task_id=%s", task_id)
                     await _set_error(task_id, f"connection_error: 写盘失败：{exc}")
                     return
@@ -290,8 +306,22 @@ async def _run_m3u8_download(
                 task.downloaded_bytes = existing_bytes
                 await session.commit()
 
-            # 6. 并发下载 .ts
+            # 6. 并发下载 .ts（批量 commit 优化）
             semaphore = asyncio.Semaphore(TS_CONCURRENCY)
+            _commit_lock = asyncio.Lock()
+            _commit_counter = 0
+            _last_commit = time.monotonic()
+            _last_refresh = time.monotonic()
+
+            async def _batch_commit(force: bool = False):
+                nonlocal _commit_counter, _last_commit
+                async with _commit_lock:
+                    _commit_counter += 1
+                    now = time.monotonic()
+                    if force or now - _last_commit >= 5 or _commit_counter >= 10:
+                        await session.commit()
+                        _last_commit = now
+                        _commit_counter = 0
 
             async def download_one(idx: int, ts_name: str):
                 ts_path = ts_dir / _clean_ts_filename(ts_name)
@@ -306,10 +336,15 @@ async def _run_m3u8_download(
                 )
 
                 async with semaphore:
-                    # 检查暂停
-                    await session.refresh(task)
-                    if task.status == "paused":
-                        return "paused"
+                    # 检查暂停（每 3 秒才 refresh 一次）
+                    nonlocal _last_refresh
+                    now = time.monotonic()
+                    if now - _last_refresh >= 3:
+                        await session.refresh(task)
+                        _last_refresh = now
+                        if task.status == "paused":
+                            await _batch_commit(force=True)
+                            return "paused"
 
                     for attempt in range(3):
                         try:
@@ -324,12 +359,7 @@ async def _run_m3u8_download(
 
                             task.downloaded_bytes += len(resp.content)
                             task.downloaded_segments += 1
-                            await session.commit()
-
-                            # 检查暂停
-                            await session.refresh(task)
-                            if task.status == "paused":
-                                return "paused"
+                            await _batch_commit()
 
                             return True
                         except Exception as exc:
@@ -349,6 +379,8 @@ async def _run_m3u8_download(
             results = await asyncio.gather(
                 *[download_one(i, name) for i, name in enumerate(ts_names)]
             )
+            # 确保剩余进度已 commit
+            await _batch_commit(force=True)
 
             if any(r == "paused" for r in results):
                 logger.info("m3u8 下载被暂停 task_id=%s", task_id)
@@ -551,20 +583,18 @@ async def _concat_ts_files(
 async def _classify_http_error(
     site_id: int, base_url: str, site_name: str, status_code: int
 ) -> str:
-    """HTTP 4xx/5xx 时 probe 站点，区分 site_unavailable / connection_error。"""
-    result = await probe(site_id, base_url, site_name)
-    if not result.ok:
-        return f"site_unavailable: HTTP {status_code}，站点探测也失败（{result.error}）"
-    return f"connection_error: HTTP {status_code}，但站点可连通"
+    """HTTP 4xx/5xx 时直接根据状态码分类，避免额外 probe 请求。"""
+    if status_code == 404:
+        return "file_removed: 资源已失效（HTTP 404）"
+    if status_code >= 500:
+        return f"site_unavailable: HTTP {status_code}"
+    return f"connection_error: HTTP {status_code}"
 
 
 async def _classify_network_error(
     site_id: int, base_url: str, site_name: str, detail: str
 ) -> str:
-    """网络层异常时 probe 站点，区分 site_unavailable / connection_error。"""
-    result = await probe(site_id, base_url, site_name)
-    if not result.ok:
-        return f"site_unavailable: {detail}"
+    """网络层异常直接归类为 connection_error，避免额外 probe 请求。"""
     return f"connection_error: {detail}"
 
 
