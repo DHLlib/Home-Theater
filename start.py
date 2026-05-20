@@ -22,7 +22,8 @@ FRONTEND_DIR = PROJECT_ROOT / "frontend"
 
 def run(cmd: list[str], cwd: Path, **kwargs):
     """封装 subprocess.run，自动处理编码。"""
-    return subprocess.run(cmd, cwd=cwd, encoding="utf-8", **kwargs)
+    enc = "gbk" if sys.platform == "win32" else "utf-8"
+    return subprocess.run(cmd, cwd=cwd, encoding=enc, errors="ignore", **kwargs)
 
 
 def check_backend_deps():
