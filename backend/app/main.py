@@ -52,7 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.api import favorites, downloads, play, progress, settings_api, sites, videos
+from app.api import favorites, downloads, play, progress, settings_api, sites, sse, videos
 
 app.include_router(sites.router, prefix="/api")
 app.include_router(videos.router, prefix="/api")
@@ -61,6 +61,7 @@ app.include_router(downloads.router, prefix="/api")
 app.include_router(progress.router, prefix="/api")
 app.include_router(favorites.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")
+app.include_router(sse.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -9,6 +9,7 @@ from app.db import get_db
 from app.models import AppConfig, DownloadTask
 from app.schemas import DownloadTaskCreate
 from app.services.downloader import pause as dl_pause, resume as dl_resume
+from app.services.event_bus import Event, publish
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 
@@ -54,6 +55,13 @@ async def create_download(req: DownloadTaskCreate, db: AsyncSession = Depends(ge
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    publish(Event("download_status", {
+        "task_id": task.id,
+        "status": task.status,
+        "title": task.title,
+        "episode_name": task.episode_name,
+        "file_path": task.file_path,
+    }))
     return task
 
 
@@ -100,4 +108,5 @@ async def delete_download(
 
     await db.delete(task)
     await db.commit()
+    publish(Event("download_status", {"task_id": task_id, "status": "deleted"}))
     return {"ok": True, "file_deleted": file_deleted, "file_error": file_error}

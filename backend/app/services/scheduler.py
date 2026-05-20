@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.db import async_session_factory
 from app.models import Site
+from app.services.event_bus import Event, publish
 from app.services.health import probe
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ async def _on_probe_success(site_id: int, site_name: str) -> None:
             site.auto_disabled_at = None
             await session.commit()
             _recovery_counts.pop(site_id, None)
+            publish(Event("site_health", {"site_id": site_id, "site_name": site_name, "enabled": True}))
             logger.info("站点自动恢复 site=%s", site_name)
 
 
@@ -110,4 +112,5 @@ async def _on_probe_failure(site_id: int, site_name: str, error: str) -> None:
                 site.enabled = False
                 site.auto_disabled_at = datetime.utcnow()
                 await session.commit()
+                publish(Event("site_health", {"site_id": site_id, "site_name": site_name, "enabled": False, "error": error}))
                 logger.info("站点自动禁用 site=%s", site_name)

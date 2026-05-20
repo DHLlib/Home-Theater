@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import { subscribe, type ToastType } from "./utils/toast";
+import { connectSse, disconnectSse } from "./api/sse";
 
 interface ToastItem {
   id: number;
@@ -26,6 +27,11 @@ function ToastContainer() {
 }
 
 export default function App() {
+  useEffect(() => {
+    connectSse();
+    return () => disconnectSse();
+  }, []);
+
   return (
     <>
       <RouterProvider router={router} />

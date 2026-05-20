@@ -5,6 +5,7 @@ import {
   resumeDownload,
   deleteDownload,
 } from "../api/downloads";
+import { onSseEvent } from "../api/sse";
 import type { DownloadTask } from "../types";
 
 const statusText: Record<string, string> = {
@@ -51,10 +52,91 @@ export default function Downloads() {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(() => {
-      listDownloads().then(setTasks);
-    }, 2000);
-    return () => clearInterval(interval);
+
+    const unsubProgress = onSseEvent<{
+      task_id: number;
+      downloaded_bytes: number;
+      total_bytes: number | null;
+      downloaded_segments: number;
+      total_segments: number | null;
+      status: string;
+    }>("download_progress", (ev) => {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === ev.task_id
+            ? {
+                ...t,
+                downloaded_bytes: ev.downloaded_bytes,
+                total_bytes: ev.total_bytes ?? t.total_bytes,
+                downloaded_segments: ev.downloaded_segments,
+                total_segments: ev.total_segments ?? t.total_segments,
+                status: ev.status,
+              }
+            : t
+        )
+      );
+    });
+
+    const unsubStatus = onSseEvent<{
+      task_id: number;
+      status: string;
+      error?: string | null;
+      title?: string;
+      episode_name?: string;
+      file_path?: string;
+    }>("download_status", (ev) => {
+      if (ev.status === "deleted") {
+        setTasks((prev) => prev.filter((t) => t.id !== ev.task_id));
+        return;
+      }
+      setTasks((prev) => {
+        const exists = prev.find((t) => t.id === ev.task_id);
+        if (exists) {
+          return prev.map((t) =>
+            t.id === ev.task_id
+              ? {
+                  ...t,
+                  status: ev.status,
+                  error: ev.error ?? t.error,
+                  downloaded_bytes:
+                    ev.status === "done" ? t.total_bytes ?? t.downloaded_bytes : t.downloaded_bytes,
+                }
+              : t
+          );
+        }
+        // 新任务（从 create download 推过来的）
+        if (ev.title && ev.file_path) {
+          return [
+            {
+              id: ev.task_id,
+              title: ev.title,
+              episode_name: ev.episode_name || "",
+              episode_index: 0,
+              source_site_id: 0,
+              source_video_id: "",
+              url: "",
+              suffix: "",
+              file_path: ev.file_path,
+              total_bytes: null,
+              downloaded_bytes: 0,
+              total_segments: null,
+              downloaded_segments: 0,
+              status: ev.status,
+              error: ev.error ?? null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } as DownloadTask,
+            ...prev,
+          ];
+        }
+        return prev;
+      });
+    });
+
+    return () => {
+      unsubProgress();
+      unsubStatus();
+    };
   }, []);
 
   const handleDelete = async (id: number) => {
