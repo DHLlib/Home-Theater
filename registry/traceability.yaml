@@ -1,0 +1,151 @@
+project:
+  name: Home Theater
+  version: "0.1.0"
+  description: 个人视频聚合系统，支持多源采集、聚合去重、播放、下载
+  tech_stack:
+    backend: [FastAPI, SQLAlchemy, aiosqlite, httpx]
+    frontend: [React, Vite, TypeScript]
+    player: ckplayer
+
+acceptance_criteria:
+  - id: AC-001
+    title: 站点管理
+    description: 新增/编辑/删除采集站，配置 base_url、分类映射，支持启用/禁用和排序
+    status: placeholder
+    source: backend/app/api/sites.py
+    owner: backend
+    tests: []
+
+  - id: AC-002
+    title: 分类映射（互斥约束）
+    description: 系统分类到各站点子分类的映射，一个 remote_id 只能属于一个系统分类
+    status: placeholder
+    source: frontend/src/components/CategorySettings.tsx, backend/app/api/sites.py
+    owner: frontend+backend
+    tests: []
+
+  - id: AC-003
+    title: 首页视频聚合列表
+    description: 跨多源并发拉取列表，按名称+年份去重聚合，返回 failed_sources
+    status: placeholder
+    source: backend/app/api/videos.py, backend/app/services/aggregator.py
+    owner: backend
+    tests: []
+
+  - id: AC-004
+    title: 视频搜索
+    description: 以关键字跨所有源并发搜索，按聚合规则合并展示
+    status: placeholder
+    source: backend/app/api/videos.py
+    owner: backend
+    tests: []
+
+  - id: AC-005
+    title: 视频详情
+    description: 根据 sources 列表从各源拉取详情，优先查 VideoCache，支持 feifan/360zy 后缀解析
+    status: placeholder
+    source: backend/app/api/videos.py, backend/app/services/resolver.py
+    owner: backend
+    tests: []
+
+  - id: AC-006
+    title: 播放地址解析
+    description: 严格按 集数$地址$后缀 格式解析，支持 feifan 分享页解析为 m3u8
+    status: placeholder
+    source: backend/app/services/parser.py, backend/app/services/resolver.py
+    owner: backend
+    tests: []
+
+  - id: AC-007
+    title: 显式选源
+    description: 播放/下载入口强制用户选择来源，不允许自动默认
+    status: placeholder
+    source: frontend/src/components/SourcePicker.tsx
+    owner: frontend
+    tests: []
+
+  - id: AC-008
+    title: ckplayer 播放
+    description: 集成 ckplayer 播放器，支持上一集/下一集、进度恢复、键盘快进快退
+    status: placeholder
+    source: frontend/src/components/VideoPlayer.tsx, frontend/src/pages/Player.tsx
+    owner: frontend
+    tests: []
+
+  - id: AC-009
+    title: 播放进度记录与恢复
+    description: 每 15 秒上报进度，卸载时 sendBeacon 兜底，支持按进度恢复播放
+    status: placeholder
+    source: frontend/src/pages/Player.tsx, backend/app/api/progress.py
+    owner: frontend+backend
+    tests: []
+
+  - id: AC-010
+    title: 收藏管理
+    description: 添加/列表/删除收藏，按 title+year 去重
+    status: placeholder
+    source: frontend/src/pages/Favorites.tsx, backend/app/api/favorites.py
+    owner: frontend+backend
+    tests: []
+
+  - id: AC-011
+    title: 下载任务管理
+    description: 创建下载任务、暂停/恢复/删除，下载根目录一次性配置
+    status: placeholder
+    source: frontend/src/pages/Downloads.tsx, backend/app/api/downloads.py
+    owner: frontend+backend
+    tests: []
+
+  - id: AC-012
+    title: 断点续传下载（HTTP Range + m3u8 .ts）
+    description: 支持 HTTP Range 流式下载和 m3u8 .ts 片段并发下载，ffmpeg 合并或降级拼接
+    status: placeholder
+    source: backend/app/services/downloader.py
+    owner: backend
+    tests: []
+
+  - id: AC-013
+    title: 站点健康监控与自动禁用
+    description: 每 10 分钟探测站点，连续失败 3 次自动禁用，连续成功 2 次自动恢复
+    status: placeholder
+    source: backend/app/services/scheduler.py, backend/app/services/health.py
+    owner: backend
+    tests: []
+
+  - id: AC-014
+    title: VideoCache 缓存管理
+    description: SQLite 缓存详情数据，upsert 机制，5000 行上限，支持手动清理
+    status: placeholder
+    source: backend/app/api/videos.py, backend/app/models.py
+    owner: backend
+    tests: []
+
+  - id: AC-015
+    title: 前端 IndexedDB 缓存
+    description: 聚合列表/详情/集数三层缓存，TTL 5-10 分钟，启动时自动清理过期
+    status: placeholder
+    source: frontend/src/utils/cache.ts
+    owner: frontend
+    tests: []
+
+  - id: AC-016
+    title: 下载进度实时推送（SSE）
+    description: 使用 SSE 替代轮询，实时推送下载进度、状态变化、站点健康事件
+    status: placeholder
+    source: backend/app/api/sse.py, backend/app/services/event_bus.py, frontend/src/pages/Downloads.tsx
+    owner: frontend+backend
+    tests: []
+
+  - id: AC-017
+    title: 局域网部署与静态托管
+    description: FastAPI 绑定 0.0.0.0，CORS 支持局域网，vite build 产物静态托管，缓存头优化
+    status: placeholder
+    source: backend/app/main.py
+    owner: backend
+    tests: []
+
+sprint:
+  id: sprint-001
+  name: 逆向纳入管理
+  status: in_progress
+  started_at: "2026-05-20"

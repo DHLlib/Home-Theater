@@ -1,0 +1,23 @@
+decoupling_plan:
+  status: placeholder
+
+  recommendations:
+    - area: downloader
+      issue: 下载器（downloader.py）同时负责状态机、HTTP Range 下载、m3u8 解析、ffmpeg 合并
+      suggestion: 拆分为 downloader_core / m3u8_handler / merge_engine
+      priority: medium
+
+    - area: videos_api
+      issue: videos.py 同时处理列表聚合、搜索、详情、缓存写入
+      suggestion: 列表/搜索/详情 可拆为独立模块，共用 _write_list_cache 和 _trim_video_cache
+      priority: low
+
+    - area: frontend_api
+      issue: 前端 api/*.ts 文件中缺少统一的错误处理和重试逻辑
+      suggestion: 在 client.ts 中统一封装
+      priority: low
+
+    - area: sse
+      issue: event_bus 使用内存 Queue，单机运行无问题，但不支持多进程/多实例
+      suggestion: 当前架构（单进程 uvicorn）无需改动；如需扩展可用 Redis Pub/Sub
+      priority: low

@@ -1,0 +1,111 @@
+components:
+  - name: sites
+    owner: backend
+    files:
+      - backend/app/api/sites.py
+    responsibilities: 站点 CRUD、分类映射、健康探测
+
+  - name: videos
+    owner: backend
+    files:
+      - backend/app/api/videos.py
+    responsibilities: 列表聚合、搜索、详情、缓存
+
+  - name: play
+    owner: backend
+    files:
+      - backend/app/api/play.py
+    responsibilities: 播放地址解析、集数获取
+
+  - name: downloads
+    owner: backend
+    files:
+      - backend/app/api/downloads.py
+      - backend/app/services/downloader.py
+    responsibilities: 下载任务 CRUD、断点续传、m3u8 下载
+
+  - name: progress
+    owner: backend
+    files:
+      - backend/app/api/progress.py
+    responsibilities: 播放进度记录与查询
+
+  - name: favorites
+    owner: backend
+    files:
+      - backend/app/api/favorites.py
+    responsibilities: 收藏管理
+
+  - name: settings
+    owner: backend
+    files:
+      - backend/app/api/settings_api.py
+    responsibilities: 应用配置（下载根目录等）
+
+  - name: sse
+    owner: backend
+    files:
+      - backend/app/api/sse.py
+      - backend/app/services/event_bus.py
+    responsibilities: SSE 事件推送总线
+
+  - name: scheduler
+    owner: backend
+    files:
+      - backend/app/services/scheduler.py
+      - backend/app/services/health.py
+    responsibilities: 站点健康调度、自动禁用/恢复
+
+  - name: source_client
+    owner: backend
+    files:
+      - backend/app/services/source_client.py
+      - backend/app/services/parser.py
+      - backend/app/services/resolver.py
+    responsibilities: 外部资源站协议封装、地址解析
+
+  - name: aggregator
+    owner: backend
+    files:
+      - backend/app/services/aggregator.py
+    responsibilities: 多源列表聚合去重
+
+  - name: frontend_home
+    owner: frontend
+    files:
+      - frontend/src/pages/Home.tsx
+      - frontend/src/components/VideoCard.tsx
+    responsibilities: 首页视频卡片网格、懒加载封面
+
+  - name: frontend_search
+    owner: frontend
+    files:
+      - frontend/src/pages/Search.tsx
+    responsibilities: 搜索页面
+
+  - name: frontend_detail
+    owner: frontend
+    files:
+      - frontend/src/pages/Detail.tsx
+      - frontend/src/components/EpisodeList.tsx
+      - frontend/src/components/SourcePicker.tsx
+    responsibilities: 详情页、选集、显式选源
+
+  - name: frontend_player
+    owner: frontend
+    files:
+      - frontend/src/pages/Player.tsx
+      - frontend/src/components/VideoPlayer.tsx
+    responsibilities: 播放器、进度上报、键盘控制
+
+  - name: frontend_downloads
+    owner: frontend
+    files:
+      - frontend/src/pages/Downloads.tsx
+    responsibilities: 下载任务列表、状态展示
+
+  - name: frontend_cache
+    owner: frontend
+    files:
+      - frontend/src/utils/cache.ts
+    responsibilities: IndexedDB 缓存层
