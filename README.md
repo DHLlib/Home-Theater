@@ -35,40 +35,82 @@
 
 ## 快速开始
 
-### 1. 克隆与准备
+### 前提
 
-```bash
-cd "D:\workspace_py\Home Theater"
-```
+- Python 3.11+（推荐 3.13）
+- Node.js 18+ 及 npm
 
-### 2. 后端
+### 1. 安装依赖
 
+**后端**：
 ```bash
 cd backend
 pip install -e .
-uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
 ```
 
-后端启动后会自动创建 `backend/data/app.db`（SQLite）。
-
-### 3. 前端（开发模式）
-
+**前端**：
 ```bash
 cd frontend
 npm install
+```
+
+### 2. 开发模式（前后端分别启动）
+
+**步骤 1：启动后端**（新开一个终端）
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+```
+
+- 后端启动后会自动创建 `backend/data/app.db`（SQLite）
+- API 地址：`http://localhost:8181`
+- `--reload` 修改代码后自动重启，开发时开启
+
+**步骤 2：启动前端**（再新开一个终端）
+```bash
+cd frontend
 npm run dev
 ```
 
-前端默认在 `http://localhost:5173` 启动，`/api` 请求会代理到 `http://localhost:8181`。
+- 前端地址：`http://localhost:5173`
+- `vite.config.ts` 中已配置代理：`/api` → `http://localhost:8181`
+- 修改前端代码后浏览器自动热更新
 
-### 4. 生产部署
-
-```bash
-cd frontend && npm run build
-cd ../backend && uvicorn app.main:app --host 0.0.0.0 --port 8181
+**步骤 3：浏览器访问**
+```
+http://localhost:5173
 ```
 
-`vite build` 产物位于 `frontend/dist`，由 FastAPI 自动静态托管。访问 `http://<本机IP>:8181` 即可。
+### 3. 生产模式（单端口）
+
+生产环境不需要启动前端开发服务器，前端构建为静态文件后由 FastAPI 托管。
+
+**步骤 1：构建前端**
+```bash
+cd frontend
+npm run build
+```
+
+构建产物位于 `frontend/dist/`，FastAPI 启动后会自动检测并托管。
+
+**步骤 2：启动后端（不带 --reload）**
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8181
+```
+
+**步骤 3：浏览器访问**
+```
+http://<本机IP>:8181
+```
+
+`0.0.0.0` 表示局域网内其他设备也可访问。
+
+### 4. 局域网部署注意事项
+
+- 确保防火墙允许 8181 端口入站（Windows：设置 → 系统 → 远程桌面 → 高级设置 → 入站规则）
+- 如果端口被占用，换一个端口：`--port 8080`
+- 终止占用端口的进程（Windows）：`taskkill /F /PID <PID>`
 
 ---
 

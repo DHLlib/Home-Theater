@@ -117,19 +117,33 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 ## 常用命令
 
-### 一键启动（推荐）
+### 开发模式（前后端分别启动）
 
-```bash
-python start.py dev   # 开发模式：前后端同时启动
-python start.py prod  # 生产模式：构建前端 + 启动后端（单端口 8181）
-```
+1. **启动后端**（终端 1）：
+   ```bash
+   cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+   ```
 
-### 手动启动
+2. **启动前端**（终端 2）：
+   ```bash
+   cd frontend && npm run dev
+   ```
 
-- 后端开发：`cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload`
-- 前端开发：`cd frontend && npm run dev`
-- 前端构建：`cd frontend && npm run build` —— 产物由 FastAPI 静态托管
-- 联调启动（生产形态）：先 `cd frontend && npm run build`，再 `cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181`
+3. **浏览器访问**：`http://localhost:5173`
+
+### 生产模式（单端口）
+
+1. **构建前端**：
+   ```bash
+   cd frontend && npm run build
+   ```
+
+2. **启动后端**（静态托管 dist）：
+   ```bash
+   cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181
+   ```
+
+3. **浏览器访问**：`http://<本机IP>:8181`
 
 > 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8181`，与后端开发端口保持一致。
 
