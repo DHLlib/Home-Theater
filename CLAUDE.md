@@ -117,6 +117,15 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 ## 常用命令
 
+### 一键启动（推荐）
+
+```bash
+python start.py dev   # 开发模式：前后端同时启动
+python start.py prod  # 生产模式：构建前端 + 启动后端（单端口 8181）
+```
+
+### 手动启动
+
 - 后端开发：`cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload`
 - 前端开发：`cd frontend && npm run dev`
 - 前端构建：`cd frontend && npm run build` —— 产物由 FastAPI 静态托管
