@@ -121,7 +121,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 1. **启动后端**（终端 1）：
    ```bash
-   cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+   cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
    ```
 
 2. **启动前端**（终端 2）：
@@ -140,10 +140,12 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 2. **启动后端**（静态托管 dist）：
    ```bash
-   cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181
+   cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181
    ```
 
-3. **浏览器访问**：`http://<本机IP>:8181`
+3. **浏览器访问**：
+   - `http://<本机IP>:8181` — 局域网内所有设备可用
+   - `http://localhost.com:8181` — 本机访问，不用记 IP
 
 > 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8181`，与后端开发端口保持一致。
 

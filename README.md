@@ -59,7 +59,7 @@ npm install
 **步骤 1：启动后端**（新开一个终端）
 ```bash
 cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
 ```
 
 - 后端启动后会自动创建 `backend/data/app.db`（SQLite）
@@ -96,15 +96,27 @@ npm run build
 **步骤 2：启动后端（不带 --reload）**
 ```bash
 cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8181
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8181
 ```
 
 **步骤 3：浏览器访问**
+
+方式 A — 本机 IP（局域网内其他设备也可用）：
 ```
 http://<本机IP>:8181
 ```
 
-`0.0.0.0` 表示局域网内其他设备也可访问。
+方式 B — `localhost.com`（仅限本机，不用记 IP）：
+```
+http://localhost.com:8181
+```
+
+`localhost.com` 已解析到 `127.0.0.1`，直接访问即可。如果断网时无法解析，在 `C:\Windows\System32\drivers\etc\hosts` 添加一行：
+```
+127.0.0.1  localhost.com
+```
+
+`0.0.0.0` 表示监听所有接口，包括 127.0.0.1 和局域网 IP。
 
 ### 4. 局域网部署注意事项
 
@@ -164,7 +176,8 @@ Home Theater/
 
 | 命令 | 说明 |
 |------|------|
-| `cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload` | 后端开发 |
+| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload` | 后端开发 |
+| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181` | 后端生产 |
 | `cd frontend && npm run dev` | 前端开发 |
 | `cd frontend && npm run build` | 前端构建（产物由 FastAPI 托管） |
 | `taskkill //F //IM python.exe` | 终止所有 Python 进程（Windows） |
