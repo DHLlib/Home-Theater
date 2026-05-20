@@ -376,3 +376,49 @@ async for chunk in resp.aiter_bytes(CHUNK_SIZE):
 ```
 
 **教训**：高频 IO 循环中不要把数据库事务放在热路径上。批量提交能显著提升吞吐量。
+
+---
+
+## 19. SSE 替代轮询：前后端实时通讯优化
+
+**症状**：下载页面每 2 秒轮询 `listDownloads()`，产生大量不必要的 HTTP 请求；大文件下载时进度更新有延迟感。
+
+**原因**：前端使用 `setInterval(() => listDownloads(), 2000)` 轮询，后端即使无变化也返回完整任务列表。并发下载多个文件时请求量倍增。
+
+**解决**：引入 SSE（Server-Sent Events）替代轮询：
+- 后端 `event_bus.py`：基于 `asyncio.Queue` 的内存发布-订阅，支持多客户端
+- 后端 `sse.py`：`GET /api/sse` 返回 `text/event-stream`，30 秒心跳保活
+- 下载器/调度器/下载 API 在状态变化时 `publish(Event(...))`
+- 前端 `sse.ts`：单例 `EventSource`，自动重连，按事件类型订阅
+- `Downloads.tsx`：首次加载调 API，后续由 SSE 事件驱动增量更新
+
+```python
+# 后端：下载进度变化时推送
+publish(Event("download_progress", {
+    "task_id": task_id,
+    "downloaded_bytes": task.downloaded_bytes,
+    "total_bytes": task.total_bytes,
+    "downloaded_segments": task.downloaded_segments,
+    "total_segments": task.total_segments,
+    "status": task.status,
+}))
+```
+
+```typescript
+// 前端：监听事件增量更新
+onSseEvent("download_progress", (ev) => {
+  setTasks((prev) =>
+    prev.map((t) =>
+      t.id === ev.task_id
+        ? { ...t, downloaded_bytes: ev.downloaded_bytes, /* ... */ }
+        : t
+    )
+  );
+});
+```
+
+**教训**：
+1. SSE 是 HTTP 上的单向推送，比 WebSocket 轻量，适合"服务端主动通知客户端"场景
+2. 内存中的 Queue 在单进程模式下足够；多实例部署时需替换为 Redis Pub/Sub
+3. 心跳间隔不要太短（30 秒即可），避免不必要的网络流量
+4. 前端首次加载仍需 REST API 获取完整状态，SSE 只负责后续增量更新
