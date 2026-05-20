@@ -54,10 +54,17 @@ def check_frontend_deps():
     return (FRONTEND_DIR / "node_modules").exists()
 
 
+def npm_cmd(*args) -> list[str]:
+    """返回跨平台的 npm 命令列表。"""
+    if sys.platform == "win32":
+        return ["cmd", "/c", "npm"] + list(args)
+    return ["npm"] + list(args)
+
+
 def install_frontend_deps():
     """安装前端依赖。"""
     print("[HT] 安装前端依赖...")
-    result = run(["npm", "install"], cwd=FRONTEND_DIR)
+    result = run(npm_cmd("install"), cwd=FRONTEND_DIR)
     if result.returncode != 0:
         print("[HT] 前端依赖安装失败")
         sys.exit(1)
@@ -140,7 +147,7 @@ def mode_dev():
     # 启动前端
     print("[HT] 启动前端: http://localhost:5173")
     frontend_proc = subprocess.Popen(
-        ["npm", "run", "dev"],
+        npm_cmd("run", "dev"),
         cwd=FRONTEND_DIR,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
     )
@@ -175,7 +182,7 @@ def mode_prod():
 
     # 构建前端
     print("[HT] 构建前端...")
-    result = run(["npm", "run", "build"], cwd=FRONTEND_DIR)
+    result = run(npm_cmd("run", "build"), cwd=FRONTEND_DIR)
     if result.returncode != 0:
         print("[HT] 前端构建失败")
         sys.exit(1)
