@@ -343,7 +343,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(225,29,72,0.35)",
+                textShadow: "0 0 12px rgba(52,211,153,0.35)",
                 letterSpacing: 0.3,
               }}
             >
@@ -682,7 +682,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(225,29,72,0.35)",
+                textShadow: "0 0 12px rgba(52,211,153,0.35)",
                 letterSpacing: 0.3,
               }}
             >
@@ -712,7 +712,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(225,29,72,0.35)",
+                textShadow: "0 0 12px rgba(52,211,153,0.35)",
                 letterSpacing: 0.3,
               }}
             >
@@ -777,7 +777,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(225,29,72,0.35)",
+                textShadow: "0 0 12px rgba(52,211,153,0.35)",
                 letterSpacing: 0.3,
               }}
             >

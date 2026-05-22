@@ -1,23 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* === 浅色主题（默认）=== */
 :root {
-  /* === Video Streaming OTT 配色系统 === */
-  --bg: #000000;
-  --fg: #F8FAFC;
-  --card: #0C0C0D;
-  --card-hover: #1A1A1C;
-  --muted: #181818;
-  --muted-fg: #94A3B8;
-  --border: #312E81;
-  --primary: #E11D48;
-  --primary-hover: #BE123C;
-  --primary-fg: #FFFFFF;
-  --accent: #E11D48;
-  --danger: #EF4444;
-  --success: #22C55E;
-  --warning: #F59E0B;
-  --text: #F8FAFC;
-  --text-secondary: #94A3B8;
+  --bg: #f9e9cd;
+  --fg: #2c1810;
+  --card: #fff5e6;
+  --card-hover: #ffedd5;
+  --muted: #f0dcc0;
+  --muted-fg: #78716c;
+  --border: rgba(120, 90, 60, 0.18);
+  --primary: #0d9488;
+  --primary-hover: #0f766e;
+  --primary-fg: #ffffff;
+  --accent: #0891b2;
+  --danger: #dc2626;
+  --success: #059669;
+  --warning: #d97706;
+  --text: #2c1810;
+  --text-secondary: #78716c;
 
   /* === 动效 Token === */
   --transition-fast: 150ms ease;
@@ -29,6 +29,26 @@
   --z-modal: 1000;
   --z-nav: 100;
   --z-dropdown: 50;
+}
+
+/* === 深色主题 === */
+[data-theme="dark"] {
+  --bg: #0D1B21;
+  --fg: #E0F2F1;
+  --card: #12242C;
+  --card-hover: #1A3440;
+  --muted: #162D38;
+  --muted-fg: #94A3B8;
+  --border: rgba(52, 211, 153, 0.15);
+  --primary: #34D399;
+  --primary-hover: #6EE7B7;
+  --primary-fg: #0D1B21;
+  --accent: #38BDF8;
+  --danger: #FB7185;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --text: #E0F2F1;
+  --text-secondary: #94A3B8;
 }
 
 * {
@@ -201,7 +221,11 @@ nav {
 
 .nav-link.active {
   color: var(--primary);
-  background: rgba(225, 29, 72, 0.1);
+  background: rgba(13, 148, 136, 0.1);
+}
+
+[data-theme="dark"] .nav-link.active {
+  background: rgba(52, 211, 153, 0.1);
 }
 
 /* === Toast 系统 === */
@@ -246,7 +270,7 @@ nav {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
+  border: 3px solid var(--border);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -294,7 +318,11 @@ nav {
 }
 
 .video-card:hover .poster-wrap {
-  box-shadow: 0 0 20px rgba(225, 29, 72, 0.15);
+  box-shadow: 0 0 20px rgba(13, 148, 136, 0.15);
+}
+
+[data-theme="dark"] .video-card:hover .poster-wrap {
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.15);
 }
 
 .video-card .card-title {
@@ -337,8 +365,15 @@ input[type="search"]:focus,
 select:focus,
 textarea:focus {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.2);
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.2);
   outline: none;
+}
+
+[data-theme="dark"] input[type="text"]:focus,
+[data-theme="dark"] input[type="search"]:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.2);
 }
 
 /* === 横向滚动区域 === */
@@ -378,8 +413,8 @@ textarea:focus {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--card);
+  border: 1px solid var(--border);
   color: var(--fg);
   display: flex;
   align-items: center;
@@ -396,7 +431,7 @@ textarea:focus {
 }
 
 .scroll-arrow:hover {
-  background: rgba(0, 0, 0, 0.9);
+  background: var(--card-hover);
 }
 
 .scroll-arrow.left {
@@ -481,6 +516,6 @@ textarea:focus {
 }
 
 .video-card .card-overlay .action-btn.secondary {
-  background: rgba(255,255,255,0.15);
+  background: var(--muted);
   color: var(--fg);
 }

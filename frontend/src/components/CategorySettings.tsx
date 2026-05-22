@@ -498,7 +498,7 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                                 padding: "6px 8px",
                                 borderRadius: 6,
                                 background: selected
-                                  ? "rgba(225,29,72,0.12)"
+                                  ? "rgba(52,211,153,0.12)"
                                   : "transparent",
                                 border: selected
                                   ? "1px solid var(--accent)"
