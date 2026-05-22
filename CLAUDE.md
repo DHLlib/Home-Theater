@@ -17,9 +17,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **后端**：FastAPI（Python，async）；HTTP 客户端使用 `httpx.AsyncClient` 并发拉取多源
 - **存储**：SQLite + SQLAlchemy（异步驱动 `aiosqlite`）；用户一次性配置的下载根目录持久化在配置表
-- **前端**：React + Vite SPA
+- **前端**：React + Vite SPA，原生 CSS 变量主题系统（浅色/深色双主题）
 - **播放器**：ckplayer（与资源站返回的 `$ckplayer` 后缀对齐）
-- **部署**：纯 Python 脚本运行 —— `uvicorn` 起后端，前端 `vite build` 产物交由 FastAPI 静态文件路由托管
+- **部署**：纯 Python 脚本运行 —— `uvicorn` 起后端，前端 `vite build` 产物交由 FastAPI 静态文件路由托管；亦可通过 `start.ps1` / `stop.ps1` 一键启停
 
 ## 资源站接口规范（硬约定，不可改）
 
@@ -149,6 +149,16 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 > 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8181`，与后端开发端口保持一致。
 
+### Windows 一键启动（PowerShell）
+
+```powershell
+# 启动（自动构建前端 + 起后端）
+.\start.ps1
+
+# 停止
+.\stop.ps1
+```
+
 ## 给未来 Claude 的提醒
 
 - 改动到「资源站请求参数」或「播放地址解析」相关代码时，回头核对本文件的硬规范章节
@@ -158,6 +168,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - **fetch-categories**：后端已过滤 `type_pid=0` 的父分类，不要修改此逻辑让父分类重新进入可选列表
 - **CategorySettings 互斥**：一个 remote_id 只能属于一个系统分类，前端用 occupancy map 维护此约束；如需改动映射逻辑，需同步更新 occupancy 计算和 releaseRemoteId 逻辑
 - **feifan/360zy 后缀处理**：`video_detail` 和 `play.py` 都要对 episodes 做后缀归一化（`feifan` → 解析为真实 m3u8 后 suffix 改为 `ffm3u8`；`360zy` → `ffm3u8`）。只改一处会导致详情页播放和直接刷新播放器行为不一致（见 `docs/lessons-learned.md` #17）
+- **主题系统**：`global.css` 中 `:root` 为浅色主题（`#f9e9cd` 暖米色背景），`[data-theme="dark"]` 为深色主题。新增主题变量或修改颜色时必须同步更新两套变量；组件中的硬编码颜色（如 `rgba(0,0,0,...)`、`#fff`）需检查在另一主题下是否可读。主题切换逻辑在 `App.tsx`（初始化）和 `Layout.tsx`（切换按钮）。
 
 ## 排错优先顺序
 
