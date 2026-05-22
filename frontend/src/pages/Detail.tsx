@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { getDetail } from "../api/videos";
 import { getDownloadRoot } from "../api/settings";
 import { createDownload } from "../api/downloads";
@@ -22,7 +22,29 @@ import type {
 export default function Detail() {
   const location = useLocation();
   const navigate = useNavigate();
-  const item = location.state as AggregatedVideo | undefined;
+  const [searchParams] = useSearchParams();
+
+  const item = useMemo(() => {
+    const fromState = location.state as AggregatedVideo | undefined;
+    if (fromState) return fromState;
+
+    const title = searchParams.get("title");
+    if (!title) return undefined;
+
+    try {
+      const sources = JSON.parse(searchParams.get("sources") || "[]");
+      return {
+        title,
+        year: searchParams.get("year")
+          ? parseInt(searchParams.get("year")!, 10)
+          : null,
+        poster_url: null,
+        sources,
+      } as AggregatedVideo;
+    } catch {
+      return undefined;
+    }
+  }, [location.state, searchParams]);
   const [detail, setDetail] = useState<SourceDetail[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAction, setPickerAction] = useState<"play" | "download" | null>(
@@ -47,10 +69,14 @@ export default function Detail() {
       title: item.title,
       year: item.year,
       sources: item.sources,
-    }).then((r) => {
-      setDetail(r.sources);
-      setCachedDetail(item.title, item.year, r.sources);
-    });
+    })
+      .then((r) => {
+        setDetail(r.sources);
+        setCachedDetail(item.title, item.year, r.sources);
+      })
+      .catch(() => {
+        // ApiError already toasted by client.ts
+      });
   }, [item]);
 
   if (!item) {

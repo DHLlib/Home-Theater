@@ -143,25 +143,6 @@ function TagIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function EditIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  );
-}
-
 function TrashIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -190,6 +171,17 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "cache", label: "缓存管理", icon: <TrashIcon size={14} /> },
 ];
 
+const inputStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "var(--bg)",
+  color: "var(--fg)",
+  fontSize: 14,
+  fontFamily: "inherit",
+  outline: "none",
+};
+
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<TabKey>("sites");
   const [sites, setSites] = useState<Site[]>([]);
@@ -200,6 +192,14 @@ export default function Settings() {
   >({});
   const [clearing, setClearing] = useState(false);
   const [clearedCount, setClearedCount] = useState<number | null>(null);
+
+  /* ---- inline edit states ---- */
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addUrl, setAddUrl] = useState("");
 
   useEffect(() => {
     listSites().then(setSites);
@@ -221,23 +221,50 @@ export default function Settings() {
       .finally(() => setClearing(false));
   };
 
-  const addSite = () => {
-    const name = prompt("站点名称");
-    const base_url = prompt("站点地址（如 http://xxx.php）");
+  /* ---- add site (inline) ---- */
+  const startAdd = () => {
+    setIsAdding(true);
+    setAddName("");
+    setAddUrl("");
+  };
+  const cancelAdd = () => {
+    setIsAdding(false);
+    setAddName("");
+    setAddUrl("");
+  };
+  const confirmAdd = () => {
+    const name = addName.trim();
+    const base_url = addUrl.trim();
     if (!name || !base_url) return;
-    createSite({ name, base_url, enabled: true, sort: 0 }).then((s) =>
-      setSites((prev) => [...prev, s])
-    );
+    createSite({ name, base_url, enabled: true, sort: 0 }).then((s) => {
+      setSites((prev) => [...prev, s]);
+      cancelAdd();
+    });
   };
 
-  const editSite = (site: Site) => {
-    const name = prompt("站点名称", site.name);
-    const base_url = prompt("站点地址", site.base_url);
-    if (name == null || base_url == null) return;
-    if (name === site.name && base_url === site.base_url) return;
-    updateSite(site.id, { name, base_url }).then(() =>
-      listSites().then(setSites)
-    );
+  /* ---- edit site (inline) ---- */
+  const startEdit = (site: Site) => {
+    setEditingId(site.id);
+    setEditName(site.name);
+    setEditUrl(site.base_url);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditUrl("");
+  };
+  const confirmEdit = (site: Site) => {
+    const name = editName.trim();
+    const base_url = editUrl.trim();
+    if (!name || !base_url) return;
+    if (name === site.name && base_url === site.base_url) {
+      cancelEdit();
+      return;
+    }
+    updateSite(site.id, { name, base_url }).then(() => {
+      listSites().then(setSites);
+      cancelEdit();
+    });
   };
 
   const doProbe = (id: number) => {
@@ -249,6 +276,16 @@ export default function Settings() {
   const saveRoot = () => {
     if (!root.trim()) return;
     setDownloadRoot(root.trim()).then((r) => setSavedRoot(r.value));
+  };
+
+  const rowBaseStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 14px",
+    background: "var(--muted)",
+    borderRadius: 8,
+    transition: "background-color 150ms ease, border-color 150ms ease",
   };
 
   return (
@@ -315,7 +352,7 @@ export default function Settings() {
           </div>
 
           <div className="col" style={{ gap: 10 }}>
-            {sites.length === 0 && (
+            {sites.length === 0 && !isAdding && (
               <div
                 className="empty"
                 style={{
@@ -330,176 +367,298 @@ export default function Settings() {
               </div>
             )}
 
-            {sites.map((s) => (
+            {sites.map((s) => {
+              const isEditing = editingId === s.id;
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    ...rowBaseStyle,
+                    border: s.enabled
+                      ? "1px solid transparent"
+                      : "1px solid var(--border)",
+                    opacity: s.enabled ? 1 : 0.55,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (s.enabled && !isEditing) {
+                      e.currentTarget.style.backgroundColor = "var(--card-hover)";
+                      e.currentTarget.style.borderColor = "var(--border)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "var(--muted)";
+                    e.currentTarget.style.borderColor = s.enabled
+                      ? "transparent"
+                      : "var(--border)";
+                  }}
+                >
+                  {/* 状态指示 */}
+                  <div
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: s.enabled
+                        ? "var(--success)"
+                        : "var(--text-secondary)",
+                      flexShrink: 0,
+                    }}
+                    title={s.enabled ? "已启用" : "已禁用"}
+                  />
+
+                  {/* 信息 / 编辑表单 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {isEditing ? (
+                      <div className="col" style={{ gap: 8 }}>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="站点名称"
+                          style={{ ...inputStyle, width: "100%" }}
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          value={editUrl}
+                          onChange={(e) => setEditUrl(e.target.value)}
+                          placeholder="站点地址（如 http://xxx.php）"
+                          style={{ ...inputStyle, width: "100%" }}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 500,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          {s.name}
+                          {!s.enabled && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                background: "var(--border)",
+                                color: "var(--text-secondary)",
+                              }}
+                            >
+                              已禁用
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            opacity: 0.55,
+                            marginTop: 2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={s.base_url}
+                        >
+                          {s.base_url}
+                        </div>
+                        {probeResults[s.id] && (
+                          <div
+                            className="row"
+                            style={{
+                              gap: 4,
+                              fontSize: 12,
+                              marginTop: 4,
+                              color: probeResults[s.id].ok
+                                ? "var(--success)"
+                                : "var(--danger)",
+                            }}
+                          >
+                            {probeResults[s.id].ok ? (
+                              <>
+                                <CheckIcon size={12} />
+                                <span>{probeResults[s.id].latency_ms}ms</span>
+                              </>
+                            ) : (
+                              <>
+                                <XIcon size={12} />
+                                <span>{probeResults[s.id].error}</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                    {isEditing ? (
+                      <>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => confirmEdit(s)}
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                          }}
+                        >
+                          保存
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={cancelEdit}
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                          }}
+                        >
+                          取消
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="btn"
+                          onClick={() => doProbe(s.id)}
+                          title="检测连通性"
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                          }}
+                        >
+                          <ActivityIcon size={12} />
+                          检测
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() => startEdit(s)}
+                          title="编辑"
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                          }}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() =>
+                            updateSite(s.id, { enabled: !s.enabled }).then(() =>
+                              listSites().then(setSites)
+                            )
+                          }
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                          }}
+                        >
+                          {s.enabled ? "禁用" : "启用"}
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() =>
+                            deleteSite(s.id).then(() =>
+                              setSites((prev) => prev.filter((x) => x.id !== s.id))
+                            )
+                          }
+                          title="删除"
+                          style={{
+                            padding: "8px 14px",
+                            minHeight: 40,
+                            fontSize: 12,
+                            color: "var(--danger)",
+                          }}
+                        >
+                          删除
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 添加站点内联表单 */}
+            {isAdding && (
               <div
-                key={s.id}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "12px 14px",
-                  background: "var(--muted)",
-                  borderRadius: 8,
-                  border: s.enabled
-                    ? "1px solid transparent"
-                    : "1px solid var(--border)",
-                  opacity: s.enabled ? 1 : 0.55,
-                  transition:
-                    "background-color 150ms ease, border-color 150ms ease",
-                }}
-                onMouseEnter={(e) => {
-                  if (s.enabled) {
-                    e.currentTarget.style.backgroundColor = "var(--card-hover)";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "var(--muted)";
-                  e.currentTarget.style.borderColor = s.enabled
-                    ? "transparent"
-                    : "var(--border)";
+                  ...rowBaseStyle,
+                  border: "1px solid var(--primary)",
+                  background: "var(--card)",
                 }}
               >
-                {/* 状态指示 */}
                 <div
                   style={{
                     width: 8,
                     height: 8,
                     borderRadius: "50%",
-                    background: s.enabled
-                      ? "var(--success)"
-                      : "var(--text-secondary)",
+                    background: "var(--primary)",
                     flexShrink: 0,
                   }}
-                  title={s.enabled ? "已启用" : "已禁用"}
                 />
-
-                {/* 信息 */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 500,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    {s.name}
-                    {!s.enabled && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          padding: "1px 6px",
-                          borderRadius: 4,
-                          background: "var(--border)",
-                          color: "var(--text-secondary)",
-                        }}
-                      >
-                        已禁用
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      opacity: 0.55,
-                      marginTop: 2,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={s.base_url}
-                  >
-                    {s.base_url}
-                  </div>
-                  {probeResults[s.id] && (
-                    <div
-                      className="row"
-                      style={{
-                        gap: 4,
-                        fontSize: 12,
-                        marginTop: 4,
-                        color: probeResults[s.id].ok
-                          ? "var(--success)"
-                          : "var(--danger)",
-                      }}
-                    >
-                      {probeResults[s.id].ok ? (
-                        <>
-                          <CheckIcon size={12} />
-                          <span>{probeResults[s.id].latency_ms}ms</span>
-                        </>
-                      ) : (
-                        <>
-                          <XIcon size={12} />
-                          <span>{probeResults[s.id].error}</span>
-                        </>
-                      )}
-                    </div>
-                  )}
+                <div className="col" style={{ flex: 1, minWidth: 0, gap: 8 }}>
+                  <input
+                    type="text"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    placeholder="站点名称"
+                    style={{ ...inputStyle, width: "100%" }}
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    value={addUrl}
+                    onChange={(e) => setAddUrl(e.target.value)}
+                    placeholder="站点地址（如 http://xxx.php）"
+                    style={{ ...inputStyle, width: "100%" }}
+                  />
                 </div>
-
-                {/* 操作按钮 */}
                 <div className="row" style={{ gap: 6, flexShrink: 0 }}>
                   <button
-                    className="btn"
-                    onClick={() => doProbe(s.id)}
-                    title="检测连通性"
-                    style={{ padding: "8px 14px", minHeight: 40, fontSize: 12 }}
-                  >
-                    <ActivityIcon size={12} />
-                    检测
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => editSite(s)}
-                    title="编辑"
-                    style={{ padding: "8px 14px", minHeight: 40, fontSize: 12 }}
-                  >
-                    <EditIcon size={12} />
-                    编辑
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() =>
-                      updateSite(s.id, { enabled: !s.enabled }).then(() =>
-                        listSites().then(setSites)
-                      )
-                    }
-                    style={{ padding: "8px 14px", minHeight: 40, fontSize: 12 }}
-                  >
-                    {s.enabled ? "禁用" : "启用"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() =>
-                      deleteSite(s.id).then(() =>
-                        setSites((prev) => prev.filter((x) => x.id !== s.id))
-                      )
-                    }
-                    title="删除"
+                    className="btn btn-primary"
+                    onClick={confirmAdd}
                     style={{
                       padding: "8px 14px",
                       minHeight: 40,
                       fontSize: 12,
-                      color: "var(--danger)",
                     }}
                   >
-                    删除
+                    保存
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={cancelAdd}
+                    style={{
+                      padding: "8px 14px",
+                      minHeight: 40,
+                      fontSize: 12,
+                    }}
+                  >
+                    取消
                   </button>
                 </div>
               </div>
-            ))}
+            )}
 
-            <button
-              className="btn btn-primary"
-              onClick={addSite}
-              style={{ alignSelf: "flex-start", gap: 6 }}
-            >
-              <PlusIcon size={16} />
-              添加站点
-            </button>
+            {!isAdding && (
+              <button
+                className="btn btn-primary"
+                onClick={startAdd}
+                style={{ alignSelf: "flex-start", gap: 6 }}
+              >
+                <PlusIcon size={16} />
+                添加站点
+              </button>
+            )}
           </div>
         </section>
       )}

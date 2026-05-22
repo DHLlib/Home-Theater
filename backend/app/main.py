@@ -2,7 +2,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
@@ -34,9 +34,20 @@ async def lifespan(app: FastAPI):
 
 class CacheControlStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope) -> Response:
-        response = await super().get_response(path, scope)
-        if path == "" or path.endswith(".html"):
+        is_fallback = False
+        try:
+            response = await super().get_response(path, scope)
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 404:
+                response = await super().get_response("index.html", scope)
+                is_fallback = True
+            else:
+                raise
+        if is_fallback or path == "" or path.endswith(".html"):
             response.headers["Cache-Control"] = "no-cache"
+        elif path.endswith(".js") or path.endswith(".css"):
+            # JS/CSS 用短缓存 + must-revalidate，避免构建产物更新后浏览器仍用旧缓存
+            response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
         elif "." in path:
             response.headers["Cache-Control"] = "public, max-age=86400"
         return response

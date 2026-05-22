@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getDetail } from "../api/videos";
 import { addFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
 import type { AggregatedVideo } from "../types";
 
-interface VideoCardProps {
+export interface VideoCardProps {
   item: AggregatedVideo;
   width?: number;
   showOverlay?: boolean;
@@ -57,82 +56,15 @@ function PosterPlaceholder() {
   );
 }
 
-const globalObserverCallbacks = new Map<Element, () => void>();
-
-const globalPosterObserver = new IntersectionObserver(
-  (entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        const cb = globalObserverCallbacks.get(entry.target);
-        if (cb) cb();
-      }
-    });
-  },
-  { rootMargin: "200px" }
-);
-
 function VideoCard({
   item,
   width,
   showOverlay = true,
 }: VideoCardProps) {
   const navigate = useNavigate();
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [poster, setPoster] = useState<string | null>(item.poster_url ?? null);
-  const [loadingPoster, setLoadingPoster] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const fetchedRef = useRef(false);
-  const fetchPosterRef = useRef<(() => void) | null>(null);
 
-  fetchPosterRef.current = () => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    setLoadingPoster(true);
-    const first = item.sources[0];
-
-    const tryFetch = (attempt = 0) => {
-      getDetail({
-        title: item.title,
-        year: item.year,
-        sources: [first],
-      })
-        .then((res) => {
-          const found = res.sources.find(
-            (s) =>
-              s.site_id === first.site_id &&
-              s.original_id === first.original_id
-          );
-          if (found?.poster_url) {
-            setPoster(found.poster_url);
-          }
-        })
-        .catch(() => {
-          if (attempt < 1) {
-            setTimeout(() => tryFetch(attempt + 1), 2000);
-            return;
-          }
-        })
-        .finally(() => setLoadingPoster(false));
-    };
-    tryFetch();
-  };
-
-  useEffect(() => {
-    if (poster || !item.sources.length) return;
-
-    const el = cardRef.current;
-    if (!el) return;
-
-    const callback = () => fetchPosterRef.current?.();
-    globalObserverCallbacks.set(el, callback);
-    globalPosterObserver.observe(el);
-    return () => {
-      globalObserverCallbacks.delete(el);
-      globalPosterObserver.unobserve(el);
-    };
-  }, [poster, item.sources.length]);
-
-  const displayPoster = poster && !imgError ? poster : null;
+  const poster = item.poster_url && !imgError ? item.poster_url : null;
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -150,23 +82,32 @@ function VideoCard({
     addFavorite({
       title: item.title,
       year: item.year,
-      poster_url: displayPoster || item.poster_url || undefined,
+      poster_url: item.poster_url || undefined,
     }).then(() => toastSuccess("已收藏"));
   };
 
   return (
     <div
-      ref={cardRef}
       className="video-card"
       role="button"
       tabIndex={0}
       aria-label={`${item.title}${item.year ? ` (${item.year})` : ""}`}
       style={width ? { width } : undefined}
-      onClick={() => navigate("/detail", { state: item })}
+      onClick={() => {
+        const params = new URLSearchParams();
+        params.set("title", item.title);
+        if (item.year != null) params.set("year", String(item.year));
+        params.set("sources", JSON.stringify(item.sources));
+        navigate(`/detail?${params.toString()}`, { state: item });
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          navigate("/detail", { state: item });
+          const params = new URLSearchParams();
+          params.set("title", item.title);
+          if (item.year != null) params.set("year", String(item.year));
+          params.set("sources", JSON.stringify(item.sources));
+          navigate(`/detail?${params.toString()}`, { state: item });
         }
       }}
     >
@@ -181,16 +122,14 @@ function VideoCard({
           position: "relative",
         }}
       >
-        {displayPoster ? (
+        {poster ? (
           <img
-            src={displayPoster}
+            src={poster}
             alt={item.title}
             loading="lazy"
             onError={() => setImgError(true)}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
-        ) : loadingPoster ? (
-          <div className="skeleton" style={{ width: "100%", height: "100%" }} />
         ) : (
           <PosterPlaceholder />
         )}

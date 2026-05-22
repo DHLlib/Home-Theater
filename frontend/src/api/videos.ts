@@ -34,7 +34,7 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
 
 const pendingDetails = new Map<string, Promise<DetailResponse>>();
 
-const MAX_CONCURRENT_DETAILS = 3;
+const MAX_CONCURRENT_DETAILS = 6;
 let activeDetailCount = 0;
 const detailQueue: Array<() => void> = [];
 

@@ -96,6 +96,120 @@ async def _trim_video_cache(db: AsyncSession, limit: int = 5000) -> None:
         await db.commit()
 
 
+async def _enrich_poster_from_cache(db: AsyncSession, items: list[dict]) -> None:
+    """从 VideoCache 补充 poster_url，减少前端懒加载请求。"""
+    need: list[tuple[int, str, dict]] = []
+    for item in items:
+        if item.get("poster_url"):
+            continue
+        first = item.get("sources", [None])[0]
+        if first:
+            need.append((first["site_id"], first["original_id"], item))
+    if not need:
+        return
+
+    from sqlalchemy import or_
+
+    conditions = [
+        (VideoCache.site_id == sid) & (VideoCache.original_id == oid)
+        for sid, oid, _ in need
+    ]
+    result = await db.execute(
+        select(VideoCache.site_id, VideoCache.original_id, VideoCache.poster_url).where(
+            or_(*conditions),
+            VideoCache.poster_url.isnot(None),
+        )
+    )
+    poster_map: dict[tuple[int, str], str] = {
+        (r.site_id, r.original_id): r.poster_url for r in result.all()
+    }
+    for sid, oid, item in need:
+        if (sid, oid) in poster_map:
+            item["poster_url"] = poster_map[(sid, oid)]
+
+
+async def _batch_enrich_posters(
+    db: AsyncSession,
+    clients: dict[int, SourceClient],
+    items: list[dict],
+) -> None:
+    """批量 videolist 补全缺失的 poster_url，同时把完整数据写入 VideoCache。"""
+    need: list[tuple[int, str, dict]] = []
+    for item in items:
+        if item.get("poster_url"):
+            continue
+        first = item.get("sources", [None])[0]
+        if first:
+            need.append((first["site_id"], first["original_id"], item))
+    if not need:
+        return
+
+    by_site: dict[int, list[tuple[str, dict]]] = {}
+    for site_id, oid, item in need:
+        by_site.setdefault(site_id, []).append((oid, item))
+
+    BATCH_SIZE = 20
+    cache_entries: list[dict] = []
+
+    async def _query_one_site(site_id: int, entries: list[tuple[str, dict]]):
+        client = clients.get(site_id)
+        if not client:
+            return
+        for i in range(0, len(entries), BATCH_SIZE):
+            batch = entries[i:i + BATCH_SIZE]
+            ids = [oid for oid, _ in batch]
+            try:
+                details = await client.videolist(ids=ids)
+                detail_map = {str(d.get("original_id", "")): d for d in details}
+                for oid, item in batch:
+                    d = detail_map.get(oid)
+                    if not d:
+                        continue
+                    if d.get("poster_url"):
+                        item["poster_url"] = d["poster_url"]
+                    cache_entries.append({
+                        "site_id": site_id,
+                        "original_id": oid,
+                        "title": d.get("title", ""),
+                        "year": d.get("year"),
+                        "poster_url": d.get("poster_url"),
+                        "intro": d.get("intro"),
+                        "area": d.get("area"),
+                        "actors": d.get("actors"),
+                        "director": d.get("director"),
+                        "play_url_raw": d.get("play_url_raw", ""),
+                        "cached_at": datetime.utcnow(),
+                    })
+            except Exception:
+                continue
+
+    await asyncio.gather(*[
+        _query_one_site(site_id, entries)
+        for site_id, entries in by_site.items()
+    ])
+
+    for entry in cache_entries:
+        stmt = insert(VideoCache).values(**entry)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["site_id", "original_id"],
+            set_={
+                "title": entry["title"],
+                "year": entry["year"],
+                "poster_url": entry["poster_url"],
+                "intro": entry["intro"],
+                "area": entry["area"],
+                "actors": entry["actors"],
+                "director": entry["director"],
+                "play_url_raw": entry["play_url_raw"],
+                "cached_at": entry["cached_at"],
+            },
+        )
+        await db.execute(stmt)
+    if cache_entries:
+        await db.commit()
+        await _trim_video_cache(db)
+
+
 async def _write_list_cache(db: AsyncSession, per_source: list[list[dict]]) -> None:
     """将列表数据的基础字段写入 VideoCache（upsert，不覆盖已有完整字段）。"""
     for source_items in per_source:
@@ -156,53 +270,56 @@ async def list_videos(
                 tasks.append(_fetch_site(clients[site.id], site, t=t, pg=pg, h=h, by=by))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-    finally:
-        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
-    per_source = []
-    failed_sources = []
-    for raw in results:
-        if isinstance(raw, Exception):
-            continue
-        items, error = raw
-        if error:
-            failed_sources.append(error.model_dump())
-        if items:
-            per_source.append(items)
+        per_source = []
+        failed_sources = []
+        for raw in results:
+            if isinstance(raw, Exception):
+                continue
+            items, error = raw
+            if error:
+                failed_sources.append(error.model_dump())
+            if items:
+                per_source.append(items)
 
-    if not per_source and failed_sources:
-        raise HTTPException(status_code=502, detail="all sources failed")
+        if not per_source and failed_sources:
+            raise HTTPException(status_code=502, detail="all sources failed")
 
-    # 写入 VideoCache 基础字段
-    await _write_list_cache(db, per_source)
+        await _write_list_cache(db, per_source)
 
-    if mode == "source":
-        raw_items = []
-        for source_items in per_source:
-            for item in source_items:
-                raw_items.append({
-                    "title": item.get("title", ""),
-                    "year": item.get("year"),
-                    "poster_url": item.get("poster_url"),
-                    "sources": [{
-                        "site_id": item.get("site_id"),
-                        "original_id": item.get("original_id"),
-                        "type": item.get("type"),
-                        "category": item.get("category"),
-                        "remarks": item.get("remarks"),
-                        "updated_at": item.get("updated_at"),
-                    }],
-                })
+        if mode == "source":
+            raw_items = []
+            for source_items in per_source:
+                for item in source_items:
+                    raw_items.append({
+                        "title": item.get("title", ""),
+                        "year": item.get("year"),
+                        "poster_url": item.get("poster_url"),
+                        "sources": [{
+                            "site_id": item.get("site_id"),
+                            "original_id": item.get("original_id"),
+                            "type": item.get("type"),
+                            "category": item.get("category"),
+                            "remarks": item.get("remarks"),
+                            "updated_at": item.get("updated_at"),
+                        }],
+                    })
+            await _batch_enrich_posters(db, clients, raw_items)
+            await _enrich_poster_from_cache(db, raw_items)
+            return AggregatedListResponse(
+                items=[AggregatedVideo(**item) for item in raw_items],
+                failed_sources=failed_sources,
+            )
+
+        aggregated = aggregate_lists(per_source)
+        await _batch_enrich_posters(db, clients, aggregated)
+        await _enrich_poster_from_cache(db, aggregated)
         return AggregatedListResponse(
-            items=[AggregatedVideo(**item) for item in raw_items],
+            items=[AggregatedVideo(**item) for item in aggregated],
             failed_sources=failed_sources,
         )
-
-    aggregated = aggregate_lists(per_source)
-    return AggregatedListResponse(
-        items=[AggregatedVideo(**item) for item in aggregated],
-        failed_sources=failed_sources,
-    )
+    finally:
+        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
 
 @router.get("/search")
@@ -237,53 +354,56 @@ async def search_videos(
                 tasks.append(_fetch_site(clients[site.id], site, wd=wd, pg=pg))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-    finally:
-        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
-    per_source = []
-    failed_sources = []
-    for raw in results:
-        if isinstance(raw, Exception):
-            continue
-        items, error = raw
-        if error:
-            failed_sources.append(error.model_dump())
-        if items:
-            per_source.append(items)
+        per_source = []
+        failed_sources = []
+        for raw in results:
+            if isinstance(raw, Exception):
+                continue
+            items, error = raw
+            if error:
+                failed_sources.append(error.model_dump())
+            if items:
+                per_source.append(items)
 
-    if not per_source and failed_sources:
-        raise HTTPException(status_code=502, detail="all sources failed")
+        if not per_source and failed_sources:
+            raise HTTPException(status_code=502, detail="all sources failed")
 
-    # 写入 VideoCache 基础字段
-    await _write_list_cache(db, per_source)
+        await _write_list_cache(db, per_source)
 
-    if mode == "source":
-        raw_items = []
-        for source_items in per_source:
-            for item in source_items:
-                raw_items.append({
-                    "title": item.get("title", ""),
-                    "year": item.get("year"),
-                    "poster_url": item.get("poster_url"),
-                    "sources": [{
-                        "site_id": item.get("site_id"),
-                        "original_id": item.get("original_id"),
-                        "type": item.get("type"),
-                        "category": item.get("category"),
-                        "remarks": item.get("remarks"),
-                        "updated_at": item.get("updated_at"),
-                    }],
-                })
+        if mode == "source":
+            raw_items = []
+            for source_items in per_source:
+                for item in source_items:
+                    raw_items.append({
+                        "title": item.get("title", ""),
+                        "year": item.get("year"),
+                        "poster_url": item.get("poster_url"),
+                        "sources": [{
+                            "site_id": item.get("site_id"),
+                            "original_id": item.get("original_id"),
+                            "type": item.get("type"),
+                            "category": item.get("category"),
+                            "remarks": item.get("remarks"),
+                            "updated_at": item.get("updated_at"),
+                        }],
+                    })
+            await _batch_enrich_posters(db, clients, raw_items)
+            await _enrich_poster_from_cache(db, raw_items)
+            return AggregatedListResponse(
+                items=[AggregatedVideo(**item) for item in raw_items],
+                failed_sources=failed_sources,
+            )
+
+        aggregated = aggregate_lists(per_source)
+        await _batch_enrich_posters(db, clients, aggregated)
+        await _enrich_poster_from_cache(db, aggregated)
         return AggregatedListResponse(
-            items=[AggregatedVideo(**item) for item in raw_items],
+            items=[AggregatedVideo(**item) for item in aggregated],
             failed_sources=failed_sources,
         )
-
-    aggregated = aggregate_lists(per_source)
-    return AggregatedListResponse(
-        items=[AggregatedVideo(**item) for item in aggregated],
-        failed_sources=failed_sources,
-    )
+    finally:
+        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
 
 @router.post("/detail")
@@ -302,7 +422,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                 error="site not found",
             )
 
-        # 1. 先查缓存
+        # 1. 先查缓存（必须是完整缓存：有 play_url_raw 才算详情缓存）
         cached_result = await db.execute(
             select(VideoCache).where(
                 VideoCache.site_id == source_ref.site_id,
@@ -310,17 +430,16 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
             )
         )
         cached = cached_result.scalar_one_or_none()
-        if cached:
+        if cached and cached.play_url_raw:
             episodes = []
-            if cached.play_url_raw:
-                try:
-                    parsed = parse_episodes(cached.play_url_raw)
-                    episodes = [
-                        {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
-                        for e in parsed
-                    ]
-                except ValueError:
-                    pass
+            try:
+                parsed = parse_episodes(cached.play_url_raw)
+                episodes = [
+                    {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
+                    for e in parsed
+                ]
+            except ValueError:
+                pass
             return {
                 "site_id": cached.site_id,
                 "site_name": site.name,
