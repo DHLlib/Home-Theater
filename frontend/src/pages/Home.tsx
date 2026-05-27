@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { listSites } from "../api/sites";
-import { listVideos, searchVideos } from "../api/videos";
+import { listVideos, searchVideos, getCrawlerStatus } from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
 import FailedSourcesPanel from "../components/FailedSourcesPanel";
 import VideoCard from "../components/VideoCard";
@@ -133,6 +133,7 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [noMore, setNoMore] = useState(false);
+  const [crawlerStatus, setCrawlerStatus] = useState<{ running: boolean; site_status: Record<string, string> } | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -304,6 +305,27 @@ export default function Home() {
     });
   }, []);
 
+  // 定期检查刮削状态
+  useEffect(() => {
+    const check = () => {
+      getCrawlerStatus().then(setCrawlerStatus).catch(() => {});
+    };
+    check();
+    const id = setInterval(check, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  // 刮削完成后自动刷新（从 syncing 变为 idle）
+  const wasSyncingRef = useRef(false);
+  useEffect(() => {
+    const statuses = Object.values(crawlerStatus?.site_status || {});
+    const isSyncing = statuses.some((s) => s === "full_crawling" || s === "incremental_running");
+    if (wasSyncingRef.current && !isSyncing && videos.length === 0) {
+      loadInitialRef.current();
+    }
+    wasSyncingRef.current = isSyncing;
+  }, [crawlerStatus, videos.length]);
+
   // 筛选条件变化时重置加载
   const loadInitialRef = useRef(loadInitial);
   loadInitialRef.current = loadInitial;
@@ -376,6 +398,10 @@ export default function Home() {
         hotSection.length > 0 ||
         allSection.length > 0
       : Object.keys(sourceGroups).length > 0;
+
+  const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
+    (s) => s === "full_crawling" || s === "incremental_running"
+  );
 
   return (
     <div>
@@ -541,21 +567,43 @@ export default function Home() {
         <>
           {!hasContent && (
             <div className="empty" style={{ padding: 40 }}>
-              <svg
-                className="empty-icon"
-                width="48"
-                height="48"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-                aria-hidden="true"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-              <p>该条件下暂无更新</p>
+              {isSyncing ? (
+                <>
+                  <div
+                    className="spinner"
+                    style={{
+                      width: 48,
+                      height: 48,
+                      margin: "0 auto 16px",
+                      borderWidth: 3,
+                    }}
+                  />
+                  <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+                    正在同步数据
+                  </h2>
+                  <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>
+                    首次初始化预计需要 20-40 分钟，请稍候...
+                  </p>
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="empty-icon"
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  <p>该条件下暂无更新</p>
+                </>
+              )}
             </div>
           )}
 
