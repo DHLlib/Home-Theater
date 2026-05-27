@@ -37,5 +37,21 @@ async def _ensure_columns(conn) -> None:
                     )
                 )
             except Exception:
-                # 列已存在或其他错误，忽略
+                pass
+
+        # video_cache 表（刮削功能新增字段）
+        for col_name, col_type, col_default in [
+            ("type_id", "INTEGER", "NULL"),
+            ("type_name", "VARCHAR", "NULL"),
+            ("remarks", "VARCHAR", "NULL"),
+            ("play_from", "VARCHAR", "NULL"),
+            ("has_detail", "BOOLEAN", "0"),
+        ]:
+            try:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE video_cache ADD COLUMN {col_name} {col_type} DEFAULT {col_default}"
+                    )
+                )
+            except Exception:
                 pass

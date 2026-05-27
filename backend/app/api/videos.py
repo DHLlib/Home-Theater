@@ -1,9 +1,9 @@
 import asyncio
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, desc, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,16 +14,20 @@ from app.schemas import (
     AggregatedVideo,
     DetailRequest,
     DetailResponse,
-    Episode,
     FailedSource,
 )
-from app.services.aggregator import aggregate_lists
+from app.services.aggregator import normalize_title
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
 from app.services.resolver import resolve_feifan
+import app.services.scheduler as scheduler_module
 from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
+
+# ------------------------------------------------------------------
+# 分类解析（复用现有逻辑）
+# ------------------------------------------------------------------
 
 def _resolve_remote_categories(site: Site, category: str | None) -> list[str | int]:
     """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。"""
@@ -38,17 +42,9 @@ def _resolve_remote_categories(site: Site, category: str | None) -> list[str | i
     return results
 
 
-async def _fetch_site(client: SourceClient, site: Site, t=None, pg=None, h=None, wd=None, by=None):
-    try:
-        items = await client.list(t=t, pg=pg, h=h, wd=wd, by=by)
-        return items, None
-    except Exception as exc:
-        return None, FailedSource(
-            site_id=site.id,
-            site_name=site.name,
-            error=str(exc),
-        )
-
+# ------------------------------------------------------------------
+# 集数后缀归一化（复用现有逻辑）
+# ------------------------------------------------------------------
 
 async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
     """把 feifan 解析为真实 m3u8，360zy 统一为 ffm3u8，与 play.py 保持一致。"""
@@ -86,155 +82,9 @@ async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
     ]
 
 
-async def _trim_video_cache(db: AsyncSession, limit: int = 5000) -> None:
-    """限制 VideoCache 行数，删除最老的记录。"""
-    result = await db.execute(select(func.count()).select_from(VideoCache))
-    count = result.scalar_one()
-    if count > limit:
-        subq = select(VideoCache.id).order_by(VideoCache.cached_at).limit(count - limit)
-        await db.execute(delete(VideoCache).where(VideoCache.id.in_(subq)))
-        await db.commit()
-
-
-async def _enrich_poster_from_cache(db: AsyncSession, items: list[dict]) -> None:
-    """从 VideoCache 补充 poster_url，减少前端懒加载请求。"""
-    need: list[tuple[int, str, dict]] = []
-    for item in items:
-        if item.get("poster_url"):
-            continue
-        first = item.get("sources", [None])[0]
-        if first:
-            need.append((first["site_id"], first["original_id"], item))
-    if not need:
-        return
-
-    from sqlalchemy import or_
-
-    conditions = [
-        (VideoCache.site_id == sid) & (VideoCache.original_id == oid)
-        for sid, oid, _ in need
-    ]
-    result = await db.execute(
-        select(VideoCache.site_id, VideoCache.original_id, VideoCache.poster_url).where(
-            or_(*conditions),
-            VideoCache.poster_url.isnot(None),
-        )
-    )
-    poster_map: dict[tuple[int, str], str] = {
-        (r.site_id, r.original_id): r.poster_url for r in result.all()
-    }
-    for sid, oid, item in need:
-        if (sid, oid) in poster_map:
-            item["poster_url"] = poster_map[(sid, oid)]
-
-
-async def _batch_enrich_posters(
-    db: AsyncSession,
-    clients: dict[int, SourceClient],
-    items: list[dict],
-) -> None:
-    """批量 videolist 补全缺失的 poster_url，同时把完整数据写入 VideoCache。"""
-    need: list[tuple[int, str, dict]] = []
-    for item in items:
-        if item.get("poster_url"):
-            continue
-        first = item.get("sources", [None])[0]
-        if first:
-            need.append((first["site_id"], first["original_id"], item))
-    if not need:
-        return
-
-    by_site: dict[int, list[tuple[str, dict]]] = {}
-    for site_id, oid, item in need:
-        by_site.setdefault(site_id, []).append((oid, item))
-
-    BATCH_SIZE = 20
-    cache_entries: list[dict] = []
-
-    async def _query_one_site(site_id: int, entries: list[tuple[str, dict]]):
-        client = clients.get(site_id)
-        if not client:
-            return
-        for i in range(0, len(entries), BATCH_SIZE):
-            batch = entries[i:i + BATCH_SIZE]
-            ids = [oid for oid, _ in batch]
-            try:
-                details = await client.videolist(ids=ids)
-                detail_map = {str(d.get("original_id", "")): d for d in details}
-                for oid, item in batch:
-                    d = detail_map.get(oid)
-                    if not d:
-                        continue
-                    if d.get("poster_url"):
-                        item["poster_url"] = d["poster_url"]
-                    cache_entries.append({
-                        "site_id": site_id,
-                        "original_id": oid,
-                        "title": d.get("title", ""),
-                        "year": d.get("year"),
-                        "poster_url": d.get("poster_url"),
-                        "intro": d.get("intro"),
-                        "area": d.get("area"),
-                        "actors": d.get("actors"),
-                        "director": d.get("director"),
-                        "play_url_raw": d.get("play_url_raw", ""),
-                        "cached_at": datetime.utcnow(),
-                    })
-            except Exception:
-                continue
-
-    await asyncio.gather(*[
-        _query_one_site(site_id, entries)
-        for site_id, entries in by_site.items()
-    ])
-
-    for entry in cache_entries:
-        stmt = insert(VideoCache).values(**entry)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["site_id", "original_id"],
-            set_={
-                "title": entry["title"],
-                "year": entry["year"],
-                "poster_url": entry["poster_url"],
-                "intro": entry["intro"],
-                "area": entry["area"],
-                "actors": entry["actors"],
-                "director": entry["director"],
-                "play_url_raw": entry["play_url_raw"],
-                "cached_at": entry["cached_at"],
-            },
-        )
-        await db.execute(stmt)
-    if cache_entries:
-        await db.commit()
-        await _trim_video_cache(db)
-
-
-async def _write_list_cache(db: AsyncSession, per_source: list[list[dict]]) -> None:
-    """将列表数据的基础字段写入 VideoCache（upsert，不覆盖已有完整字段）。"""
-    for source_items in per_source:
-        for item in source_items:
-            stmt = insert(VideoCache).values(
-                site_id=item.get("site_id"),
-                original_id=item.get("original_id"),
-                title=item.get("title", ""),
-                year=item.get("year"),
-                poster_url=item.get("poster_url"),
-                cached_at=datetime.utcnow(),
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["site_id", "original_id"],
-                set_={
-                    "title": item.get("title", ""),
-                    "year": item.get("year"),
-                    "poster_url": item.get("poster_url"),
-                    "cached_at": datetime.utcnow(),
-                },
-            )
-            await db.execute(stmt)
-    await db.commit()
-    await _trim_video_cache(db)
-
+# ------------------------------------------------------------------
+# 列表 API（改为本地查询）
+# ------------------------------------------------------------------
 
 @router.get("")
 async def list_videos(
@@ -246,81 +96,119 @@ async def list_videos(
     mode: str = "aggregated",
     db: AsyncSession = Depends(get_db),
 ):
+    """从本地 VideoCache 查询并按分类聚合去重。"""
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
     )
     sites = result.scalars().all()
 
-    clients: dict[int, SourceClient] = {}
-    try:
-        for site in sites:
-            clients[site.id] = SourceClient(
-                site_id=site.id, base_url=site.base_url, name=site.name
-            )
-
-        tasks = []
-        for site in sites:
-            if category:
-                remote_cats = _resolve_remote_categories(site, category)
-                if not remote_cats:
-                    continue
-                for remote_cat in remote_cats:
-                    tasks.append(_fetch_site(clients[site.id], site, t=remote_cat, pg=pg, h=h, by=by))
-            else:
-                tasks.append(_fetch_site(clients[site.id], site, t=t, pg=pg, h=h, by=by))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        per_source = []
-        failed_sources = []
-        for raw in results:
-            if isinstance(raw, Exception):
+    # 构建 (site_id, type_id) 过滤条件
+    filters = []
+    for site in sites:
+        if category:
+            remote_cats = _resolve_remote_categories(site, category)
+            if not remote_cats:
                 continue
-            items, error = raw
-            if error:
-                failed_sources.append(error.model_dump())
-            if items:
-                per_source.append(items)
+            for rid in remote_cats:
+                filters.append((site.id, int(rid) if isinstance(rid, str) and rid.isdigit() else rid))
+        elif t is not None:
+            filters.append((site.id, int(t) if isinstance(t, str) and t.isdigit() else t))
+        else:
+            # 不指定分类：该站点全部
+            filters.append((site.id, None))
 
-        if not per_source and failed_sources:
-            raise HTTPException(status_code=502, detail="all sources failed")
+    if not filters:
+        return AggregatedListResponse(items=[], failed_sources=[])
 
-        await _write_list_cache(db, per_source)
-
-        if mode == "source":
-            raw_items = []
-            for source_items in per_source:
-                for item in source_items:
-                    raw_items.append({
-                        "title": item.get("title", ""),
-                        "year": item.get("year"),
-                        "poster_url": item.get("poster_url"),
-                        "sources": [{
-                            "site_id": item.get("site_id"),
-                            "original_id": item.get("original_id"),
-                            "type": item.get("type"),
-                            "category": item.get("category"),
-                            "remarks": item.get("remarks"),
-                            "updated_at": item.get("updated_at"),
-                        }],
-                    })
-            await _batch_enrich_posters(db, clients, raw_items)
-            await _enrich_poster_from_cache(db, raw_items)
-            return AggregatedListResponse(
-                items=[AggregatedVideo(**item) for item in raw_items],
-                failed_sources=failed_sources,
+    # 组装 WHERE 条件
+    conditions = []
+    for site_id, type_id in filters:
+        if type_id is not None:
+            conditions.append(
+                (VideoCache.site_id == site_id) & (VideoCache.type_id == type_id)
             )
+        else:
+            conditions.append(VideoCache.site_id == site_id)
 
-        aggregated = aggregate_lists(per_source)
-        await _batch_enrich_posters(db, clients, aggregated)
-        await _enrich_poster_from_cache(db, aggregated)
+    query = (
+        select(VideoCache)
+        .where(or_(*conditions))
+        .order_by(desc(VideoCache.cached_at), desc(VideoCache.id))
+    )
+    result = await db.execute(query)
+    records = result.scalars().all()
+
+    # 聚合去重
+    bucket: dict[tuple[str, int | None], dict] = {}
+    latest_cache: dict[tuple[str, int | None], datetime] = {}
+    for r in records:
+        key = (normalize_title(r.title), r.year)
+        if key not in bucket:
+            bucket[key] = {
+                "title": r.title,
+                "year": r.year,
+                "poster_url": r.poster_url,
+                "sources": [],
+            }
+            latest_cache[key] = r.cached_at or datetime.min
+        else:
+            if r.cached_at and r.cached_at > latest_cache[key]:
+                latest_cache[key] = r.cached_at
+        source_ref = {
+            "site_id": r.site_id,
+            "original_id": r.original_id,
+            "type": r.type_name,
+            "remarks": r.remarks,
+            "updated_at": r.source_updated_at,
+        }
+        bucket[key]["sources"].append(source_ref)
+
+    # 按最新缓存时间倒序排列，保证每次刷新顺序一致
+    aggregated = sorted(
+        bucket.values(),
+        key=lambda item: latest_cache.get(
+            (normalize_title(item["title"]), item["year"]), datetime.min
+        ),
+        reverse=True,
+    )
+
+    # 分页
+    page = pg or 1
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = aggregated[start:end]
+
+    if mode == "source":
+        # source 模式：平铺展示，不聚合
+        raw_items = []
+        for r in records[start:end]:
+            raw_items.append({
+                "title": r.title,
+                "year": r.year,
+                "poster_url": r.poster_url,
+                "sources": [{
+                    "site_id": r.site_id,
+                    "original_id": r.original_id,
+                    "type": r.type_name,
+                    "remarks": r.remarks,
+                    "updated_at": r.source_updated_at,
+                }],
+            })
         return AggregatedListResponse(
-            items=[AggregatedVideo(**item) for item in aggregated],
-            failed_sources=failed_sources,
+            items=[AggregatedVideo(**item) for item in raw_items],
+            failed_sources=[],
         )
-    finally:
-        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
 
+    return AggregatedListResponse(
+        items=[AggregatedVideo(**item) for item in page_items],
+        failed_sources=[],
+    )
+
+
+# ------------------------------------------------------------------
+# 搜索 API（改为本地 LIKE）
+# ------------------------------------------------------------------
 
 @router.get("/search")
 async def search_videos(
@@ -330,81 +218,119 @@ async def search_videos(
     mode: str = "aggregated",
     db: AsyncSession = Depends(get_db),
 ):
+    """本地 VideoCache LIKE 搜索。"""
+    if not wd or not wd.strip():
+        raise HTTPException(status_code=400, detail="搜索词不能为空")
+
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
     )
     sites = result.scalars().all()
 
-    clients: dict[int, SourceClient] = {}
-    try:
-        for site in sites:
-            clients[site.id] = SourceClient(
-                site_id=site.id, base_url=site.base_url, name=site.name
-            )
-
-        tasks = []
-        for site in sites:
-            if category:
-                remote_cats = _resolve_remote_categories(site, category)
-                if not remote_cats:
-                    continue
-                for remote_cat in remote_cats:
-                    tasks.append(_fetch_site(clients[site.id], site, wd=wd, pg=pg, t=remote_cat))
-            else:
-                tasks.append(_fetch_site(clients[site.id], site, wd=wd, pg=pg))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        per_source = []
-        failed_sources = []
-        for raw in results:
-            if isinstance(raw, Exception):
+    # 分类过滤（同 list_videos）
+    filters = []
+    for site in sites:
+        if category:
+            remote_cats = _resolve_remote_categories(site, category)
+            if not remote_cats:
                 continue
-            items, error = raw
-            if error:
-                failed_sources.append(error.model_dump())
-            if items:
-                per_source.append(items)
+            for rid in remote_cats:
+                filters.append((site.id, int(rid) if isinstance(rid, str) and rid.isdigit() else rid))
+        else:
+            filters.append((site.id, None))
 
-        if not per_source and failed_sources:
-            raise HTTPException(status_code=502, detail="all sources failed")
+    if not filters:
+        return AggregatedListResponse(items=[], failed_sources=[])
 
-        await _write_list_cache(db, per_source)
-
-        if mode == "source":
-            raw_items = []
-            for source_items in per_source:
-                for item in source_items:
-                    raw_items.append({
-                        "title": item.get("title", ""),
-                        "year": item.get("year"),
-                        "poster_url": item.get("poster_url"),
-                        "sources": [{
-                            "site_id": item.get("site_id"),
-                            "original_id": item.get("original_id"),
-                            "type": item.get("type"),
-                            "category": item.get("category"),
-                            "remarks": item.get("remarks"),
-                            "updated_at": item.get("updated_at"),
-                        }],
-                    })
-            await _batch_enrich_posters(db, clients, raw_items)
-            await _enrich_poster_from_cache(db, raw_items)
-            return AggregatedListResponse(
-                items=[AggregatedVideo(**item) for item in raw_items],
-                failed_sources=failed_sources,
+    conditions = []
+    for site_id, type_id in filters:
+        if type_id is not None:
+            conditions.append(
+                (VideoCache.site_id == site_id) & (VideoCache.type_id == type_id)
             )
+        else:
+            conditions.append(VideoCache.site_id == site_id)
 
-        aggregated = aggregate_lists(per_source)
-        await _batch_enrich_posters(db, clients, aggregated)
-        await _enrich_poster_from_cache(db, aggregated)
-        return AggregatedListResponse(
-            items=[AggregatedVideo(**item) for item in aggregated],
-            failed_sources=failed_sources,
+    query = (
+        select(VideoCache)
+        .where(
+            or_(*conditions),
+            VideoCache.title.contains(wd.strip()),
         )
-    finally:
-        await asyncio.gather(*[c.aclose() for c in clients.values()], return_exceptions=True)
+        .order_by(desc(VideoCache.cached_at), desc(VideoCache.id))
+    )
+    result = await db.execute(query)
+    records = result.scalars().all()
 
+    # 聚合去重
+    bucket: dict[tuple[str, int | None], dict] = {}
+    latest_cache: dict[tuple[str, int | None], datetime] = {}
+    for r in records:
+        key = (normalize_title(r.title), r.year)
+        if key not in bucket:
+            bucket[key] = {
+                "title": r.title,
+                "year": r.year,
+                "poster_url": r.poster_url,
+                "sources": [],
+            }
+            latest_cache[key] = r.cached_at or datetime.min
+        else:
+            if r.cached_at and r.cached_at > latest_cache[key]:
+                latest_cache[key] = r.cached_at
+        source_ref = {
+            "site_id": r.site_id,
+            "original_id": r.original_id,
+            "type": r.type_name,
+            "remarks": r.remarks,
+            "updated_at": r.source_updated_at,
+        }
+        bucket[key]["sources"].append(source_ref)
+
+    # 按最新缓存时间倒序排列
+    aggregated = sorted(
+        bucket.values(),
+        key=lambda item: latest_cache.get(
+            (normalize_title(item["title"]), item["year"]), datetime.min
+        ),
+        reverse=True,
+    )
+
+    page = pg or 1
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = aggregated[start:end]
+
+    if mode == "source":
+        raw_items = []
+        for r in records[start:end]:
+            raw_items.append({
+                "title": r.title,
+                "year": r.year,
+                "poster_url": r.poster_url,
+                "sources": [{
+                    "site_id": r.site_id,
+                    "original_id": r.original_id,
+                    "type": r.type_name,
+                    "remarks": r.remarks,
+                    "updated_at": r.source_updated_at,
+                }],
+            })
+        return AggregatedListResponse(
+            items=[AggregatedVideo(**item) for item in raw_items],
+            failed_sources=[],
+        )
+
+    return AggregatedListResponse(
+        items=[AggregatedVideo(**item) for item in page_items],
+        failed_sources=[],
+    )
+
+
+# ------------------------------------------------------------------
+# 详情 API（优先读缓存，未命中再实时请求）
+# ------------------------------------------------------------------
 
 @router.post("/detail")
 async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
@@ -412,6 +338,10 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         select(Site).where(Site.id.in_([s.site_id for s in req.sources]))
     )
     sites = {s.id: s for s in result.scalars().all()}
+
+    # 缓存过期时间：7 天
+    CACHE_TTL_DAYS = 7
+    expire_threshold = datetime.utcnow() - timedelta(days=CACHE_TTL_DAYS)
 
     async def fetch_one(source_ref):
         site = sites.get(source_ref.site_id)
@@ -422,7 +352,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                 error="site not found",
             )
 
-        # 1. 先查缓存（必须是完整缓存：有 play_url_raw 才算详情缓存）
+        # 1. 查缓存
         cached_result = await db.execute(
             select(VideoCache).where(
                 VideoCache.site_id == source_ref.site_id,
@@ -430,7 +360,16 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
             )
         )
         cached = cached_result.scalar_one_or_none()
-        if cached and cached.play_url_raw:
+
+        # 缓存有效条件：有 play_url_raw 且未过期
+        cache_valid = (
+            cached
+            and cached.play_url_raw
+            and cached.cached_at
+            and cached.cached_at > expire_threshold
+        )
+
+        if cache_valid:
             episodes = []
             try:
                 parsed = parse_episodes(cached.play_url_raw)
@@ -454,7 +393,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                 "episodes": episodes,
             }, None, None
 
-        # 2. 缓存未命中，从源站拉取
+        # 2. 缓存未命中或过期，实时请求
         async with SourceClient(
             site_id=site.id, base_url=site.base_url, name=site.name
         ) as client:
@@ -508,6 +447,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                     "play_url_raw": play_raw,
                     "source_updated_at": item.get("updated_at"),
                     "cached_at": datetime.utcnow(),
+                    "has_detail": True,
                 }
                 return data, cache_entry, None
             except Exception as exc:
@@ -552,12 +492,12 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                 "play_url_raw": entry["play_url_raw"],
                 "source_updated_at": entry["source_updated_at"],
                 "cached_at": entry["cached_at"],
+                "has_detail": True,
             },
         )
         await db.execute(stmt)
     if cache_entries:
         await db.commit()
-        await _trim_video_cache(db)
 
     if not sources and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
@@ -568,6 +508,35 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         sources=sources,
     )
 
+
+# ------------------------------------------------------------------
+# 刮削状态 API
+# ------------------------------------------------------------------
+
+@router.get("/crawler/status")
+async def crawler_status():
+    """返回刮削器当前状态。"""
+    if scheduler_module.crawler is None:
+        return {"running": False, "sites": {}}
+    return scheduler_module.crawler.get_status()
+
+
+# ------------------------------------------------------------------
+# 手动触发增量更新 API
+# ------------------------------------------------------------------
+
+@router.post("/crawler/incremental/{site_id}")
+async def trigger_incremental(site_id: int):
+    """手动触发指定站点的增量更新。"""
+    if scheduler_module.crawler is None:
+        raise HTTPException(status_code=503, detail="刮削器未启动")
+    asyncio.create_task(scheduler_module.crawler.run_incremental(site_id))
+    return {"message": f"站点 {site_id} 增量更新已启动"}
+
+
+# ------------------------------------------------------------------
+# 清理缓存 API（保留）
+# ------------------------------------------------------------------
 
 @router.delete("/cache")
 async def clear_video_cache(db: AsyncSession = Depends(get_db)):

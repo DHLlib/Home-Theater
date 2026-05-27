@@ -13,6 +13,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 仓库已按 `backend/` + `frontend/` 两目录拆分 MVP 骨架落地；`backend/data/app.db` 由 SQLAlchemy `Base.metadata.create_all` 启动时自动建表。
 
+### v1.1 刮削架构（新增）
+
+从实时代理模式改为**本地聚合数据库**模式：
+
+- **首次启动**：后端自动检测 VideoCache 是否为空，若为空则在后台启动**全量刮削**（遍历所有站点的所有分类），预计 20-40 分钟
+- **日常更新**：每 5 分钟检测各站第一页，有新内容则自动触发**增量更新**（遇旧即停）
+- **数据存储**：所有 list 字段 + videolist 详情字段全部写入 `VideoCache` 表，封面只存 `poster_url` 外链
+- **首页/搜索**：纯本地 SQLite 查询，不再实时请求资源站
+- **详情页**：优先读 VideoCache 缓存（7 天有效期），过期或缺失才实时 videolist
+
+刮削状态 API：`GET /api/videos/crawler/status`
+手动触发增量：`POST /api/videos/crawler/incremental/{site_id}`
+
 ## 技术栈（已定）
 
 - **后端**：FastAPI（Python，async）；HTTP 客户端使用 `httpx.AsyncClient` 并发拉取多源
@@ -159,6 +172,20 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 .\stop.ps1
 ```
 
+## 数据模型变更（v1.1）
+
+### VideoCache 表扩展字段
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type_id` | INTEGER | 资源站原始分类 ID（remote_id） |
+| `type_name` | VARCHAR | 分类名称（如"港台综艺"） |
+| `remarks` | VARCHAR | 更新状态（如"更新至06集"） |
+| `play_from` | VARCHAR | 播放器类型（如"360zy"、"feifan"） |
+| `has_detail` | BOOLEAN | 是否已 videolist（有 play_url_raw） |
+
+`source_updated_at` 存资源站返回的 `vod_time`（字符串格式），用于增量更新时判断记录是否变更。
+
 ## 给未来 Claude 的提醒
 
 - 改动到「资源站请求参数」或「播放地址解析」相关代码时，回头核对本文件的硬规范章节
@@ -169,6 +196,9 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - **CategorySettings 互斥**：一个 remote_id 只能属于一个系统分类，前端用 occupancy map 维护此约束；如需改动映射逻辑，需同步更新 occupancy 计算和 releaseRemoteId 逻辑
 - **feifan/360zy 后缀处理**：`video_detail` 和 `play.py` 都要对 episodes 做后缀归一化（`feifan` → 解析为真实 m3u8 后 suffix 改为 `ffm3u8`；`360zy` → `ffm3u8`）。只改一处会导致详情页播放和直接刷新播放器行为不一致（见 `docs/lessons-learned.md` #17）
 - **主题系统**：`global.css` 中 `:root` 为浅色主题（`#f9e9cd` 暖米色背景），`[data-theme="dark"]` 为深色主题。新增主题变量或修改颜色时必须同步更新两套变量；组件中的硬编码颜色（如 `rgba(0,0,0,...)`、`#fff`）需检查在另一主题下是否可读。主题切换逻辑在 `App.tsx`（初始化）和 `Layout.tsx`（切换按钮）。
+- **刮削模块**：`app/services/crawler.py` 负责全量/增量刮削；`app/services/scheduler.py` 负责定时调度。修改刮削逻辑时需同步更新状态持久化（AppConfig key="crawler_state"）。
+- **列表排序**：`app/api/videos.py` 的 list/search 查询必须带二级排序 `desc(VideoCache.id)`，否则 `cached_at` 相同时返回顺序不稳定。
+- **crawler 导入**：`app/api/videos.py` 中不能写 `from app.services.scheduler import crawler`（快照导入），必须用 `import app.services.scheduler as scheduler_module` 然后通过 `scheduler_module.crawler` 访问（模块引用）。
 
 ## 排错优先顺序
 

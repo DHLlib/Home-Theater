@@ -140,7 +140,9 @@ class SourceClient:
             "year": _safe_int(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
             "type": raw.get("type_name") or raw.get("type"),
+            "type_id": raw.get("type_id"),
             "remarks": raw.get("vod_remarks"),
+            "play_from": raw.get("vod_play_from"),
             "updated_at": raw.get("vod_time") or raw.get("last"),
         }
 

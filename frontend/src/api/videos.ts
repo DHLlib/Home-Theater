@@ -77,3 +77,8 @@ export function getDetail(req: DetailRequest): Promise<DetailResponse> {
 }
 
 export const clearVideoCache = () => del<{ deleted: number }>("/api/videos/cache");
+
+export const getCrawlerStatus = () => get<{ running: boolean; site_status: Record<string, string> }>("/api/videos/crawler/status");
+
+export const triggerIncremental = (siteId: number) =>
+  post<{ message: string }>(`/api/videos/crawler/incremental/${siteId}`);

@@ -91,6 +91,7 @@ class VideoCache(Base):
     __table_args__ = (
         UniqueConstraint("site_id", "original_id", name="uix_video_cache"),
         Index("ix_video_cache_title_year", "title", "year"),
+        Index("ix_video_cache_type", "site_id", "type_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -106,6 +107,12 @@ class VideoCache(Base):
     play_url_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 刮削相关字段
+    type_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    type_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    play_from: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    has_detail: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class AppConfig(Base):
