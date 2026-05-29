@@ -1,0 +1,776 @@
+# 数据模型与 Schema 契约
+# 版本: 1.0
+# 技术栈: SQLAlchemy 2.0 (ORM) + Pydantic v2 (Backend) + TypeScript (Frontend)
+
+version: "1.0"
+
+# ═══════════════════════════════════════════════════════════════
+# 数据库模型（SQLAlchemy ORM）
+# ═══════════════════════════════════════════════════════════════
+db_models:
+  - name: Site
+    table: sites
+    owner: backend
+    description: 采集站配置
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: name
+        type: String
+        nullable: false
+        unique: true
+      - name: base_url
+        type: String
+        nullable: false
+      - name: enabled
+        type: Boolean
+        default: true
+        nullable: false
+      - name: sort
+        type: Integer
+        default: 0
+        nullable: false
+      - name: categories
+        type: JSON
+        nullable: true
+        description: list[{remote_id, name}]
+      - name: auto_disabled_at
+        type: DateTime
+        nullable: true
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_sites_enabled_sort
+        columns: [enabled, sort]
+    constraints:
+      - type: unique
+        columns: [name]
+
+  - name: Favorite
+    table: favorites
+    owner: backend
+    description: 用户收藏
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    constraints:
+      - name: uix_favorite_title_year
+        type: unique
+        columns: [title, year]
+
+  - name: PlayProgress
+    table: play_progress
+    owner: backend
+    description: 播放进度
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: source_site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: source_video_id
+        type: String
+        nullable: false
+      - name: episode_index
+        type: Integer
+        default: 0
+        nullable: false
+      - name: episode_name
+        type: String
+        default: ""
+        nullable: false
+      - name: position_seconds
+        type: Integer
+        default: 0
+        nullable: false
+      - name: duration_seconds
+        type: Integer
+        nullable: true
+      - name: updated_at
+        type: DateTime
+        default: datetime.utcnow
+        onupdate: datetime.utcnow
+    constraints:
+      - name: uix_progress_title_year
+        type: unique
+        columns: [title, year]
+    indexes:
+      - name: ix_progress_updated_at
+        columns: [updated_at]
+
+  - name: DownloadTask
+    table: download_tasks
+    owner: backend
+    description: 下载任务
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: episode_index
+        type: Integer
+        default: 0
+        nullable: false
+      - name: episode_name
+        type: String
+        default: ""
+        nullable: false
+      - name: source_site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: source_video_id
+        type: String
+        nullable: false
+      - name: url
+        type: String
+        nullable: false
+      - name: suffix
+        type: String
+        nullable: false
+      - name: file_path
+        type: String
+        nullable: false
+      - name: total_bytes
+        type: Integer
+        nullable: true
+      - name: downloaded_bytes
+        type: Integer
+        default: 0
+        nullable: false
+      - name: total_segments
+        type: Integer
+        nullable: true
+      - name: downloaded_segments
+        type: Integer
+        default: 0
+        nullable: false
+      - name: status
+        type: String
+        default: queued
+        nullable: false
+        index: true
+        enum: [queued, downloading, paused, done, error]
+      - name: error
+        type: Text
+        nullable: true
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+      - name: updated_at
+        type: DateTime
+        default: datetime.utcnow
+        onupdate: datetime.utcnow
+    indexes:
+      - name: ix_download_created_at
+        columns: [created_at]
+
+  - name: VideoCache
+    table: video_cache
+    owner: backend
+    description: 视频元数据缓存
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: original_id
+        type: String
+        nullable: false
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: intro
+        type: Text
+        nullable: true
+      - name: area
+        type: String
+        nullable: true
+      - name: actors
+        type: String
+        nullable: true
+      - name: director
+        type: String
+        nullable: true
+      - name: play_url_raw
+        type: Text
+        nullable: true
+      - name: source_updated_at
+        type: String
+        nullable: true
+      - name: cached_at
+        type: DateTime
+        default: datetime.utcnow
+      - name: type_id
+        type: Integer
+        nullable: true
+      - name: type_name
+        type: String
+        nullable: true
+      - name: remarks
+        type: String
+        nullable: true
+      - name: play_from
+        type: String
+        nullable: true
+      - name: has_detail
+        type: Boolean
+        default: false
+        nullable: false
+    constraints:
+      - name: uix_video_cache
+        type: unique
+        columns: [site_id, original_id]
+    indexes:
+      - name: ix_video_cache_title_year
+        columns: [title, year]
+      - name: ix_video_cache_type
+        columns: [site_id, type_id]
+    eviction_policy:
+      strategy: lru_by_cached_at
+      limit: 5000
+      trigger: write_time
+      description: |
+        [GAP-FIX-AC014] 每次写入（crawler upsert 或 detail upsert）后，
+        若 video_cache 总行数 > 5000，则按 cached_at ASC 删除最旧记录，
+        直至剩余 5000 行。建议在 upsert 事务之后立即执行，避免竞态。
+
+  - name: AppConfig
+    table: app_config
+    owner: backend
+    description: 应用级键值配置
+    fields:
+      - name: key
+        type: String
+        pk: true
+      - name: value
+        type: String
+        nullable: false
+      - name: updated_at
+        type: DateTime
+        default: datetime.utcnow
+        onupdate: datetime.utcnow
+
+# ═══════════════════════════════════════════════════════════════
+# Pydantic Schema（Backend 请求/响应）
+# ═══════════════════════════════════════════════════════════════
+pydantic_schemas:
+  - name: Episode
+    fields:
+      - {name: ep_name, type: str}
+      - {name: url, type: str}
+      - {name: suffix, type: str}
+      - {name: index, type: int}
+
+  - name: SourceRef
+    fields:
+      - {name: site_id, type: int}
+      - {name: site_name, type: str | None, default: None}
+      - {name: original_id, type: str}
+      - {name: type, type: str | None, default: None}
+      - {name: category, type: str | None, default: None}
+      - {name: remarks, type: str | None, default: None}
+      - {name: updated_at, type: str | None, default: None}
+    notes: category 字段已声明但在聚合逻辑中未填充，保留供未来扩展
+
+  - name: AggregatedVideo
+    fields:
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: poster_url, type: str | None, default: None}
+      - {name: sources, type: list[SourceRef]}
+
+  - name: AggregatedListResponse
+    fields:
+      - {name: items, type: list[AggregatedVideo]}
+      - {name: failed_sources, type: list[dict], default_factory: list}
+    notes: |
+      [GAP-FIX-AC003/004] failed_sources 已废弃（deprecated），当前架构为缓存优先，
+      列表/搜索接口不产生源站失败信息。backend 继续返回空数组保证兼容，
+      frontend 不再消费该字段。TDD 阶段由 backend agent 确认恒为空，
+      由 frontend agent 从 types.ts 中移除并清理 FailedSourcesPanel。
+
+  - name: SourceDetail
+    fields:
+      - {name: site_id, type: int}
+      - {name: site_name, type: str | None, default: None}
+      - {name: original_id, type: str}
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: poster_url, type: str | None, default: None}
+      - {name: intro, type: str | None, default: None}
+      - {name: area, type: str | None, default: None}
+      - {name: actors, type: str | None, default: None}
+      - {name: director, type: str | None, default: None}
+      - {name: episodes, type: list[Episode], default_factory: list}
+
+  - name: DetailRequest
+    fields:
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: sources, type: list[SourceRef]}
+
+  - name: DetailResponse
+    fields:
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: sources, type: list[SourceDetail]}
+
+  - name: DownloadTaskCreate
+    fields:
+      - {name: site_id, type: int}
+      - {name: original_id, type: str}
+      - {name: episode_index, type: int}
+      - {name: episode_name, type: str}
+      - {name: url, type: str}
+      - {name: suffix, type: str}
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+
+  - name: DownloadTaskOut
+    fields:
+      - {name: id, type: int}
+      - {name: title, type: str}
+      - {name: episode_index, type: int}
+      - {name: episode_name, type: str}
+      - {name: source_site_id, type: int}
+      - {name: source_video_id, type: str}
+      - {name: url, type: str}
+      - {name: suffix, type: str}
+      - {name: file_path, type: str}
+      - {name: total_bytes, type: int | None}
+      - {name: downloaded_bytes, type: int}
+      - {name: total_segments, type: int | None}
+      - {name: downloaded_segments, type: int}
+      - {name: status, type: str}
+      - {name: error, type: str | None}
+      - {name: created_at, type: str | None, default: None}
+      - {name: updated_at, type: str | None, default: None}
+    notes: |
+      status 为自由字符串，当前值为 queued/downloading/paused/done/error。
+      TDD 阶段建议引入 StrEnum 校验，并补充状态机流转约束测试。
+
+  - name: PlayProgressIn
+    fields:
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: source_site_id, type: int}
+      - {name: source_video_id, type: str}
+      - {name: episode_index, type: int}
+      - {name: episode_name, type: str}
+      - {name: position_seconds, type: int}
+      - {name: duration_seconds, type: int | None, default: None}
+
+  - name: PlayProgressOut
+    fields:
+      - {name: id, type: int}
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: source_site_id, type: int}
+      - {name: source_video_id, type: str}
+      - {name: episode_index, type: int}
+      - {name: episode_name, type: str}
+      - {name: position_seconds, type: int}
+      - {name: duration_seconds, type: int | None}
+      - {name: updated_at, type: str | None, default: None}
+
+  - name: FavoriteIn
+    fields:
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: poster_url, type: str | None, default: None}
+
+  - name: FavoriteOut
+    fields:
+      - {name: id, type: int}
+      - {name: title, type: str}
+      - {name: year, type: int | None, default: None}
+      - {name: poster_url, type: str | None, default: None}
+      - {name: created_at, type: str | None, default: None}
+
+  - name: ProbeResult
+    fields:
+      - {name: ok, type: bool}
+      - {name: latency_ms, type: int | None, default: None}
+      - {name: error, type: str | None, default: None}
+
+  - name: CategoryMapping
+    fields:
+      - {name: remote_id, type: str}
+      - {name: name, type: str}
+
+  - name: SiteCategoriesOut
+    fields:
+      - {name: site_id, type: int}
+      - {name: categories, type: list[CategoryMapping]}
+
+  - name: SiteCategoriesUpdate
+    fields:
+      - {name: categories, type: list[CategoryMapping]}
+    notes: |
+      [GAP-FIX-AC002] 后端需在接收此 schema 后执行互斥校验：
+      同一站点内，一个 remote_id 只能出现在一个 CategoryMapping 中。
+      校验失败返回 HTTP 400 + ValidationErrorResponse。
+
+  - name: FailedSource
+    fields:
+      - {name: site_id, type: int | None, default: None}
+      - {name: site_name, type: str | None, default: None}
+      - {name: error, type: str}
+    notes: |
+      已废弃于列表/搜索响应。仅在 detail 内部实时回源时临时使用，
+      不暴露给前端列表接口。
+
+  - name: OkResponse
+    fields:
+      - {name: ok, type: bool}
+
+  - name: MessageResponse
+    fields:
+      - {name: message, type: str}
+
+  - name: DeletedCountResponse
+    fields:
+      - {name: deleted, type: int}
+
+  - name: DeleteDownloadResponse
+    fields:
+      - {name: ok, type: bool}
+      - {name: file_deleted, type: bool | None, default: None}
+      - {name: file_error, type: str | None, default: None}
+
+  - name: ValueRequest
+    fields:
+      - {name: value, type: str}
+
+  - name: ValueResponse
+    fields:
+      - {name: value, type: str}
+
+  - name: HealthResponse
+    fields:
+      - {name: status, type: str}
+
+  - name: ValidationErrorResponse
+    fields:
+      - {name: detail, type: str}
+    notes: |
+      [GAP-FIX-AC002] 新增标准错误响应，用于分类映射互斥校验失败等场景。
+      FastAPI HTTPException(status_code=400, detail=...) 自动映射为此结构。
+
+  - name: CrawlerStatusResponse
+    fields:
+      - {name: running, type: bool}
+      - {name: site_status, type: dict[str, str]}
+
+  - name: SiteCreate
+    fields:
+      - {name: name, type: str}
+      - {name: base_url, type: str}
+      - {name: enabled, type: bool, default: true}
+      - {name: sort, type: int, default: 0}
+
+  - name: SitePatch
+    fields:
+      - {name: name, type: str | None, default: None}
+      - {name: base_url, type: str | None, default: None}
+      - {name: enabled, type: bool | None, default: None}
+      - {name: sort, type: int | None, default: None}
+      - {name: categories, type: list[dict] | None, default: None}
+
+# ═══════════════════════════════════════════════════════════════
+# TypeScript 类型（Frontend）
+# ═══════════════════════════════════════════════════════════════
+typescript_types:
+  - name: Episode
+    definition: |
+      export interface Episode {
+        ep_name: string;
+        url: string;
+        suffix: string;
+        index: number;
+      }
+
+  - name: SourceRef
+    definition: |
+      export interface SourceRef {
+        site_id: number;
+        site_name?: string | null;
+        original_id: string;
+        type?: string;
+        category?: string;
+        remarks?: string;
+        updated_at?: string;
+      }
+
+  - name: AggregatedVideo
+    definition: |
+      export interface AggregatedVideo {
+        title: string;
+        year?: number | null;
+        poster_url?: string | null;
+        sources: SourceRef[];
+      }
+
+  - name: AggregatedListResponse
+    definition: |
+      export interface AggregatedListResponse {
+        items: AggregatedVideo[];
+        /** @deprecated 缓存优先架构下恒为空，待移除 */
+        failed_sources: FailedSource[];
+      }
+    notes: |
+      [GAP-FIX-AC003/004] failed_sources 标记为 deprecated，TDD 阶段由 frontend agent 移除。
+
+  - name: SourceDetail
+    definition: |
+      export interface SourceDetail {
+        site_id: number;
+        site_name?: string | null;
+        original_id: string;
+        title: string;
+        year?: number | null;
+        poster_url?: string | null;
+        intro?: string | null;
+        area?: string | null;
+        actors?: string | null;
+        director?: string | null;
+        episodes: Episode[];
+      }
+
+  - name: DetailRequest
+    definition: |
+      export interface DetailRequest {
+        title: string;
+        year?: number | null;
+        sources: SourceRef[];
+      }
+
+  - name: DetailResponse
+    definition: |
+      export interface DetailResponse {
+        title: string;
+        year?: number | null;
+        sources: SourceDetail[];
+      }
+
+  - name: DownloadTaskCreate
+    definition: |
+      export interface DownloadTaskCreate {
+        site_id: number;
+        original_id: string;
+        episode_index: number;
+        episode_name: string;
+        url: string;
+        suffix: string;
+        title: string;
+        year?: number | null;
+      }
+
+  - name: DownloadTask
+    definition: |
+      export interface DownloadTask {
+        id: number;
+        title: string;
+        episode_index: number;
+        episode_name: string;
+        source_site_id: number;
+        source_video_id: string;
+        url: string;
+        suffix: string;
+        file_path: string;
+        total_bytes?: number | null;
+        downloaded_bytes: number;
+        total_segments?: number | null;
+        downloaded_segments: number;
+        status: string;
+        error?: string | null;
+        created_at?: string | null;
+        updated_at?: string | null;
+      }
+
+  - name: PlayProgressIn
+    definition: |
+      export interface PlayProgressIn {
+        title: string;
+        year?: number | null;
+        source_site_id: number;
+        source_video_id: string;
+        episode_index: number;
+        episode_name: string;
+        position_seconds: number;
+        duration_seconds?: number | null;
+      }
+
+  - name: PlayProgress
+    definition: |
+      export interface PlayProgress {
+        id: number;
+        title: string;
+        year?: number | null;
+        source_site_id: number;
+        source_video_id: string;
+        episode_index: number;
+        episode_name: string;
+        position_seconds: number;
+        duration_seconds?: number | null;
+        updated_at?: string | null;
+      }
+
+  - name: FavoriteIn
+    definition: |
+      export interface FavoriteIn {
+        title: string;
+        year?: number | null;
+        poster_url?: string | null;
+      }
+
+  - name: Favorite
+    definition: |
+      export interface Favorite {
+        id: number;
+        title: string;
+        year?: number | null;
+        poster_url?: string | null;
+        created_at?: string | null;
+      }
+
+  - name: ProbeResult
+    definition: |
+      export interface ProbeResult {
+        ok: boolean;
+        latency_ms?: number | null;
+        error?: string | null;
+      }
+
+  - name: FailedSource
+    definition: |
+      export interface FailedSource {
+        site_id?: number | null;
+        site_name?: string | null;
+        error: string;
+      }
+    notes: |
+      [GAP-FIX-AC003/004] 已废弃。TDD 阶段由 frontend agent 从 types.ts 移除，
+      并清理 FailedSourcesPanel 组件。
+
+  - name: CategoryMapping
+    definition: |
+      export interface CategoryMapping {
+        remote_id: string;
+        name: string;
+      }
+
+  - name: Site
+    definition: |
+      export interface Site {
+        id: number;
+        name: string;
+        base_url: string;
+        enabled: boolean;
+        sort: number;
+        categories?: CategoryMapping[] | null;
+        created_at?: string | null;
+      }
+
+  - name: ValidationErrorResponse
+    definition: |
+      export interface ValidationErrorResponse {
+        detail: string;
+      }
+    notes: |
+      [GAP-FIX-AC002] 新增错误响应类型，供前端统一处理 400 校验错误。
+
+  - name: CrawlerStatusResponse
+    definition: |
+      export interface CrawlerStatusResponse {
+        running: boolean;
+        site_status: Record<string, string>;
+      }
+
+# ═══════════════════════════════════════════════════════════════
+# 类型同步检查清单
+# ═══════════════════════════════════════════════════════════════
+type_sync:
+  - field: Episode
+    backend: schemas.py class Episode
+    frontend: types.ts interface Episode
+    status: synced
+  - field: SourceRef
+    backend: schemas.py class SourceRef
+    frontend: types.ts interface SourceRef
+    status: synced
+    note: category 字段两边均声明但未在核心业务流填充
+  - field: AggregatedListResponse
+    backend: schemas.py class AggregatedListResponse
+    frontend: types.ts interface AggregatedListResponse
+    status: synced
+    note: failed_sources deprecated
+  - field: DetailRequest / DetailResponse
+    backend: schemas.py class DetailRequest / DetailResponse
+    frontend: types.ts interface DetailRequest / DetailResponse
+    status: synced
+  - field: DownloadTaskCreate / DownloadTaskOut
+    backend: schemas.py class DownloadTaskCreate / DownloadTaskOut
+    frontend: types.ts interface DownloadTaskCreate / DownloadTask
+    status: synced
+  - field: PlayProgressIn / PlayProgressOut
+    backend: schemas.py class PlayProgressIn / PlayProgressOut
+    frontend: types.ts interface PlayProgressIn / PlayProgress
+    status: synced
+  - field: FavoriteIn / FavoriteOut
+    backend: schemas.py class FavoriteIn / FavoriteOut
+    frontend: types.ts interface FavoriteIn / Favorite
+    status: synced
+  - field: ProbeResult
+    backend: schemas.py class ProbeResult
+    frontend: types.ts interface ProbeResult
+    status: synced
+  - field: CategoryMapping / SiteCategoriesOut / SiteCategoriesUpdate
+    backend: schemas.py class CategoryMapping / SiteCategoriesOut / SiteCategoriesUpdate
+    frontend: types.ts interface CategoryMapping
+    status: partial
+    note: SiteCategoriesOut / SiteCategoriesUpdate 未在 frontend types.ts 显式定义，由 api/sites.ts 内联推断
+  - field: Site
+    backend: models.py class Site (ORM)
+    frontend: types.ts interface Site
+    status: synced

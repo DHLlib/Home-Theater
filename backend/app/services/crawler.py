@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -37,6 +39,7 @@ class Crawler:
         self._db_factory = db_factory
         self._site_status: dict[int, str] = {}  # site_id -> status
         self._running = False
+        self._logs: deque[dict] = deque(maxlen=50)
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -54,14 +57,19 @@ class Crawler:
             await self.run_full_crawl()
 
     async def run_full_crawl(self):
-        """首次全量刮削所有站点。"""
+        """首次全量刮削所有站点（站点间并发，最多 3 个同时）。"""
         async with self._db_factory() as db:
             sites = await self._get_enabled_sites(db)
 
-        for site in sites:
+        semaphore = asyncio.Semaphore(3)
+
+        async def _crawl_one(site: Site):
             if not self._running:
-                break
-            await self._crawl_site_full(site)
+                return
+            async with semaphore:
+                await self._crawl_site_full(site)
+
+        await asyncio.gather(*[_crawl_one(s) for s in sites])
 
     async def run_incremental(self, site_id: int):
         """对指定站点执行增量更新。"""
@@ -123,6 +131,10 @@ class Crawler:
             "overall": "running" if self._running else "stopped",
         }
 
+    def get_logs(self) -> list[dict]:
+        """返回最近 50 条刮削日志。"""
+        return list(self._logs)
+
     async def stop(self):
         self._running = False
 
@@ -149,6 +161,7 @@ class Crawler:
                 categories = [None]
 
             need_videolist: list[dict] = []
+            batch_entries: list[dict] = []
 
             for cat_id in categories:
                 cat_key = str(cat_id) if cat_id else "__all__"
@@ -156,30 +169,68 @@ class Crawler:
                 last_vod_time = None
 
                 while self._running:
-                    items = await self._fetch_list_page(client, cat_id, page)
-                    if not items:
+                    start_time = time.time()
+                    # 并发拉取多页，减少等待时间
+                    tasks = [
+                        self._fetch_list_page(client, cat_id, p)
+                        for p in range(page, page + self.PAGE_CONCURRENCY)
+                    ]
+                    results = await asyncio.gather(*tasks)
+
+                    reached_end = False
+                    page_items_count = 0
+                    for items in results:
+                        if not items:
+                            reached_end = True
+                            break
+
+                        page_items_count += len(items)
+                        for item in items:
+                            entry = self._build_list_entry(site.id, item)
+                            batch_entries.append(entry)
+                            # 全量时统一后补 videolist
+                            need_videolist.append(entry)
+
+                        # 批量 upsert list 字段（每 100 条一刷）
+                        if len(batch_entries) >= 100:
+                            async with self._db_factory() as db:
+                                await self._batch_upsert_list_fields(db, batch_entries)
+                            batch_entries = []
+
+                        last_vod_time = items[-1].get("updated_at")
+
+                        # 页末检测：返回不足一页说明已到末尾
+                        if len(items) < 20:
+                            reached_end = True
+                            break
+
+                        # 避免内存无限堆积
+                        if len(need_videolist) >= 200:
+                            await self._batch_videolist(site, client, need_videolist)
+                            need_videolist = []
+
+                    # 记录本页日志（全量）
+                    self._add_log(
+                        site=site,
+                        category=cat_id,
+                        page=page,
+                        crawl_type="full",
+                        items_count=page_items_count,
+                        new_count=0,
+                        update_count=0,
+                        duration_ms=int((time.time() - start_time) * 1000),
+                    )
+
+                    if reached_end:
                         break
 
-                    for item in items:
-                        entry = self._build_list_entry(site.id, item)
-                        async with self._db_factory() as db:
-                            await self._upsert_list_fields(db, entry)
+                    page += self.PAGE_CONCURRENCY
 
-                        # 全量时统一后补 videolist
-                        need_videolist.append(entry)
-
-                    last_vod_time = items[-1].get("updated_at")
-
-                    # 页末检测：返回不足一页说明已到末尾
-                    if len(items) < 20:
-                        break
-
-                    page += 1
-
-                    # 避免内存无限堆积
-                    if len(need_videolist) >= 200:
-                        await self._batch_videolist(site, client, need_videolist)
-                        need_videolist = []
+                # 分类结束：刷新剩余 batch_entries
+                if batch_entries:
+                    async with self._db_factory() as db:
+                        await self._batch_upsert_list_fields(db, batch_entries)
+                    batch_entries = []
 
                 cat_states[cat_key] = {"last_vod_time": last_vod_time}
 
@@ -224,6 +275,7 @@ class Crawler:
             categories = [None]
 
         need_videolist: list[dict] = []
+        batch_entries: list[dict] = []
 
         try:
             for cat_id in categories:
@@ -235,9 +287,14 @@ class Crawler:
                 new_last_vod_time = None
 
                 while self._running and not stopped:
+                    start_time = time.time()
                     items = await self._fetch_list_page(client, cat_id, page)
                     if not items:
                         break
+
+                    page_items_count = 0
+                    new_count = 0
+                    update_count = 0
 
                     for item in items:
                         item_vod_time = item.get("updated_at")
@@ -247,6 +304,8 @@ class Crawler:
                             stopped = True
                             break
 
+                        page_items_count += 1
+
                         # 判断是否需要 videolist
                         async with self._db_factory() as db:
                             existing = await self._get_cached_item(
@@ -254,11 +313,34 @@ class Crawler:
                             )
 
                         entry = self._build_list_entry(site.id, item)
-                        async with self._db_factory() as db:
-                            await self._upsert_list_fields(db, entry)
 
-                        if not existing or existing.source_updated_at != item_vod_time:
+                        if not existing:
+                            new_count += 1
+                            batch_entries.append(entry)
                             need_videolist.append(entry)
+                        elif existing.source_updated_at != item_vod_time:
+                            update_count += 1
+                            batch_entries.append(entry)
+                            need_videolist.append(entry)
+                        # 已有且未变化：跳过，不更新 cached_at，避免首页排序抖动
+
+                        # 批量 upsert list 字段（每 100 条一刷）
+                        if len(batch_entries) >= 100:
+                            async with self._db_factory() as db:
+                                await self._batch_upsert_list_fields(db, batch_entries)
+                            batch_entries = []
+
+                    # 记录本页日志（增量）
+                    self._add_log(
+                        site=site,
+                        category=cat_id,
+                        page=page,
+                        crawl_type="incremental",
+                        items_count=page_items_count,
+                        new_count=new_count,
+                        update_count=update_count,
+                        duration_ms=int((time.time() - start_time) * 1000),
+                    )
 
                     if not stopped:
                         new_last_vod_time = items[-1].get("updated_at")
@@ -269,6 +351,12 @@ class Crawler:
                         if len(need_videolist) >= 200:
                             await self._batch_videolist(site, client, need_videolist)
                             need_videolist = []
+
+                # 分类结束：刷新剩余 batch_entries
+                if batch_entries:
+                    async with self._db_factory() as db:
+                        await self._batch_upsert_list_fields(db, batch_entries)
+                    batch_entries = []
 
                 if new_last_vod_time:
                     cat_states[cat_key] = {"last_vod_time": new_last_vod_time}
@@ -338,14 +426,16 @@ class Crawler:
                 details = await client.videolist(ids=ids)
                 detail_map = {str(d.get("original_id", "")): d for d in details}
 
+                detail_entries = []
                 for entry in batch:
                     d = detail_map.get(entry["original_id"])
                     if not d:
                         continue
+                    detail_entries.append(self._build_detail_entry(site.id, d))
 
-                    detail_entry = self._build_detail_entry(site.id, d)
+                if detail_entries:
                     async with self._db_factory() as db:
-                        await self._upsert_detail_fields(db, detail_entry)
+                        await self._batch_upsert_detail_fields(db, detail_entries)
 
             except Exception as exc:
                 print(f"批量 videolist 站点 {site.name} 失败: {exc}")
@@ -360,6 +450,14 @@ class Crawler:
             )
         )
         return result.scalar_one_or_none()
+
+    # ------------------------------------------------------------------
+    # 缓存淘汰（write-time eviction，上限 5000）
+    # ------------------------------------------------------------------
+
+    async def _evict_if_overflow(self, db: AsyncSession) -> None:
+        """取消 LRU 淘汰：本机/局域网部署，磁盘空间不是瓶颈，完整保留刮削数据。"""
+        pass
 
     # ------------------------------------------------------------------
     # 数据构建
@@ -440,6 +538,95 @@ class Crawler:
         )
         await db.execute(stmt)
         await db.commit()
+
+    # ------------------------------------------------------------------
+    # 批量 upsert（减少事务开销）
+    # ------------------------------------------------------------------
+
+    async def _batch_upsert_list_fields(self, db: AsyncSession, entries: list[dict]):
+        if not entries:
+            return
+        stmt = insert(VideoCache).values(entries)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["site_id", "original_id"],
+            set_={
+                "title": stmt.excluded.title,
+                "year": stmt.excluded.year,
+                "type_id": stmt.excluded.type_id,
+                "type_name": stmt.excluded.type_name,
+                "remarks": stmt.excluded.remarks,
+                "play_from": stmt.excluded.play_from,
+                "source_updated_at": stmt.excluded.source_updated_at,
+                "cached_at": stmt.excluded.cached_at,
+            },
+        )
+        await db.execute(stmt)
+        await db.commit()
+        await self._evict_if_overflow(db)
+
+    async def _batch_upsert_detail_fields(self, db: AsyncSession, entries: list[dict]):
+        if not entries:
+            return
+        stmt = insert(VideoCache).values(entries)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["site_id", "original_id"],
+            set_={
+                "title": stmt.excluded.title,
+                "year": stmt.excluded.year,
+                "poster_url": stmt.excluded.poster_url,
+                "intro": stmt.excluded.intro,
+                "area": stmt.excluded.area,
+                "actors": stmt.excluded.actors,
+                "director": stmt.excluded.director,
+                "play_url_raw": stmt.excluded.play_url_raw,
+                "has_detail": stmt.excluded.has_detail,
+                # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
+                # 未返回 updated_at 时将其刷为 None
+                "cached_at": stmt.excluded.cached_at,
+            },
+        )
+        await db.execute(stmt)
+        await db.commit()
+        await self._evict_if_overflow(db)
+
+    # ------------------------------------------------------------------
+    # 日志
+    # ------------------------------------------------------------------
+
+    def _add_log(
+        self,
+        *,
+        site: Site,
+        category: str | int | None,
+        page: int,
+        crawl_type: str,
+        items_count: int,
+        new_count: int,
+        update_count: int,
+        duration_ms: int,
+    ):
+        """记录单页刮削日志，内存保留最近 50 条。"""
+        # 解析分类名称
+        type_name = "全部"
+        if category is not None and site.categories:
+            for c in site.categories:
+                rid = c.get("remote_id")
+                if str(rid) == str(category):
+                    type_name = c.get("name") or "全部"
+                    break
+
+        self._logs.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "site_id": site.id,
+            "site_name": site.name,
+            "category": type_name,
+            "page": page,
+            "crawl_type": crawl_type,
+            "items_count": items_count,
+            "new_count": new_count,
+            "update_count": update_count,
+            "duration_ms": duration_ms,
+        })
 
     # ------------------------------------------------------------------
     # 状态持久化

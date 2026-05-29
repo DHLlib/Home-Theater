@@ -1,46 +1,79 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Home Theater Stop Script
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $projectRoot "backend"
+$frontendDir = Join-Path $projectRoot "frontend"
 $pidFile = Join-Path $backendDir ".pid"
+$pidFileFrontend = Join-Path $frontendDir ".pid"
 
 $stopped = $false
 
-# Method 1: terminate by PID file
+# ── Stop backend by PID file ────────────────────────────────────
 if (Test-Path $pidFile) {
     $pidValue = Get-Content $pidFile
     try {
         Stop-Process -Id $pidValue -Force -ErrorAction Stop
-        Write-Host "[OK] Stopped PID $pidValue" -ForegroundColor Green
+        Write-Host "[OK] Stopped backend PID $pidValue" -ForegroundColor Green
         $stopped = $true
     } catch {
-        Write-Host "[WARN] PID $pidValue not found" -ForegroundColor Yellow
+        Write-Host "[WARN] Backend PID $pidValue not found" -ForegroundColor Yellow
     }
     Remove-Item $pidFile -Force
 }
 
-# Method 2: fallback - terminate by command line matching
-$remaining = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+# ── Stop frontend dev server by PID file ────────────────────────
+if (Test-Path $pidFileFrontend) {
+    $pidValue = Get-Content $pidFileFrontend
     try {
-        $cmd = (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
+        Stop-Process -Id $pidValue -Force -ErrorAction Stop
+        Write-Host "[OK] Stopped frontend PID $pidValue" -ForegroundColor Green
+        $stopped = $true
+    } catch {
+        Write-Host "[WARN] Frontend PID $pidValue not found" -ForegroundColor Yellow
+    }
+    Remove-Item $pidFileFrontend -Force
+}
+
+# ── Fallback: terminate backend by command line matching ────────
+$remainingBackend = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+    try {
+        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
         $cmd -like "*uvicorn*app.main:app*" -and $cmd -like "*$($projectRoot.Replace('\', '\\'))*"
     } catch {
         $false
     }
 }
 
-if ($remaining) {
-    foreach ($p in $remaining) {
+if ($remainingBackend) {
+    foreach ($p in $remainingBackend) {
         Stop-Process -Id $p.Id -Force
-        Write-Host "[OK] Stopped orphan PID $($p.Id)" -ForegroundColor Green
+        Write-Host "[OK] Stopped orphan backend PID $($p.Id)" -ForegroundColor Green
+        $stopped = $true
+    }
+}
+
+# ── Fallback: terminate frontend dev server by command line ─────
+$remainingFrontend = Get-Process node -ErrorAction SilentlyContinue | Where-Object {
+    try {
+        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
+        $cmd -like "*vite*" -and $cmd -like "*$($projectRoot.Replace('\', '\\'))*"
+    } catch {
+        $false
+    }
+}
+
+if ($remainingFrontend) {
+    foreach ($p in $remainingFrontend) {
+        Stop-Process -Id $p.Id -Force
+        Write-Host "[OK] Stopped orphan frontend PID $($p.Id)" -ForegroundColor Green
         $stopped = $true
     }
 }
 
 if ($stopped) {
-    Write-Host "[OK] Stopped" -ForegroundColor Green
+    Write-Host "[OK] All processes stopped" -ForegroundColor Green
 } else {
     Write-Host "[INFO] No running Home Theater process" -ForegroundColor Cyan
 }

@@ -1,13 +1,11 @@
 import { useState } from "react";
 import { searchVideos } from "../api/videos";
-import FailedSourcesPanel from "../components/FailedSourcesPanel";
 import VideoCard from "../components/VideoCard";
-import type { AggregatedVideo, FailedSource } from "../types";
+import type { AggregatedVideo } from "../types";
 
 export default function Search() {
   const [wd, setWd] = useState("");
   const [videos, setVideos] = useState<AggregatedVideo[]>([]);
-  const [failed, setFailed] = useState<FailedSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -22,11 +20,9 @@ export default function Search() {
     searchVideos({ wd: q })
       .then((r) => {
         setVideos(r.items);
-        setFailed(r.failed_sources);
       })
       .catch((err) => {
         setVideos([]);
-        setFailed([]);
         setError(err instanceof Error ? err.message : "搜索失败");
       })
       .finally(() => setLoading(false));
@@ -73,8 +69,6 @@ export default function Search() {
           {error}
         </div>
       )}
-
-      <FailedSourcesPanel failed={failed} />
 
       {!loading && searched && videos.length === 0 && !error && (
         <div className="empty" style={{ padding: 40 }}>

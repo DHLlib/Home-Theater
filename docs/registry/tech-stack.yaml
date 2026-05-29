@@ -1,0 +1,41 @@
+version: "1.0.0"
+
+project_type: fullstack
+
+backend:
+  language: python
+  framework: FastAPI
+  package_manager: pip
+  build_command: ""
+  test_command: "pytest"
+  test_framework: pytest
+  src_dir: "backend/app"
+  entry_point: "backend/app/main.py"
+  app_factory: "backend/app/main.py"
+  start_command: "python -m uvicorn backend.app.main:app --reload"
+
+frontend:
+  language: typescript
+  framework: React
+  package_manager: npm
+  build_command: "npm run build"
+  test_command: ""
+  test_framework: ""
+  src_dir: "frontend/src"
+  entry_point: "frontend/src/main.tsx"
+  start_command: "npm run dev"
+
+shared:
+  src_dir: "shared"
+
+test:
+  root: "test"
+
+features:
+  root: "docs/features"
+
+contracts:
+  root: "docs/contracts"
+
+registry:
+  root: "docs/registry"

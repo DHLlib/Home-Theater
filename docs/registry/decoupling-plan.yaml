@@ -1,0 +1,21 @@
+# 解耦计划（Reverse 模式）
+# 分析结论：现有代码结构清晰，无严重耦合，无需拆分/合并/迁移
+# 产出时间: 2026-05-27
+
+version: "1.0"
+analysis:
+  total_components: 51
+  candidate_splits: 0
+  candidate_merges: 0
+  candidate_migrates: 0
+  conclusion: |
+    代码库按 domain 分层清晰：
+    - backend/app/api/ 每个文件对应独立 domain router
+    - backend/app/services/ 每个文件对应单一服务职责
+    - frontend/src/pages/ 与 components/ 分离合理
+    - 未发现循环依赖（alignment-report 已验证）
+    - 无归属与实际使用不符的组件
+    
+    因此 decoupling-plan 为空（no-op）。
+
+actions: []

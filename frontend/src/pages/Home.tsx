@@ -3,13 +3,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { listSites } from "../api/sites";
 import { listVideos, searchVideos, getCrawlerStatus } from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
-import FailedSourcesPanel from "../components/FailedSourcesPanel";
 import VideoCard from "../components/VideoCard";
 import {
   getCachedAggregated,
   setCachedAggregated,
 } from "../utils/cache";
-import type { AggregatedVideo, Site, FailedSource } from "../types";
+import type { AggregatedVideo, Site } from "../types";
 
 type ViewMode = "aggregated" | "source";
 type TimeFilter = "all" | 24 | 72 | 168;
@@ -125,7 +124,6 @@ function ScrollRow({
 export default function Home() {
   const [sites, setSites] = useState<Site[]>([]);
   const [videos, setVideos] = useState<AggregatedVideo[]>([]);
-  const [failed, setFailed] = useState<FailedSource[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("aggregated");
@@ -208,11 +206,9 @@ export default function Home() {
       if (pg === 1 && !append) {
         const cached = await getCachedAggregated<{
           items: AggregatedVideo[];
-          failed_sources: FailedSource[];
         }>(cacheParams);
         if (cached) {
           setVideos(cached.items);
-          setFailed(cached.failed_sources);
           // 有缓存时先结束 loading，让 UI 立即可交互
           setLoading(false);
         }
@@ -259,19 +255,16 @@ export default function Home() {
             return Array.from(map.values());
           });
         }
-        setFailed(r.failed_sources);
         if (r.items.length === 0) {
           setNoMore(true);
         }
         // 写入缓存
         setCachedAggregated(cacheParams, {
           items: r.items,
-          failed_sources: r.failed_sources,
         });
       } catch {
         if (pg === 1) {
           setVideos([]);
-          setFailed([]);
         }
         setNoMore(true);
       } finally {
@@ -405,8 +398,6 @@ export default function Home() {
 
   return (
     <div>
-      <FailedSourcesPanel failed={failed} onChange={() => loadInitial()} />
-
       {/* ===== 工具栏：紧凑排列 ===== */}
       <div
         className="row"

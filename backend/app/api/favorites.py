@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -21,7 +22,14 @@ async def list_favorites(db: AsyncSession = Depends(get_db)):
 async def add_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
     fav = Favorite(title=req.title, year=req.year, poster_url=req.poster_url)
     db.add(fav)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Favorite already exists for title='{req.title}' and year={req.year}",
+        )
     await db.refresh(fav)
     return fav
 

@@ -164,6 +164,7 @@ class SourceClient:
             "director": raw.get("vod_director"),
             "play_url_raw": _convert_play_url(play_raw, play_from),
             "download_url_raw": _convert_play_url(down_raw, down_from),
+            "updated_at": raw.get("vod_time") or raw.get("last"),
         }
 
 

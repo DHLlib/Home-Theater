@@ -1,0 +1,339 @@
+# 代码库扫描结果（Reverse 模式）
+# 生成时间: 2026-05-27
+
+components:
+  # ── Backend API ──
+  - path: backend/app/api/sites.py
+    type: api
+    current_owner: backend
+    responsibilities: [站点CRUD, 分类映射读写, 站点探测, 远程分类拉取]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py, backend/app/services/health.py, backend/app/services/source_client.py]
+
+  - path: backend/app/api/videos.py
+    type: api
+    current_owner: backend
+    responsibilities: [视频列表(本地聚合), 视频搜索(本地LIKE), 视频详情(缓存优先+实时回源), 缓存清理, 刮削状态查询, 触发增量更新]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py, backend/app/services/aggregator.py, backend/app/services/parser.py, backend/app/services/resolver.py, backend/app/services/source_client.py, backend/app/services/scheduler.py]
+
+  - path: backend/app/api/play.py
+    type: api
+    current_owner: backend
+    responsibilities: [集数列表获取, feifan/360zy后缀解析]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py, backend/app/services/parser.py, backend/app/services/resolver.py, backend/app/services/source_client.py]
+
+  - path: backend/app/api/downloads.py
+    type: api
+    current_owner: backend
+    responsibilities: [下载任务CRUD, 暂停/恢复, 创建任务(路径生成)]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py, backend/app/services/downloader.py, backend/app/services/event_bus.py]
+
+  - path: backend/app/api/favorites.py
+    type: api
+    current_owner: backend
+    responsibilities: [收藏列表, 添加收藏, 删除收藏]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py]
+
+  - path: backend/app/api/progress.py
+    type: api
+    current_owner: backend
+    responsibilities: [播放进度upsert, 最近进度列表, 单条进度查询]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/schemas.py]
+
+  - path: backend/app/api/sse.py
+    type: api
+    current_owner: backend
+    responsibilities: [SSE流推送, 心跳保持]
+    dependencies: [backend/app/services/event_bus.py]
+
+  - path: backend/app/api/settings_api.py
+    type: api
+    current_owner: backend
+    responsibilities: [下载根目录读写]
+    dependencies: [backend/app/models.py, backend/app/db.py]
+
+  # ── Backend Services ──
+  - path: backend/app/services/scheduler.py
+    type: service
+    current_owner: backend
+    responsibilities: [站点健康监控调度, 自动禁用/恢复, 刮削调度启动]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/services/crawler.py, backend/app/services/health.py, backend/app/services/event_bus.py]
+
+  - path: backend/app/services/crawler.py
+    type: service
+    current_owner: backend
+    responsibilities: [全量刮削, 增量刮削, 更新检测, 批量videolist, 状态持久化]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/services/source_client.py]
+
+  - path: backend/app/services/source_client.py
+    type: service
+    current_owner: backend
+    responsibilities: [资源站协议封装, 列表/详情请求, 数据归一化, 播放URL转换]
+    dependencies: []
+
+  - path: backend/app/services/parser.py
+    type: service
+    current_owner: backend
+    responsibilities: [集数$地址$后缀解析, 硬契约格式校验]
+    dependencies: []
+
+  - path: backend/app/services/resolver.py
+    type: service
+    current_owner: backend
+    responsibilities: [feifan分享页解析真实m3u8]
+    dependencies: []
+
+  - path: backend/app/services/health.py
+    type: service
+    current_owner: backend
+    responsibilities: [站点连通性探测, 延迟测量]
+    dependencies: [backend/app/services/source_client.py]
+
+  - path: backend/app/services/downloader.py
+    type: service
+    current_owner: backend
+    responsibilities: [HTTP Range断点续传, m3u8 .ts并发下载, ffmpeg合并/降级拼接, 下载worker循环, 错误分类]
+    dependencies: [backend/app/models.py, backend/app/db.py, backend/app/services/event_bus.py, backend/app/services/health.py]
+
+  - path: backend/app/services/aggregator.py
+    type: service
+    current_owner: backend
+    responsibilities: [标题归一化, 聚合去重key生成]
+    dependencies: []
+
+  - path: backend/app/services/event_bus.py
+    type: service
+    current_owner: backend
+    responsibilities: [内存发布-订阅事件总线, SSE支持]
+    dependencies: []
+
+  # ── Backend Core ──
+  - path: backend/app/models.py
+    type: model
+    current_owner: backend
+    responsibilities: [SQLAlchemy ORM模型定义, 表约束, 索引]
+    dependencies: []
+
+  - path: backend/app/schemas.py
+    type: schema
+    current_owner: backend
+    responsibilities: [Pydantic请求/响应Schema定义]
+    dependencies: []
+
+  - path: backend/app/db.py
+    type: infra
+    current_owner: backend
+    responsibilities: [异步SQLAlchemy引擎, 会话工厂, 数据库初始化, 列迁移补偿]
+    dependencies: [backend/app/models.py, backend/app/config.py]
+
+  - path: backend/app/config.py
+    type: infra
+    current_owner: backend
+    responsibilities: [Pydantic-Settings配置, 环境变量读取]
+    dependencies: []
+
+  - path: backend/app/logging_config.py
+    type: infra
+    current_owner: backend
+    responsibilities: [日志配置, RotatingFileHandler]
+    dependencies: []
+
+  - path: backend/app/main.py
+    type: entry
+    current_owner: backend
+    responsibilities: [FastAPI应用工厂, 生命周期管理, 路由注册, CORS, 静态文件托管]
+    dependencies: [backend/app/db.py, backend/app/logging_config.py, backend/app/services/downloader.py, backend/app/services/scheduler.py, backend/app/api/*]
+
+  # ── Frontend Pages ──
+  - path: frontend/src/pages/Home.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [首页三区域展示, 分类/时间/视图筛选, 无限滚动, 搜索入口, 刮削状态提示]
+    dependencies: [frontend/src/api/videos.ts, frontend/src/api/sites.ts, frontend/src/components/VideoCard.tsx, frontend/src/components/CategoryBar.tsx, frontend/src/components/FailedSourcesPanel.tsx, frontend/src/utils/cache.ts]
+
+  - path: frontend/src/pages/Detail.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [视频详情页, 源详情聚合, 播放/下载/收藏入口, 集数选择, SourcePicker触发]
+    dependencies: [frontend/src/api/videos.ts, frontend/src/api/play.ts, frontend/src/api/downloads.ts, frontend/src/api/favorites.ts, frontend/src/api/settings.ts, frontend/src/components/EpisodeList.tsx, frontend/src/components/SourcePicker.tsx, frontend/src/utils/cache.ts]
+
+  - path: frontend/src/pages/Player.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [播放页, ckplayer集成, 进度恢复, 进度上报, 键盘快进快退, 上一集/下一集, 选集面板]
+    dependencies: [frontend/src/api/play.ts, frontend/src/api/progress.ts, frontend/src/components/VideoPlayer.tsx, frontend/src/utils/cache.ts]
+
+  - path: frontend/src/pages/Downloads.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [下载任务列表, SSE实时进度, 暂停/恢复/删除/重试, 错误分类展示]
+    dependencies: [frontend/src/api/downloads.ts, frontend/src/api/sse.ts]
+
+  - path: frontend/src/pages/Favorites.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [收藏列表, 删除收藏]
+    dependencies: [frontend/src/api/favorites.ts]
+
+  - path: frontend/src/pages/Progress.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [最近播放记录列表]
+    dependencies: [frontend/src/api/progress.ts]
+
+  - path: frontend/src/pages/Settings.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [采集站管理(CRUD+探测), 分类设置(CategorySettings), 下载根目录配置, 缓存清理]
+    dependencies: [frontend/src/api/sites.ts, frontend/src/api/settings.ts, frontend/src/api/videos.ts, frontend/src/components/CategorySettings.tsx]
+
+  - path: frontend/src/pages/Search.tsx
+    type: page
+    current_owner: frontend
+    responsibilities: [搜索结果页(当前主要由Home承载搜索)]
+    dependencies: [frontend/src/api/videos.ts]
+
+  # ── Frontend Components ──
+  - path: frontend/src/components/VideoPlayer.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [ckplayer+hls.js播放器封装, m3u8/mp4/webm支持, 缓冲/错误UI, 播放控制句柄暴露]
+    dependencies: []
+
+  - path: frontend/src/components/VideoCard.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [视频卡片UI, 收藏快捷按钮]
+    dependencies: [frontend/src/api/favorites.ts]
+
+  - path: frontend/src/components/SourcePicker.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [显式选源弹窗, 禁止默认选中, 确定按钮disabled控制]
+    dependencies: []
+
+  - path: frontend/src/components/EpisodeList.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [集数列表UI, 按suffix/重复集名分组]
+    dependencies: []
+
+  - path: frontend/src/components/CategoryBar.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [系统分类横向导航栏, 激活状态管理]
+    dependencies: []
+
+  - path: frontend/src/components/CategorySettings.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [分类映射矩阵UI, 互斥占用计算, 自动匹配, 远程分类拉取]
+    dependencies: [frontend/src/api/sites.ts]
+
+  - path: frontend/src/components/FailedSourcesPanel.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [失败源展示面板(当前恒为空)]
+    dependencies: []
+
+  - path: frontend/src/components/Layout.tsx
+    type: component
+    current_owner: frontend
+    responsibilities: [全局布局, 导航栏, 搜索框, 主题切换]
+    dependencies: []
+
+  # ── Frontend Utils / API ──
+  - path: frontend/src/api/client.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [fetch封装, 统一错误处理, toast错误提示]
+    dependencies: [frontend/src/utils/toast.ts]
+
+  - path: frontend/src/api/videos.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [视频列表/搜索/详情/缓存清理API封装, 详情并发槽位控制]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/sites.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [站点CRUD/探测/分类API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/downloads.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [下载任务API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/favorites.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [收藏API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/progress.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [播放进度API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/play.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [集数列表API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/settings.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [下载根目录配置API封装]
+    dependencies: [frontend/src/api/client.ts]
+
+  - path: frontend/src/api/sse.ts
+    type: client
+    current_owner: frontend
+    responsibilities: [SSE客户端, 自动重连, 事件订阅]
+    dependencies: []
+
+  - path: frontend/src/utils/cache.ts
+    type: util
+    current_owner: frontend
+    responsibilities: [IndexedDB三层缓存, TTL管理, 启动过期清理]
+    dependencies: []
+
+  - path: frontend/src/utils/toast.ts
+    type: util
+    current_owner: frontend
+    responsibilities: [全局toast通知, 订阅模式]
+    dependencies: []
+
+  - path: frontend/src/types.ts
+    type: schema
+    current_owner: frontend
+    responsibilities: [TypeScript类型定义, 前后端类型对齐]
+    dependencies: []
+
+  - path: frontend/src/router.tsx
+    type: entry
+    current_owner: frontend
+    responsibilities: [React Router路由定义]
+    dependencies: []
+
+  - path: frontend/src/App.tsx
+    type: entry
+    current_owner: frontend
+    responsibilities: [应用根组件, SSE连接, Toast容器, 主题初始化]
+    dependencies: [frontend/src/api/sse.ts, frontend/src/utils/toast.ts]
+
+  - path: frontend/src/main.tsx
+    type: entry
+    current_owner: frontend
+    responsibilities: [React应用挂载, 启动缓存清理]
+    dependencies: [frontend/src/utils/cache.ts]
+
+  - path: frontend/src/styles/global.css
+    type: style
+    current_owner: frontend
+    responsibilities: [全局CSS, 主题变量, 骨架屏, 响应式布局]
+    dependencies: []

@@ -7,9 +7,9 @@ import {
   updateSite,
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
-import { clearVideoCache } from "../api/videos";
+import { clearVideoCache, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import CategorySettings from "../components/CategorySettings";
-import type { ProbeResult, Site } from "../types";
+import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
   return (
@@ -162,13 +162,14 @@ function TrashIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-type TabKey = "sites" | "categories" | "download" | "cache";
+type TabKey = "sites" | "categories" | "download" | "cache" | "logs";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载根目录", icon: <FolderIcon size={14} /> },
   { key: "cache", label: "缓存管理", icon: <TrashIcon size={14} /> },
+  { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
 ];
 
 const inputStyle: React.CSSProperties = {
@@ -192,6 +193,12 @@ export default function Settings() {
   >({});
   const [clearing, setClearing] = useState(false);
   const [clearedCount, setClearedCount] = useState<number | null>(null);
+  const [crawlerLogs, setCrawlerLogs] = useState<CrawlerLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [triggeringFull, setTriggeringFull] = useState(false);
+  const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
 
   /* ---- inline edit states ---- */
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -208,6 +215,22 @@ export default function Settings() {
       if (r) setRoot(r);
     });
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "logs") {
+      setLogsLoading(true);
+      getCrawlerLogs()
+        .then((res) => setCrawlerLogs(res.logs))
+        .catch(() => setCrawlerLogs([]))
+        .finally(() => setLogsLoading(false));
+
+      setStatsLoading(true);
+      getCrawlerStats()
+        .then((res) => setCrawlerStats(res))
+        .catch(() => setCrawlerStats(null))
+        .finally(() => setStatsLoading(false));
+    }
+  }, [activeTab]);
 
   const handleClearCache = () => {
     if (!confirm("确定要清除所有视频缓存吗？此操作不可恢复。")) return;
@@ -818,6 +841,382 @@ export default function Settings() {
               </div>
             )}
           </div>
+        </section>
+      )}
+
+      {/* 刮削日志 */}
+      {activeTab === "logs" && (
+        <section
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: 20,
+          }}
+        >
+          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+            <span style={{ color: "var(--primary)" }}>
+              <ActivityIcon size={16} />
+            </span>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 600,
+                textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                letterSpacing: 0.3,
+              }}
+            >
+              刮削日志
+            </h3>
+          </div>
+
+          {/* 刮削看板 */}
+          {statsLoading ? (
+            <div
+              style={{
+                padding: 20,
+                textAlign: "center",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+              }}
+            >
+              加载统计中...
+            </div>
+          ) : crawlerStats ? (
+            <div
+              className="row"
+              style={{
+                gap: 12,
+                marginBottom: 20,
+                flexWrap: "wrap",
+              }}
+            >
+              {/* 总数量 */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 140,
+                  background: "var(--muted)",
+                  borderRadius: 10,
+                  padding: "16px 20px",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    color: "var(--primary)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {crawlerStats.total.toLocaleString("zh-CN")}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    marginTop: 4,
+                  }}
+                >
+                  总刮削数量
+                </div>
+              </div>
+
+              {/* 有详情 */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 140,
+                  background: "var(--muted)",
+                  borderRadius: 10,
+                  padding: "16px 20px",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    color: "var(--success)",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {crawlerStats.with_detail.toLocaleString("zh-CN")}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    marginTop: 4,
+                  }}
+                >
+                  已补全详情
+                </div>
+              </div>
+
+              {/* 各站点数量 */}
+              {crawlerStats.by_site.map((s) => (
+                <div
+                  key={s.site_id}
+                  style={{
+                    flex: 1,
+                    minWidth: 140,
+                    background: "var(--muted)",
+                    borderRadius: 10,
+                    padding: "16px 20px",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 24,
+                      fontWeight: 700,
+                      color: "var(--warning)",
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {s.count.toLocaleString("zh-CN")}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-secondary)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {s.site_name}
+                  </div>
+                </div>
+              ))}
+
+              {/* 最近更新 */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 140,
+                  background: "var(--muted)",
+                  borderRadius: 10,
+                  padding: "16px 20px",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--fg)",
+                    lineHeight: 1.4,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {crawlerStats.last_updated_at
+                    ? new Date(crawlerStats.last_updated_at).toLocaleString("zh-CN")
+                    : "—"}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    marginTop: 4,
+                  }}
+                >
+                  最近更新
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* 手动触发刮削 */}
+          <div
+            className="row"
+            style={{
+              gap: 12,
+              marginBottom: 20,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <button
+              className="btn btn-primary"
+              disabled={triggeringFull}
+              onClick={() => {
+                if (!confirm("确定要重新全量刮削吗？这会遍历所有站点的所有分类，预计耗时 20-40 分钟。")) return;
+                setTriggeringFull(true);
+                triggerFullCrawl()
+                  .then(() => alert("全量刮削已启动"))
+                  .catch(() => alert("启动失败"))
+                  .finally(() => setTriggeringFull(false));
+              }}
+              style={{ gap: 6 }}
+            >
+              <ActivityIcon size={14} />
+              {triggeringFull ? "启动中..." : "重新全量刮削"}
+            </button>
+
+            {sites
+              .filter((s) => s.enabled)
+              .map((s) => (
+                <button
+                  key={s.id}
+                  className="btn"
+                  disabled={triggeringIncremental[s.id]}
+                  onClick={() => {
+                    setTriggeringIncremental((prev) => ({ ...prev, [s.id]: true }));
+                    triggerIncremental(s.id)
+                      .then(() => alert(`站点 ${s.name} 增量更新已启动`))
+                      .catch(() => alert("启动失败"))
+                      .finally(() =>
+                        setTriggeringIncremental((prev) => ({ ...prev, [s.id]: false }))
+                      );
+                  }}
+                  style={{ gap: 6, fontSize: 12 }}
+                >
+                  <ActivityIcon size={12} />
+                  {triggeringIncremental[s.id] ? "启动中..." : `${s.name} 增量`}
+                </button>
+              ))}
+          </div>
+
+          {logsLoading ? (
+            <div
+              style={{
+                padding: 32,
+                textAlign: "center",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+              }}
+            >
+              加载中...
+            </div>
+          ) : crawlerLogs.length === 0 ? (
+            <div
+              className="empty"
+              style={{
+                padding: 32,
+                background: "var(--muted)",
+                borderRadius: 8,
+                fontSize: 13,
+              }}
+            >
+              <ActivityIcon size={32} />
+              <p style={{ marginTop: 8 }}>暂无刮削记录</p>
+            </div>
+          ) : (
+            <div className="col" style={{ gap: 8 }}>
+              {/* 表头 */}
+              <div
+                className="row"
+                style={{
+                  gap: 8,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--text-secondary)",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <span style={{ width: 150, flexShrink: 0 }}>时间</span>
+                <span style={{ width: 80, flexShrink: 0 }}>站点</span>
+                <span style={{ width: 80, flexShrink: 0 }}>分类</span>
+                <span style={{ width: 50, flexShrink: 0 }}>页码</span>
+                <span style={{ width: 60, flexShrink: 0 }}>类型</span>
+                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>处理</span>
+                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>新增</span>
+                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>更新</span>
+                <span style={{ width: 60, flexShrink: 0, textAlign: "right" }}>耗时</span>
+              </div>
+              {/* 日志行 */}
+              {crawlerLogs.map((log, idx) => (
+                <div
+                  key={idx}
+                  className="row"
+                  style={{
+                    gap: 8,
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    background:
+                      idx % 2 === 0 ? "transparent" : "var(--muted)",
+                    borderRadius: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 150,
+                      flexShrink: 0,
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {new Date(log.timestamp).toLocaleString("zh-CN")}
+                  </span>
+                  <span
+                    style={{
+                      width: 80,
+                      flexShrink: 0,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {log.site_name}
+                  </span>
+                  <span
+                    style={{
+                      width: 80,
+                      flexShrink: 0,
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {log.category}
+                  </span>
+                  <span style={{ width: 50, flexShrink: 0 }}>
+                    {log.page}
+                  </span>
+                  <span style={{ width: 60, flexShrink: 0 }}>
+                    {log.crawl_type === "full" ? "全量" : "增量"}
+                  </span>
+                  <span
+                    style={{
+                      width: 50,
+                      flexShrink: 0,
+                      textAlign: "right",
+                    }}
+                  >
+                    {log.items_count}
+                  </span>
+                  <span
+                    style={{
+                      width: 50,
+                      flexShrink: 0,
+                      textAlign: "right",
+                      color: "var(--success)",
+                    }}
+                  >
+                    {log.new_count}
+                  </span>
+                  <span
+                    style={{
+                      width: 50,
+                      flexShrink: 0,
+                      textAlign: "right",
+                      color: "var(--primary)",
+                    }}
+                  >
+                    {log.update_count}
+                  </span>
+                  <span
+                    style={{
+                      width: 60,
+                      flexShrink: 0,
+                      textAlign: "right",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {log.duration_ms}ms
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
     </div>

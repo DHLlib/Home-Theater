@@ -1,0 +1,655 @@
+project:
+  name: Home Theater
+  version: 0.1.0
+  description: 个人视频聚合系统，支持多源采集、聚合去重、播放、下载
+  tech_stack:
+    backend:
+    - FastAPI
+    - SQLAlchemy
+    - aiosqlite
+    - httpx
+    frontend:
+    - React
+    - Vite
+    - TypeScript
+    player: ckplayer
+global:
+  bootstrap:
+    status: completed
+    triggered_by: orchestrator
+    completed_at: '2026-05-27T15:42:00Z'
+  assembly:
+    status: completed
+    triggered_by: orchestrator
+    completed_at: '2026-05-27T15:50:00Z'
+  review_completed_at: '2026-05-27T15:45:00Z'
+  qa_completed_at: '2026-05-27T15:48:00Z'
+acceptance_criteria:
+- id: AC-001
+  title: 站点管理
+  description: 新增/编辑/删除采集站，配置 base_url、分类映射，支持启用/禁用和排序
+  status: completed
+  stage: tdd
+  source: backend/app/api/sites.py
+  owner: backend
+  tests:
+  - test/test_sites.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sites.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-002
+  title: 分类映射（互斥约束）
+  description: 系统分类到各站点子分类的映射，一个 remote_id 只能属于一个系统分类
+  status: completed
+  stage: tdd
+  source: frontend/src/components/CategorySettings.tsx, backend/app/api/sites.py
+  owner: frontend+backend
+  tests:
+  - test/test_sites.py
+  blockedBy: []
+  impl_files:
+  - frontend/src/components/CategorySettings.tsx
+  - backend/app/api/sites.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[GAP-FIXED] 架构决策：在 api-contract.yaml 中定义 PUT /api/sites/{site_id}/categories
+    的 400 ValidationErrorResponse；在 data-schema.yaml 中定义互斥校验语义。TDD 阶段由 backend agent
+    实现服务端校验。'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-003
+  title: 首页视频聚合列表
+  description: 从本地 VideoCache 查询并按 normalize_title+year 聚合去重展示；数据由后台 Crawler 定期刮削写入缓存，非实时跨源拉取
+  status: completed
+  stage: tdd
+  source: backend/app/api/videos.py, backend/app/services/aggregator.py
+  owner: backend
+  tests:
+  - test/step_defs/test_e2e_video_lifecycle.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/videos.py
+  - backend/app/services/aggregator.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[DESC-UPDATED] 架构决策：接受缓存优先架构。failed_sources 字段在 AggregatedListResponse 中标记为
+    deprecated，TDD 阶段由 backend/frontend agent 清理移除。'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-004
+  title: 视频搜索
+  description: 基于本地 VideoCache 的 LIKE 查询并按 normalize_title+year 聚合展示；非实时跨源并发搜索
+  status: completed
+  stage: tdd
+  source: backend/app/api/videos.py
+  owner: backend
+  tests:
+  - test/step_defs/test_e2e_video_lifecycle.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/videos.py
+  - backend/app/services/aggregator.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[DESC-UPDATED] 同 AC-003，接受缓存优先架构，failed_sources deprecated。'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-005
+  title: 视频详情
+  description: 根据 sources 列表从各源拉取详情，优先查 VideoCache，支持 feifan/360zy 后缀解析
+  status: completed
+  stage: tdd
+  source: backend/app/api/videos.py, backend/app/services/resolver.py
+  owner: backend
+  tests:
+  - test/step_defs/test_e2e_video_lifecycle.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/videos.py
+  - backend/app/services/resolver.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-006
+  title: 播放地址解析
+  description: 严格按 集数$地址$后缀 格式解析，支持 feifan 分享页解析为 m3u8
+  status: completed
+  stage: tdd
+  source: backend/app/services/parser.py, backend/app/services/resolver.py
+  owner: backend
+  tests:
+  - test/step_defs/test_ac006_playback_url_parsing.py
+  blockedBy: []
+  impl_files:
+  - backend/app/services/parser.py
+  - backend/app/services/resolver.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  bdd:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-007
+  title: 显式选源
+  description: 播放/下载入口强制用户选择来源，不允许自动默认
+  status: completed
+  stage: tdd
+  source: frontend/src/components/SourcePicker.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/components/SourcePicker.tsx
+  - frontend/src/pages/Player.tsx
+  - frontend/src/pages/Downloads.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-008
+  title: ckplayer 播放
+  description: 集成 ckplayer 播放器，支持上一集/下一集、进度恢复、键盘快进快退
+  status: completed
+  stage: tdd
+  source: frontend/src/components/VideoPlayer.tsx, frontend/src/pages/Player.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/components/VideoPlayer.tsx
+  - frontend/src/pages/Player.tsx
+  - frontend/src/types.ts
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-009
+  title: 播放进度记录与恢复
+  description: 每 15 秒上报进度，卸载时 sendBeacon 兜底，支持按进度恢复播放
+  status: completed
+  stage: tdd
+  source: frontend/src/pages/Player.tsx, backend/app/api/progress.py
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/pages/Player.tsx
+  - backend/app/api/progress.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-010
+  title: 收藏管理
+  description: 添加/列表/删除收藏，按 title+year 去重
+  status: completed
+  stage: tdd
+  source: frontend/src/pages/Favorites.tsx, backend/app/api/favorites.py
+  owner: frontend+backend
+  tests:
+  - test/test_favorites.py
+  blockedBy: []
+  impl_files:
+  - frontend/src/pages/Favorites.tsx
+  - backend/app/api/favorites.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-011
+  title: 下载任务管理
+  description: 创建下载任务、暂停/恢复/删除，下载根目录一次性配置
+  status: completed
+  stage: tdd
+  source: frontend/src/pages/Downloads.tsx, backend/app/api/downloads.py
+  owner: frontend+backend
+  tests:
+  - test/test_downloads.py
+  blockedBy: []
+  impl_files:
+  - frontend/src/pages/Downloads.tsx
+  - backend/app/api/downloads.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-012
+  title: 断点续传下载（HTTP Range + m3u8 .ts）
+  description: 支持 HTTP Range 流式下载和 m3u8 .ts 片段并发下载，ffmpeg 合并或降级拼接
+  status: completed
+  stage: tdd
+  source: backend/app/services/downloader.py
+  owner: backend
+  tests:
+  - test/step_defs/test_ac012_resume_download.py
+  blockedBy: []
+  impl_files:
+  - backend/app/services/downloader.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  bdd:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-013
+  title: 站点健康监控与自动禁用
+  description: 每 10 分钟探测站点，连续失败 3 次自动禁用，连续成功 2 次自动恢复
+  status: completed
+  stage: tdd
+  source: backend/app/services/scheduler.py, backend/app/services/health.py
+  owner: backend
+  tests:
+  - test/step_defs/test_ac013_site_health_monitoring.py
+  blockedBy: []
+  impl_files:
+  - backend/app/services/scheduler.py
+  - backend/app/services/health.py
+  - backend/app/models.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  bdd:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-014
+  title: VideoCache 缓存管理
+  description: SQLite 缓存详情数据，upsert 机制，完整保留刮削数据，支持手动清理
+  status: completed
+  stage: assembly
+  source: backend/app/api/videos.py, backend/app/models.py
+  owner: backend
+  tests:
+  - test/step_defs/test_e2e_video_lifecycle.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/videos.py
+  - backend/app/models.py
+  - backend/app/schemas.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[ARCH-UPDATED] 取消 5000 行 LRU 上限。本机/局域网部署磁盘空间不是瓶颈，完整保留刮削数据可避免分类覆盖不全的问题。原_evict_if_overflow/evict_video_cache_overflow改为空操作，保留手动清理入口。'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-015
+  title: 前端 IndexedDB 缓存
+  description: 聚合列表/详情/集数三层缓存，TTL 5-10 分钟，启动时自动清理过期
+  status: completed
+  stage: tdd
+  source: frontend/src/utils/cache.ts
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/utils/cache.ts
+  - frontend/src/types.ts
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-016
+  title: 下载进度实时推送（SSE）
+  description: 使用 SSE 替代轮询，实时推送下载进度、状态变化、站点健康事件
+  status: completed
+  stage: tdd
+  source: backend/app/api/sse.py, backend/app/services/event_bus.py, frontend/src/pages/Downloads.tsx
+  owner: frontend+backend
+  tests:
+  - test/step_defs/test_e2e_video_lifecycle.py
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sse.py
+  - backend/app/services/event_bus.py
+  - frontend/src/pages/Downloads.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-017
+  title: 局域网部署与静态托管
+  description: FastAPI 绑定 0.0.0.0，CORS 支持局域网，vite build 产物静态托管，缓存头优化
+  status: completed
+  stage: tdd
+  source: backend/app/main.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/main.py
+  - backend/app/config.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: ''
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-018
+  title: 刮削日志
+  description: 每页刮削后记录日志（站点、分类、页码、类型、新增数、更新数、耗时），内存保留最近50条，在设置页展示
+  status: completed
+  stage: assembly
+  source: backend/app/services/crawler.py, frontend/src/pages/Settings.tsx
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/services/crawler.py
+  - backend/app/api/videos.py
+  - backend/app/schemas.py
+  - frontend/src/api/videos.ts
+  - frontend/src/pages/Settings.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 用户已确认方案：每页一条日志、内存deque maxlen=50、设置页内嵌展示
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-019
+  title: 刮削看板
+  description: 在设置页刮削日志上方展示刮削统计数据（总数量、各站点数量、已补全详情数、最近更新时间）
+  status: completed
+  stage: assembly
+  source: backend/app/api/videos.py, frontend/src/pages/Settings.tsx
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/api/videos.py
+  - backend/app/schemas.py
+  - frontend/src/pages/Settings.tsx
+  - frontend/src/api/videos.ts
+  - frontend/src/types.ts
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 轻量增量，复用现有日志 tab 区域上方空间
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-020
+  title: 手动触发刮削
+  description: 在设置页刮削日志区域提供手动触发全量刮削和按站点增量更新的按钮
+  status: completed
+  stage: assembly
+  source: frontend/src/pages/Settings.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/pages/Settings.tsx
+  - frontend/src/api/videos.ts
+  - backend/app/api/videos.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 轻量前端增强，复用已有后端 /crawler/full 和 /crawler/incremental/{id} API
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+sprints:
+- id: sprint-002
+  name: 技术债务清理与边界测试补充
+  status: completed
+  started_at: '2026-05-27'
+  completed_at: '2026-05-27'
+  tasks:
+  - agent: backend-quality-subagent
+    status: completed
+    changes: 提取 videos.py 公共查询逻辑、替换 datetime.utcnow、清理 downloader.py 未使用参数
+  - agent: boundary-test-subagent
+    status: completed
+    changes: 新增 11 个边界测试（sites/videos/favorites/video_cache）
+  - agent: frontend-tech-debt-subagent
+    status: completed
+    changes: 移除 FailedSourcesPanel 和 FailedSource 类型定义
+- id: sprint-003
+  name: 刮削日志功能
+  status: completed
+  started_at: '2026-05-28'
+  completed_at: '2026-05-28'
+  tasks:
+  - agent: ac018-impl
+    status: completed
+    changes: 新增刮削日志内存缓冲区（deque maxlen=50）、/crawler/logs API、设置页日志展示
+- id: sprint-004
+  name: 刮削看板与首页稳定性修复
+  status: completed
+  started_at: '2026-05-28'
+  completed_at: '2026-05-28'
+  tasks:
+  - agent: ac019-impl
+    status: completed
+    changes: 新增 /crawler/stats API、设置页刮削看板统计卡片
+  - agent: backend-fix
+    status: completed
+    changes: 首页排序改为 source_updated_at、增量更新跳过未变化记录、detail upsert 不覆盖 source_updated_at 为 None
+- id: sprint-005
+  name: 手动触发刮削
+  status: completed
+  started_at: '2026-05-28'
+  completed_at: '2026-05-28'
+  tasks:
+  - agent: ac020-impl
+    status: completed
+    changes: 设置页新增全量刮削按钮、各站点增量按钮，调用后端 /crawler/full 和 /crawler/incremental API

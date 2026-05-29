@@ -1,0 +1,127 @@
+# Agent 分配方案（Reverse 模式）
+# 版本: 1.0
+# 分配原则：按资源亲和性 + Gap 修复责任归属
+
+version: "1.0"
+max_parallel: 3
+
+groups:
+  - agent: backend
+    ac_ids:
+      - AC-001
+      - AC-003
+      - AC-004
+      - AC-005
+      - AC-006
+      - AC-010
+      - AC-011
+      - AC-012
+      - AC-013
+      - AC-014
+      - AC-016
+      - AC-017
+    rationale: |
+      这些 AC 的核心复杂度均在后端：
+      - AC-001: 站点 CRUD + 探测（backend/app/api/sites.py）
+      - AC-003/004: 列表/搜索聚合逻辑（backend/app/api/videos.py, aggregator.py）
+      - AC-005: 详情缓存优先+回源（backend/app/api/videos.py, resolver.py）
+      - AC-006: 播放地址解析（backend/app/services/parser.py, resolver.py）
+      - AC-010: 收藏管理（backend/app/api/favorites.py）
+      - AC-011: 下载任务管理（backend/app/api/downloads.py）
+      - AC-012: 断点续传下载（backend/app/services/downloader.py，最复杂服务）
+      - AC-013: 站点健康监控（backend/app/services/scheduler.py, health.py）
+      - AC-014: VideoCache 缓存管理 + 5000 行自动淘汰（backend/app/api/videos.py, models.py）
+      - AC-016: SSE 推送（backend/app/api/sse.py, event_bus.py）
+      - AC-017: 局域网部署（backend/app/main.py, config.py）
+    cross_ac:
+      - ac_id: AC-002
+        primary: false
+        reason: 后端需补充互斥校验（Gap 修复主体），但 frontend 需处理 400 错误响应
+      - ac_id: AC-009
+        primary: false
+        reason: 后端提供 upsert/list API，但主要交互逻辑在前端
+
+  - agent: frontend
+    ac_ids:
+      - AC-007
+      - AC-008
+      - AC-015
+    rationale: |
+      纯前端 AC，无后端依赖：
+      - AC-007: 显式选源（frontend/src/components/SourcePicker.tsx）
+      - AC-008: ckplayer 播放集成（frontend/src/components/VideoPlayer.tsx, pages/Player.tsx）
+      - AC-015: IndexedDB 三层缓存（frontend/src/utils/cache.ts）
+    cross_ac:
+      - ac_id: AC-009
+        primary: true
+        reason: 播放进度上报/恢复的核心交互在前端（15s 定时上报 + sendBeacon + seekTo 恢复）
+      - ac_id: AC-002
+        primary: false
+        reason: 分类映射 UI 互斥已在前端实现（CategorySettings.tsx），但本次 Gap 修复主体在后端
+      - ac_id: AC-016
+        primary: false
+        reason: SSE 客户端消费在前端（frontend/src/api/sse.ts, pages/Downloads.tsx），但推送主体在后端
+
+# ═══════════════════════════════════════════════════════════════
+# 特殊处理：3 个 Gap 的分配细节
+# ═══════════════════════════════════════════════════════════════
+gap_assignments:
+  - gap_id: GAP-AC002
+    title: 分类映射互斥校验
+    primary_agent: backend
+    secondary_agent: frontend
+    impl_plan: |
+      1. backend agent：
+         - 在 backend/app/api/sites.py::update_site_categories 中增加互斥校验逻辑
+         - 校验失败返回 HTTP 400 + ValidationErrorResponse
+         - 补充 pytest 测试：同一 remote_id 重复分配应抛 400
+      2. frontend agent：
+         - 在 frontend/src/api/sites.ts 的 updateSiteCategories 中增加对 400 的 toast 提示
+         - 可选：frontend/src/components/CategorySettings.tsx 中保存失败时展示具体错误
+
+  - gap_id: GAP-AC014
+    title: VideoCache 5000 行自动淘汰
+    primary_agent: backend
+    secondary_agent: null
+    impl_plan: |
+      backend agent：
+      - 在 backend/app/models.py 的 VideoCache 注释中标注淘汰策略（data-schema 已声明）
+      - 在 backend/app/api/videos.py 的 detail upsert 和 backend/app/services/crawler.py 的 upsert 之后
+        增加淘汰逻辑：SELECT COUNT(*) → 若 > 5000 则 DELETE FROM video_cache ORDER BY cached_at ASC LIMIT (count-5000)
+      - 注意：SQLite 不支持 ORDER BY + LIMIT 的 DELETE 子查询，需用子查询方式：
+        DELETE FROM video_cache WHERE id IN (SELECT id FROM video_cache ORDER BY cached_at ASC LIMIT ?)
+      - 补充 pytest 测试：写入 5001 条后最旧记录被删除
+
+  - gap_id: GAP-AC003-AC004
+    title: failed_sources 字段废弃
+    primary_agent: backend
+    secondary_agent: frontend
+    impl_plan: |
+      1. backend agent：
+         - 确认 backend/app/api/videos.py 的 list_videos / search_videos 中 failed_sources 恒为空 []
+         - backend/app/schemas.py 中 AggregatedListResponse 保留字段但添加注释/deprecated
+      2. frontend agent：
+         - 从 frontend/src/types.ts 中移除 failed_sources（或标记 deprecated）
+         - 清理 frontend/src/components/FailedSourcesPanel.tsx（建议移除或标记废弃）
+         - 从 frontend/src/pages/Home.tsx 中移除 FailedSourcesPanel 引用和 failed 状态管理
+
+# ═══════════════════════════════════════════════════════════════
+# 文件冲突矩阵（用于 Orchestrator 并行调度）
+# ═══════════════════════════════════════════════════════════════
+file_conflict_matrix:
+  - file: backend/app/api/sites.py
+    ac_ids: [AC-001, AC-002]
+  - file: backend/app/api/videos.py
+    ac_ids: [AC-003, AC-004, AC-005, AC-014]
+  - file: backend/app/services/downloader.py
+    ac_ids: [AC-011, AC-012]
+  - file: backend/app/services/scheduler.py
+    ac_ids: [AC-013, AC-016]
+  - file: frontend/src/pages/Player.tsx
+    ac_ids: [AC-008, AC-009]
+  - file: frontend/src/components/VideoPlayer.tsx
+    ac_ids: [AC-008]
+  - file: frontend/src/components/SourcePicker.tsx
+    ac_ids: [AC-007]
+  - file: frontend/src/utils/cache.ts
+    ac_ids: [AC-015]

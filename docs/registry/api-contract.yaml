@@ -1,0 +1,389 @@
+# API 契约（Reverse 模式 — 已有项目逆向验证）
+# 版本: 1.0
+# 技术栈: FastAPI + React
+
+version: "1.0"
+project: Home Theater
+
+endpoints:
+  # ═══════════════════════════════════════════════════════════════
+  # 站点管理 (AC-001, AC-002)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-SITE-LIST
+    path: /api/sites
+    method: GET
+    summary: 列出所有采集站
+    request_schema: null
+    response_schema: Site[]
+    consumers: [AC-001, AC-002]
+    notes: 按 sort, id 排序
+
+  - id: API-SITE-CREATE
+    path: /api/sites
+    method: POST
+    summary: 新建采集站
+    request_schema: SiteCreate
+    response_schema: Site
+    consumers: [AC-001]
+
+  - id: API-SITE-UPDATE
+    path: /api/sites/{site_id}
+    method: PATCH
+    summary: 更新采集站
+    request_schema: SitePatch
+    response_schema: Site
+    consumers: [AC-001]
+
+  - id: API-SITE-DELETE
+    path: /api/sites/{site_id}
+    method: DELETE
+    summary: 删除采集站
+    request_schema: null
+    response_schema: OkResponse
+    consumers: [AC-001]
+
+  - id: API-SITE-PROBE
+    path: /api/sites/{site_id}/probe
+    method: POST
+    summary: 探测站点连通性
+    request_schema: null
+    response_schema: ProbeResult
+    consumers: [AC-001, AC-013]
+
+  - id: API-SITE-CATEGORIES-GET
+    path: /api/sites/{site_id}/categories
+    method: GET
+    summary: 获取站点分类映射
+    request_schema: null
+    response_schema: SiteCategoriesOut
+    consumers: [AC-002]
+
+  - id: API-SITE-CATEGORIES-UPDATE
+    path: /api/sites/{site_id}/categories
+    method: PUT
+    summary: 更新站点分类映射
+    request_schema: SiteCategoriesUpdate
+    response_schema: SiteCategoriesOut
+    consumers: [AC-002]
+    notes: |
+      [GAP-FIX-AC002] 后端需增加服务端互斥校验：
+      同一站点内，一个 remote_id 只能属于一个系统分类。
+      校验失败返回 HTTP 400，响应体为 ValidationErrorResponse。
+
+  - id: API-SITE-FETCH-CATEGORIES
+    path: /api/sites/{site_id}/fetch-categories
+    method: POST
+    summary: 从资源站拉取远程分类列表
+    request_schema: null
+    response_schema: SiteCategoriesOut
+    consumers: [AC-002]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 视频列表与搜索 (AC-003, AC-004)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-VIDEO-LIST
+    path: /api/videos
+    method: GET
+    summary: 视频聚合列表（本地缓存）
+    query_params:
+      - name: t
+        type: int | str
+        required: false
+      - name: pg
+        type: int
+        default: 1
+      - name: h
+        type: int
+        required: false
+      - name: by
+        type: str
+        required: false
+      - name: category
+        type: str
+        required: false
+      - name: mode
+        type: str
+        default: aggregated
+        enum: [aggregated, source]
+    request_schema: null
+    response_schema: AggregatedListResponse
+    consumers: [AC-003]
+    notes: |
+      [GAP-FIX-AC003] failed_sources 字段已废弃，响应中保留空数组以保证前向兼容，
+      但在 data-schema 中标记为 deprecated，TDD 阶段由 backend agent 确保恒为空，
+      并由 frontend agent 移除 FailedSourcesPanel 消费逻辑。
+
+  - id: API-VIDEO-SEARCH
+    path: /api/videos/search
+    method: GET
+    summary: 视频搜索（本地 LIKE）
+    query_params:
+      - name: wd
+        type: str
+        required: true
+      - name: pg
+        type: int
+        default: 1
+      - name: category
+        type: str
+        required: false
+      - name: mode
+        type: str
+        default: aggregated
+        enum: [aggregated, source]
+    request_schema: null
+    response_schema: AggregatedListResponse
+    consumers: [AC-004]
+    notes: |
+      [GAP-FIX-AC004] 同 AC-003，failed_sources 已废弃。
+
+  # ═══════════════════════════════════════════════════════════════
+  # 视频详情 (AC-005)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-VIDEO-DETAIL
+    path: /api/videos/detail
+    method: POST
+    summary: 视频详情（缓存优先，7天TTL）
+    request_schema: DetailRequest
+    response_schema: DetailResponse
+    consumers: [AC-005]
+    notes: |
+      内部实时回源时产生的 failed_sources 不暴露给前端（502 时直接抛异常）。
+      缓存 upsert 写入 VideoCache 表。
+
+  # ═══════════════════════════════════════════════════════════════
+  # 刮削管理 (AC-014)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-CRAWLER-STATUS
+    path: /api/videos/crawler/status
+    method: GET
+    summary: 刮削器状态
+    request_schema: null
+    response_schema: CrawlerStatusResponse
+    consumers: [AC-014]
+
+  - id: API-CRAWLER-INCREMENTAL
+    path: /api/videos/crawler/incremental/{site_id}
+    method: POST
+    summary: 手动触发站点增量更新
+    request_schema: null
+    response_schema: MessageResponse
+    consumers: [AC-014]
+
+  - id: API-VIDEO-CACHE-CLEAR
+    path: /api/videos/cache
+    method: DELETE
+    summary: 清空视频缓存
+    request_schema: null
+    response_schema: DeletedCountResponse
+    consumers: [AC-014]
+    notes: |
+      [GAP-FIX-AC014] 所有写入 VideoCache 的操作（crawler upsert / detail upsert）
+      需在事务中触发淘汰：若总行数 > 5000，按 cached_at ASC 删除最旧记录，
+      直至剩余 5000 行。淘汰策略为写时触发（write-time eviction），
+      不新增独立 API。
+
+  # ═══════════════════════════════════════════════════════════════
+  # 播放 (AC-006, AC-007)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-PLAY-EPISODES
+    path: /api/play/episodes
+    method: GET
+    summary: 获取集数列表并解析 feifan/360zy
+    query_params:
+      - name: site_id
+        type: int
+        required: true
+      - name: original_id
+        type: str
+        required: true
+    request_schema: null
+    response_schema: Episode[]
+    consumers: [AC-006, AC-007]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 下载 (AC-011, AC-012)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-DOWNLOAD-LIST
+    path: /api/downloads
+    method: GET
+    summary: 下载任务列表
+    request_schema: null
+    response_schema: DownloadTaskOut[]
+    consumers: [AC-011, AC-012]
+
+  - id: API-DOWNLOAD-CREATE
+    path: /api/downloads
+    method: POST
+    summary: 创建下载任务
+    request_schema: DownloadTaskCreate
+    response_schema: DownloadTaskOut
+    consumers: [AC-011, AC-012]
+
+  - id: API-DOWNLOAD-PAUSE
+    path: /api/downloads/{task_id}/pause
+    method: POST
+    summary: 暂停下载任务
+    request_schema: null
+    response_schema: DownloadTaskOut
+    consumers: [AC-011]
+
+  - id: API-DOWNLOAD-RESUME
+    path: /api/downloads/{task_id}/resume
+    method: POST
+    summary: 恢复下载任务
+    request_schema: null
+    response_schema: DownloadTaskOut
+    consumers: [AC-011]
+
+  - id: API-DOWNLOAD-DELETE
+    path: /api/downloads/{task_id}
+    method: DELETE
+    summary: 删除下载任务
+    query_params:
+      - name: delete_file
+        type: bool
+        default: false
+    request_schema: null
+    response_schema: DeleteDownloadResponse
+    consumers: [AC-011]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 收藏 (AC-010)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-FAVORITE-LIST
+    path: /api/favorites
+    method: GET
+    summary: 收藏列表
+    request_schema: null
+    response_schema: FavoriteOut[]
+    consumers: [AC-010]
+
+  - id: API-FAVORITE-ADD
+    path: /api/favorites
+    method: POST
+    summary: 添加收藏
+    request_schema: FavoriteIn
+    response_schema: FavoriteOut
+    consumers: [AC-010]
+
+  - id: API-FAVORITE-DELETE
+    path: /api/favorites/{fav_id}
+    method: DELETE
+    summary: 删除收藏
+    request_schema: null
+    response_schema: OkResponse
+    consumers: [AC-010]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 播放进度 (AC-009)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-PROGRESS-UPSERT
+    path: /api/progress
+    method: POST
+    summary: 上报/更新播放进度
+    request_schema: PlayProgressIn
+    response_schema: PlayProgressOut
+    consumers: [AC-009]
+
+  - id: API-PROGRESS-RECENT
+    path: /api/progress/recent
+    method: GET
+    summary: 最近播放记录
+    request_schema: null
+    response_schema: PlayProgressOut[]
+    consumers: [AC-009]
+
+  - id: API-PROGRESS-GET
+    path: /api/progress
+    method: GET
+    summary: 查询单条播放进度
+    query_params:
+      - name: title
+        type: str
+        required: true
+      - name: year
+        type: int
+        required: false
+    request_schema: null
+    response_schema: PlayProgressOut | null
+    consumers: [AC-009]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 设置 (AC-011 下载根目录)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-SETTINGS-DOWNLOAD-ROOT-GET
+    path: /api/settings/download-root
+    method: GET
+    summary: 获取下载根目录
+    request_schema: null
+    response_schema: ValueResponse
+    consumers: [AC-011]
+
+  - id: API-SETTINGS-DOWNLOAD-ROOT-SET
+    path: /api/settings/download-root
+    method: PUT
+    summary: 设置下载根目录
+    request_schema: ValueRequest
+    response_schema: ValueResponse
+    consumers: [AC-011]
+
+  # ═══════════════════════════════════════════════════════════════
+  # SSE (AC-016)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-SSE
+    path: /api/sse
+    method: GET
+    summary: SSE 实时推送流
+    request_schema: null
+    response_schema: text/event-stream
+    consumers: [AC-016]
+    event_types:
+      - download_progress
+      - download_status
+      - site_health
+    notes: 心跳间隔 30 秒，客户端自动重连 3 秒
+
+  # ═══════════════════════════════════════════════════════════════
+  # 健康检查 (AC-017)
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-HEALTH
+    path: /api/health
+    method: GET
+    summary: 服务健康检查
+    request_schema: null
+    response_schema: HealthResponse
+    consumers: [AC-017]
+
+# ═══════════════════════════════════════════════════════════════
+# 共享 Schema 引用（详见 data-schema.yaml）
+# ═══════════════════════════════════════════════════════════════
+schema_references:
+  - Site
+  - SiteCreate
+  - SitePatch
+  - SiteCategoriesOut
+  - SiteCategoriesUpdate
+  - AggregatedListResponse
+  - AggregatedVideo
+  - SourceRef
+  - DetailRequest
+  - DetailResponse
+  - SourceDetail
+  - Episode
+  - DownloadTaskCreate
+  - DownloadTaskOut
+  - FavoriteIn
+  - FavoriteOut
+  - PlayProgressIn
+  - PlayProgressOut
+  - ProbeResult
+  - OkResponse
+  - MessageResponse
+  - DeletedCountResponse
+  - DeleteDownloadResponse
+  - ValueRequest
+  - ValueResponse
+  - HealthResponse
+  - ValidationErrorResponse
+  - CrawlerStatusResponse

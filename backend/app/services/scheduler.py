@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -139,7 +139,7 @@ async def _on_probe_failure(site_id: int, site_name: str, error: str) -> None:
             site = await session.get(Site, site_id)
             if site and site.enabled:
                 site.enabled = False
-                site.auto_disabled_at = datetime.utcnow()
+                site.auto_disabled_at = datetime.now(timezone.utc)
                 await session.commit()
                 publish(Event("site_health", {"site_id": site_id, "site_name": site_name, "enabled": False, "error": error}))
                 logger.info("站点自动禁用 site=%s", site_name)

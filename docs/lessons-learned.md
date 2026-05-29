@@ -422,3 +422,89 @@ onSseEvent("download_progress", (ev) => {
 2. 内存中的 Queue 在单进程模式下足够；多实例部署时需替换为 Redis Pub/Sub
 3. 心跳间隔不要太短（30 秒即可），避免不必要的网络流量
 4. 前端首次加载仍需 REST API 获取完整状态，SSE 只负责后续增量更新
+
+---
+
+## 20. 首页每次刷新数据变化（排序抖动）
+
+**症状**：首页每次刷新，视频列表顺序完全不同，不是同一批视频。
+
+**原因**：首页查询 `ORDER BY cached_at DESC`，而 `cached_at` 在多种场景下被频繁刷新为当前时间：
+1. **增量更新**：所有扫描到的记录（包括未变化的）都被 upsert，`cached_at` 刷为当前时间
+2. **查看详情**：`video_detail` 回源后写入缓存，`cached_at` 刷为当前时间
+3. **detail upsert 覆盖**：crawler 的 videolist 补全阶段覆盖 `cached_at`
+
+这导致"最近被缓存"的视频浮到顶部，而非"最近被资源站更新"的视频。
+
+**排查过程**：
+1. 先验证后端查询本身是否稳定 → 多次运行结果一致 ✓
+2. 检查数据库写入 → 发现 `check_updates` 触发增量更新，site 1 写入约 900 条新记录
+3. 检查 `source_updated_at` 分布 → 1920 条为 NULL（被 detail upsert 覆盖导致）
+
+**解决**：
+1. 首页排序从 `cached_at DESC` 改为 `source_updated_at DESC`（资源站实际更新时间）
+2. 增量更新时跳过 `source_updated_at` 未变化的记录，避免不必要更新 `cached_at`
+3. `video_detail` 和 `_batch_upsert_detail_fields` 中，不将 `source_updated_at` 覆盖为 None
+
+**教训**：
+- 缓存表的 `cached_at` 只应代表"何时写入缓存"，不应作为业务排序依据
+- 批量 upsert 时，未变化记录应跳过，避免产生大量无意义的写入
+- detail 阶段补充的字段不应覆盖 list 阶段已正确写入的元数据
+
+---
+
+## 21. SQLAlchemy `scalars()` 在 SELECT 多列时只返回第一列
+
+**症状**：`crawler_stats` API 返回 500 错误，`site_map = {s.id: s.name for s in sites_result.scalars().all()}` 报 `AttributeError: 'int' object has no attribute 'id'`。
+
+**原因**：`select(Site.id, Site.name)` 配合 `.scalars().all()` 时，SQLAlchemy 的 `scalars()` 只返回结果集的第一列（即 `id` 整数），而非行对象。
+
+**解决**：多列查询使用 `.all()` 获取完整行元组：
+```python
+site_map = {sid: name for sid, name in sites_result.all()}
+```
+
+**教训**：`scalars()` 只对单列 `SELECT` 或 ORM 实体查询有意义；多列查询必须用 `.all()` 然后解包元组。
+
+---
+
+## 22. VideoCache 5000 行上限导致分类覆盖不全
+
+**症状**：资源站有几万个视频，但某些分类（如纪录片、短片）只显示寥寥几条，甚至为空。
+
+**原因**：全局 5000 条 LRU 淘汰策略下，热门分类（国产剧、综艺等）更新频繁，不断刷新 `cached_at`，挤占了冷门分类的配额。全量刮削遍历了所有分类，但最终只保留"最新的 5000 条"，导致冷门分类数据被提前淘汰。
+
+**解决**：取消 5000 行上限。`_evict_if_overflow` 和 `_evict_video_cache_overflow` 改为空操作。
+
+**教训**：
+- 缓存上限必须结合**实际使用场景**来设定，不能拍脑袋定一个数字
+- 本机/局域网部署，SQLite 处理几十万条记录性能完全可接受，不应人为限制数据量
+- 如果必须设上限，应按"分类"或"站点"分别限制，而不是全局一刀切
+- 用户体验（数据完整）比磁盘空间节省更重要
+
+---
+
+## 快速检索表
+
+| 关键词 | 对应问题 |
+|--------|---------|
+| 端口、8000、10013 | #1 端口冲突 |
+| 404、fetch-categories | #2 404 + #3 父分类 |
+| 分类、0 条、total:0 | #3 父分类陷阱 |
+| 中文、电影、t= | #4 360zy 中文名 |
+| 代码改了没效果 | #6 进程未重启 |
+| 动作片、返回不对 | #7 用错参数 |
+| curl、JSON、解析 | #8 curl JSON |
+| git、not a repo | #9 git init 位置 |
+| 展开、第二行 | #10 按钮位置 |
+| auto_disabled_at、no such column | #11 数据库列缺失 |
+| SourceClient、SyntaxError、aclose | #12 async context manager 语法陷阱 |
+| try/except、SyntaxError | #13 + #14 作用域/闭合错误 |
+| netstat、找不到进程、拒绝访问 | #15 多进程残留 |
+| 封面、poster、空白 | #16 VideoCard poster 策略 |
+| feifan、不支持播放、格式 | #17 feifan 后缀解析差异 |
+| 下载、卡顿、DB 事务 | #18 下载批量 commit |
+| SSE、轮询、实时 | #19 SSE 替代轮询 |
+| 首页刷新、数据变化、排序 | #20 首页排序抖动 |
+| scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
+| 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
