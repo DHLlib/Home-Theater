@@ -151,3 +151,48 @@ class FailedSource(BaseModel):
     site_id: int | None = None
     site_name: str | None = None
     error: str
+
+
+class SiteCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    base_url: str = Field(..., min_length=1)
+    enabled: bool = True
+    sort: int = 0
+
+
+class SitePatch(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    enabled: bool | None = None
+    sort: int | None = None
+    categories: list[dict] | None = None
+
+
+class CrawlerLog(BaseModel):
+    timestamp: str
+    site_id: int
+    site_name: str
+    category: str
+    page: int
+    crawl_type: str
+    items_count: int
+    new_count: int
+    update_count: int
+    duration_ms: int
+
+
+class CrawlerLogsResponse(BaseModel):
+    logs: list[CrawlerLog]
+
+
+class SiteStat(BaseModel):
+    site_id: int
+    site_name: str
+    count: int
+
+
+class CrawlerStatsResponse(BaseModel):
+    total: int
+    by_site: list[SiteStat]
+    with_detail: int
+    last_updated_at: str | None = None

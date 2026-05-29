@@ -1,0 +1,22 @@
+version: "1.0.0"
+
+entry_point:
+  backend:
+    main: "backend/app/main.py"
+    app_factory: "backend/app/main.py"
+    # 实际项目采用工作目录 backend/ 启动，因此 import 路径为 app.api.{domain}
+    # router 自身已携带 prefix="/{domain}"，故 app.include_router 使用 prefix="/api"
+    register_pattern: "from app.api.{domain} import router; app.include_router(router, prefix='/api')"
+    start_command: "cd backend && python -m uvicorn app.main:app --reload"
+  frontend:
+    main: "frontend/src/main.tsx"
+    mount_pattern: "import { Page } from './pages/{Page}'; createBrowserRouter([{ path: '{route}', element: <Page /> }])"
+    start_command: "cd frontend && npm run dev"
+
+domain_exports:
+  backend:
+    - router      # FastAPI APIRouter，在 domain 目录下导出
+    - models      # SQLAlchemy ORM models / Pydantic schemas，在 domain 目录下导出
+  frontend:
+    - Page        # React 页面组件，在 pages/ 下导出
+    - api         # 该领域的 HTTP 客户端封装，在 api/ 下导出

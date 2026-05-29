@@ -158,9 +158,7 @@ async def _run_direct_download(
                     await _set_error(task_id, "file_removed: 资源已失效")
                     return
                 elif resp.status_code >= 400:
-                    error_msg = await _classify_http_error(
-                        site_id, base_url, site_name, resp.status_code
-                    )
+                    error_msg = await _classify_http_error(resp.status_code)
                     await _set_error(task_id, error_msg)
                     return
 
@@ -214,10 +212,10 @@ async def _run_direct_download(
                 publish(Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
                 logger.info("下载完成 task_id=%s path=%s", task_id, task.file_path)
     except httpx.TimeoutException as exc:
-        error_msg = await _classify_network_error(site_id, base_url, site_name, str(exc))
+        error_msg = await _classify_network_error(str(exc))
         await _set_error(task_id, error_msg)
     except httpx.HTTPError as exc:
-        error_msg = await _classify_network_error(site_id, base_url, site_name, str(exc))
+        error_msg = await _classify_network_error(str(exc))
         await _set_error(task_id, error_msg)
     except Exception as exc:
         await _set_error(task_id, f"connection_error: {exc}")
@@ -426,14 +424,10 @@ async def _run_m3u8_download(
             logger.info("m3u8 下载完成 task_id=%s path=%s", task_id, final_path)
 
     except httpx.TimeoutException as exc:
-        error_msg = await _classify_network_error(
-            site_id, base_url, site_name, str(exc)
-        )
+        error_msg = await _classify_network_error(str(exc))
         await _set_error(task_id, error_msg)
     except httpx.HTTPError as exc:
-        error_msg = await _classify_network_error(
-            site_id, base_url, site_name, str(exc)
-        )
+        error_msg = await _classify_network_error(str(exc))
         await _set_error(task_id, error_msg)
     except Exception as exc:
         logger.exception("m3u8 下载异常 task_id=%s", task_id)
@@ -594,9 +588,7 @@ async def _concat_ts_files(
 # 错误分类
 # ---------------------------------------------------------------------------
 
-async def _classify_http_error(
-    site_id: int, base_url: str, site_name: str, status_code: int
-) -> str:
+async def _classify_http_error(status_code: int) -> str:
     """HTTP 4xx/5xx 时直接根据状态码分类，避免额外 probe 请求。"""
     if status_code == 404:
         return "file_removed: 资源已失效（HTTP 404）"
@@ -605,9 +597,7 @@ async def _classify_http_error(
     return f"connection_error: HTTP {status_code}"
 
 
-async def _classify_network_error(
-    site_id: int, base_url: str, site_name: str, detail: str
-) -> str:
+async def _classify_network_error(detail: str) -> str:
     """网络层异常直接归类为 connection_error，避免额外 probe 请求。"""
     return f"connection_error: {detail}"
 

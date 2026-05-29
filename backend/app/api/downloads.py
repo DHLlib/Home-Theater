@@ -35,9 +35,13 @@ async def create_download(req: DownloadTaskCreate, db: AsyncSession = Depends(ge
     safe_title = "".join(
         c if c.isalnum() or c in "._- " else "_" for c in req.title
     ).strip()
+    if safe_title in (".", ".."):
+        safe_title = "_"
     episode_name = "".join(
         c if c.isalnum() or c in "._- " else "_" for c in req.episode_name
     ).strip()
+    if episode_name in (".", ".."):
+        episode_name = "_"
     ext = req.suffix if req.suffix in ("mp4", "m3u8") else "mp4"
     file_path = str(root / safe_title / f"{episode_name}.{ext}")
 

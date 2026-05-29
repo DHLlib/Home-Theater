@@ -24,7 +24,6 @@ export interface AggregatedVideo {
 
 export interface AggregatedListResponse {
   items: AggregatedVideo[];
-  failed_sources: FailedSource[];
 }
 
 export interface SourceDetail {
@@ -128,12 +127,6 @@ export interface ProbeResult {
   error?: string | null;
 }
 
-export interface FailedSource {
-  site_id?: number | null;
-  site_name?: string | null;
-  error: string;
-}
-
 export interface CategoryMapping {
   remote_id: string;
   name: string;
@@ -147,4 +140,34 @@ export interface Site {
   sort: number;
   categories?: CategoryMapping[] | null;
   created_at?: string | null;
+}
+
+export interface CrawlerLog {
+  timestamp: string;
+  site_id: number;
+  site_name: string;
+  category: string;
+  page: number;
+  crawl_type: string;
+  items_count: number;
+  new_count: number;
+  update_count: number;
+  duration_ms: number;
+}
+
+export interface CrawlerLogsResponse {
+  logs: CrawlerLog[];
+}
+
+export interface SiteStat {
+  site_id: number;
+  site_name: string;
+  count: number;
+}
+
+export interface CrawlerStatsResponse {
+  total: number;
+  by_site: SiteStat[];
+  with_detail: number;
+  last_updated_at: string | null;
 }

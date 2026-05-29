@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Site
-from app.schemas import CategoryMapping, FailedSource, SiteCategoriesOut, SiteCategoriesUpdate
+from app.schemas import CategoryMapping, FailedSource, SiteCategoriesOut, SiteCategoriesUpdate, SiteCreate, SitePatch
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
 
@@ -18,8 +18,8 @@ async def list_sites(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("")
-async def create_site(site: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    db_site = Site(**site)
+async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
+    db_site = Site(**site.model_dump())
     db.add(db_site)
     await db.commit()
     await db.refresh(db_site)
@@ -27,13 +27,12 @@ async def create_site(site: dict = Body(...), db: AsyncSession = Depends(get_db)
 
 
 @router.patch("/{site_id}")
-async def update_site(site_id: int, patch: dict = Body(...), db: AsyncSession = Depends(get_db)):
+async def update_site(site_id: int, patch: SitePatch, db: AsyncSession = Depends(get_db)):
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
-    for key, value in patch.items():
-        if hasattr(db_site, key):
-            setattr(db_site, key, value)
+    for key, value in patch.model_dump(exclude_unset=True).items():
+        setattr(db_site, key, value)
     await db.commit()
     await db.refresh(db_site)
     return db_site
@@ -83,6 +82,17 @@ async def update_site_categories(
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
+
+    # AC-002 gap fix: server-side mutual exclusion validation
+    seen: dict[str, str] = {}
+    for c in body.categories:
+        if c.remote_id in seen:
+            raise HTTPException(
+                status_code=400,
+                detail=f"remote_id '{c.remote_id}' 已分配到分类 '{seen[c.remote_id]}'",
+            )
+        seen[c.remote_id] = c.name
+
     db_site.categories = [c.model_dump() for c in body.categories]
     await db.commit()
     await db.refresh(db_site)

@@ -1,0 +1,219 @@
+# 组件归属（初始状态，待 boundary-arbitration 更新）
+version: "1.0"
+components:
+  - name: backend/app/api/sites.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/videos.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/play.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/downloads.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/favorites.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/progress.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/sse.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/api/settings_api.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: backend/app/services/scheduler.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/crawler.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/source_client.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/parser.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/resolver.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/health.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/downloader.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/aggregator.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/services/event_bus.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/models.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/schemas.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/db.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/config.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/logging_config.py
+    owner: backend
+    visibility: private
+    contract_version: "1.0"
+  - name: backend/app/main.py
+    owner: backend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Home.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Detail.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Player.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Downloads.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Favorites.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Progress.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Settings.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/pages/Search.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/VideoPlayer.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/VideoCard.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/SourcePicker.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/EpisodeList.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/CategoryBar.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/CategorySettings.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/Layout.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/api/client.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/videos.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/sites.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/downloads.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/favorites.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/progress.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/play.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/settings.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/api/sse.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/utils/cache.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/utils/toast.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/types.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/router.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/App.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/main.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/styles/global.css
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"

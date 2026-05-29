@@ -1,6 +1,8 @@
 import { del, get, post } from "./client";
 import type {
   AggregatedListResponse,
+  CrawlerLogsResponse,
+  CrawlerStatsResponse,
   DetailRequest,
   DetailResponse,
 } from "../types";
@@ -82,3 +84,12 @@ export const getCrawlerStatus = () => get<{ running: boolean; site_status: Recor
 
 export const triggerIncremental = (siteId: number) =>
   post<{ message: string }>(`/api/videos/crawler/incremental/${siteId}`);
+
+export const getCrawlerLogs = () =>
+  get<CrawlerLogsResponse>("/api/videos/crawler/logs");
+
+export const getCrawlerStats = () =>
+  get<CrawlerStatsResponse>("/api/videos/crawler/stats");
+
+export const triggerFullCrawl = () =>
+  post<{ message: string }>("/api/videos/crawler/full");

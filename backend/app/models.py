@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
@@ -7,6 +7,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Site(Base):
@@ -20,7 +24,7 @@ class Site(Base):
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     categories: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
     auto_disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class Favorite(Base):
@@ -31,7 +35,7 @@ class Favorite(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
 class PlayProgress(Base):
@@ -53,7 +57,7 @@ class PlayProgress(Base):
     position_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )
 
 
@@ -80,9 +84,9 @@ class DownloadTask(Base):
         String, default="queued", nullable=False, index=True
     )
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )
 
 
@@ -106,7 +110,7 @@ class VideoCache(Base):
     director: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     play_url_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    cached_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     # 刮削相关字段
     type_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     type_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -121,5 +125,5 @@ class AppConfig(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )

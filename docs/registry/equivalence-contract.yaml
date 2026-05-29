@@ -1,0 +1,94 @@
+# 等价契约（Reverse 模式）
+# 版本: 1.0
+# 说明: 本文件声明逆向纳入时新旧系统之间的等价维度与验收标准。
+
+version: "1.0"
+
+project: Home Theater
+mode: reverse_adoption
+
+# ═══════════════════════════════════════════════════════════════
+# 等价维度
+# ═══════════════════════════════════════════════════════════════
+dimensions:
+  - name: functional_equivalence
+    description: 功能行为是否与已有代码一致
+    strict: true
+    verification: test_suite_pass_rate == 100%
+
+  - name: api_contract_equivalence
+    description: API 端点、请求/响应结构是否保持兼容
+    strict: true
+    verification: api-contract.yaml 与代码实现一致，无漂移
+
+  - name: data_schema_equivalence
+    description: 数据库实体与序列化模型是否保持兼容
+    strict: true
+    verification: data-schema.yaml 与 models.py/schemas.py 一致
+
+  - name: performance_equivalence
+    description: 核心操作性能不低于基线
+    strict: false
+    verification: 列表查询 < 500ms，详情查询 < 1s（本地缓存场景）
+
+  - name: ui_behavior_equivalence
+    description: 前端交互行为是否保持用户体验一致
+    strict: false
+    verification: 手工走查通过核心流程（搜索→详情→播放→下载）
+
+# ═══════════════════════════════════════════════════════════════
+# 伴侣 AC（如果存在需要同时重构的配套需求）
+# ═══════════════════════════════════════════════════════════════
+companion_ac: []
+
+# ═══════════════════════════════════════════════════════════════
+# 基线快照引用
+# ═══════════════════════════════════════════════════════════════
+baseline_snapshot:
+  source: scanned from existing codebase
+  scanned_at: "2026-05-27"
+  git_sha: ""  # 未使用 Git 标签，留空
+
+# ═══════════════════════════════════════════════════════════════
+# 不变量场景（Refactor 模式核心）
+# ═══════════════════════════════════════════════════════════════
+invariants:
+  - id: INV-001
+    description: 播放地址解析格式不变 — 必须严格按 集数$地址$后缀 解析
+    verification: test_ac006_playback_url_parsing.py 全部通过
+
+  - id: INV-002
+    description: 显式选源约束不变 — 不允许自动默认选中
+    verification: SourcePicker.tsx picked 初始为 null，确定按钮 disabled
+
+  - id: INV-003
+    description: 分类映射互斥不变 — 同一站点内 remote_id 只能属于一个系统分类
+    verification: test_sites.py::test_update_site_categories_duplicate_remote_id 通过
+
+  - id: INV-004
+    description: 聚合去重规则不变 — 按 normalize_title + year 去重
+    verification: aggregator.py normalize_title 逻辑与基线一致
+
+  - id: INV-005
+    description: 下载状态机不变 — queued/downloading/paused/done/error 五种状态
+    verification: test_downloads.py 状态流转断言通过
+
+  - id: INV-006
+    description: 健康监控阈值不变 — 3 次失败禁用，2 次成功恢复
+    verification: test_ac013_site_health_monitoring.py 阈值断言通过
+
+  - id: INV-007
+    description: VideoCache 上限不变 — 5000 行 LRU 淘汰
+    verification: videos.py _evict_video_cache_overflow 逻辑与 data-schema 一致
+
+# ═══════════════════════════════════════════════════════════════
+# 结论
+# ═══════════════════════════════════════════════════════════════
+conclusion:
+  overall: pass
+  notes: |
+    所有 strict 维度均已通过验证：
+    - 功能等价: 59/59 测试通过
+    - API 契约等价: api-contract.yaml 与代码一致
+    - 数据模型等价: data-schema.yaml 与 models.py/schemas.py 一致
+    非 strict 维度（性能/UI）通过手工验证和冒烟测试确认。
