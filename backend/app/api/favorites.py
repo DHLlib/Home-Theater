@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +10,7 @@ from app.models import Favorite
 from app.schemas import FavoriteIn
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -26,11 +29,13 @@ async def add_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        logger.warning("favorite_duplicate title=%s year=%s", req.title, req.year)
         raise HTTPException(
             status_code=409,
             detail=f"Favorite already exists for title='{req.title}' and year={req.year}",
         )
     await db.refresh(fav)
+    logger.info("favorite_added fav_id=%d title=%s year=%s", fav.id, req.title, req.year)
     return fav
 
 
@@ -41,4 +46,5 @@ async def remove_favorite(fav_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Favorite not found")
     await db.delete(fav)
     await db.commit()
+    logger.info("favorite_removed fav_id=%d title=%s", fav_id, fav.title)
     return {"ok": True}
