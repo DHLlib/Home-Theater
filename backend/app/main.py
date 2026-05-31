@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
@@ -39,12 +40,16 @@ class CacheControlStaticFiles(StaticFiles):
             response = await super().get_response(path, scope)
         except Exception as exc:
             if getattr(exc, "status_code", None) == 404:
+                # 静态资源文件（JS/CSS/图片等）不存在时，不要 fallback 到 index.html，
+                # 否则浏览器会把 HTML 当 JS/CSS 解析导致白屏
+                if "." in path and not path.endswith(".html"):
+                    raise
                 response = await super().get_response("index.html", scope)
                 is_fallback = True
             else:
                 raise
         if is_fallback or path == "" or path.endswith(".html"):
-            response.headers["Cache-Control"] = "no-cache"
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         elif path.endswith(".js") or path.endswith(".css"):
             # JS/CSS 用短缓存 + must-revalidate，避免构建产物更新后浏览器仍用旧缓存
             response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
@@ -62,6 +67,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
 
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, videos
 

@@ -607,6 +607,101 @@ acceptance_criteria:
     status: completed
   assembly:
     status: completed
+- id: AC-021
+  title: 移动端响应式布局与导航
+  description: 所有页面适配小屏幕，导航栏折叠，触摸目标 >= 44px，消除 hover 依赖
+  status: pending
+  stage: review
+  source: frontend/src/styles/global.css, frontend/src/components/Layout.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/styles/global.css
+  - frontend/src/components/Layout.tsx
+  - frontend/src/components/VideoCard.tsx
+  - frontend/src/pages/Home.tsx
+  - frontend/src/pages/Detail.tsx
+  - frontend/src/pages/Player.tsx
+  - frontend/src/pages/Search.tsx
+  - frontend/src/pages/Downloads.tsx
+  - frontend/src/pages/Favorites.tsx
+  - frontend/src/pages/Progress.tsx
+  - frontend/src/pages/Settings.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 新增 AC，从 atdd 开始
+  tdd:
+    status: pending
+  bdd:
+    status: pending
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-022
+  title: 播放器触摸交互与手势控制
+  description: 移动端播放器支持双击暂停/播放、左右滑动快进快退、全屏切换、控制栏自动隐藏
+  status: pending
+  stage: review
+  source: frontend/src/components/VideoPlayer.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/components/VideoPlayer.tsx
+  - frontend/src/pages/Player.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 新增 AC，从 atdd 开始
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-023
+  title: 网络传输优化
+  description: 后端 Gzip 压缩、fields 精简响应、移动端分页 12 条；前端懒加载、虚拟滚动、缓存 TTL 适配
+  status: pending
+  stage: review
+  source: backend/app/main.py, backend/app/api/videos.py, frontend/src/utils/cache.ts
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/main.py
+  - backend/app/api/videos.py
+  - backend/app/schemas.py
+  - frontend/src/components/VideoCard.tsx
+  - frontend/src/utils/cache.ts
+  - frontend/src/pages/Home.tsx
+  - frontend/src/pages/Search.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 新增 AC，从 atdd 开始
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
 sprints:
 - id: sprint-002
   name: 技术债务清理与边界测试补充
@@ -653,3 +748,18 @@ sprints:
   - agent: ac020-impl
     status: completed
     changes: 设置页新增全量刮削按钮、各站点增量按钮，调用后端 /crawler/full 和 /crawler/incremental API
+- id: sprint-006
+  name: 移动端适配
+  status: completed
+  started_at: '2026-05-30'
+  completed_at: '2026-05-30'
+  tasks:
+  - agent: ac021-impl
+    status: completed
+    changes: 响应式布局（10 个页面）、底部 Tab 导航、BottomSheet、hover 替代、触摸目标优化
+  - agent: ac022-impl
+    status: completed
+    changes: 手势系统（双击/滑动/全屏）、控制栏 autoHide、选集抽屉、SeekFeedback
+  - agent: ac023-impl
+    status: completed
+    changes: GzipMiddleware、fields 参数、移动端分页、动态缓存 TTL

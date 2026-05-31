@@ -519,3 +519,555 @@ textarea:focus {
   background: var(--muted);
   color: var(--fg);
 }
+
+/* ============================================================
+   === AC-022: 播放器触摸交互与手势控制 ===
+   ============================================================ */
+
+/* --- 手势覆盖层 --- */
+.gesture-overlay {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.gesture-overlay > div:first-child {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Seek 反馈提示 --- */
+.seek-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 32px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  pointer-events: none;
+  animation: seekFadeIn 150ms ease;
+}
+
+.seek-feedback-icon {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.seek-feedback-text {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@keyframes seekFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* --- 播放器布局（桌面端） --- */
+.player-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: stretch;
+  padding: 0 12px;
+}
+
+.player-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.player-video-wrap {
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 桌面端选集 sidebar */
+.episode-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.episode-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+/* --- 移动端适配 (< 768px) --- */
+@media (max-width: 767px) {
+  .player-layout {
+    flex-direction: column;
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .player-main {
+    flex: none;
+    height: auto;
+  }
+
+  .player-video-wrap {
+    aspect-ratio: 16 / 9;
+    border-radius: 6px;
+  }
+
+  /* 移动端底部抽屉 */
+  .episode-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: calc(var(--z-modal) - 1);
+    animation: backdropFadeIn 200ms ease;
+  }
+
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .episode-drawer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60vh;
+    max-height: 500px;
+    background: var(--card);
+    border-radius: 16px 16px 0 0;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform var(--transition-slow);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .episode-drawer.open {
+    transform: translateY(0);
+  }
+
+  /* 移动端 ckplayer 控制栏适配 */
+  .ckplayer-controls,
+  .ck-control-bar,
+  .ck-controls {
+    min-height: 44px !important;
+  }
+
+  .ckplayer-controls button,
+  .ck-control-bar button,
+  .ck-controls button {
+    min-width: 40px !important;
+    min-height: 40px !important;
+  }
+}
+
+/* --- 全屏模式下的播放器布局 --- */
+:fullscreen .player-layout,
+:-webkit-full-screen .player-layout,
+:-moz-full-screen .player-layout {
+  height: 100dvh !important;
+  padding: 0;
+}
+
+:fullscreen .player-main,
+:-webkit-full-screen .player-main,
+:-moz-full-screen .player-main {
+  height: 100%;
+}
+
+:fullscreen .player-video-wrap,
+:-webkit-full-screen .player-video-wrap,
+:-moz-full-screen .player-video-wrap {
+  border-radius: 0;
+}
+
+/* 全屏时隐藏选集 sidebar */
+:fullscreen .episode-sidebar,
+:-webkit-full-screen .episode-sidebar,
+:-moz-full-screen .episode-sidebar {
+  display: none;
+}
+
+/* --- CSS 模拟全屏（夸克/微信等不支持 Fullscreen API 的浏览器）--- */
+.simulated-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  background: #000 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  border-radius: 0 !important;
+}
+
+/* 模拟全屏时隐藏播放器内的控制条 */
+.simulated-fullscreen ~ .row,
+.simulated-fullscreen + .row {
+  display: none !important;
+}
+
+/* --- CSS 伪横屏（夸克/微信等不支持 screen.orientation.lock 的浏览器）--- */
+.fake-landscape {
+  position: fixed !important;
+  top: 0 !important;
+  left: 100vw !important;
+  width: 100vh !important;
+  height: 100vw !important;
+  transform: rotate(90deg) !important;
+  transform-origin: top left !important;
+  z-index: 9999 !important;
+  border-radius: 0 !important;
+  background: #000 !important;
+}
+
+/* 全屏模式下确保伪横屏生效 */
+:fullscreen .fake-landscape,
+:-webkit-full-screen .fake-landscape {
+  position: fixed !important;
+  top: 0 !important;
+  left: 100vw !important;
+  width: 100vh !important;
+  height: 100vw !important;
+  transform: rotate(90deg) !important;
+  transform-origin: top left !important;
+}
+
+/* 伪横屏下确保内部 video 填满容器 */
+.fake-landscape video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+/* ============================================================
+   === AC-021: 移动端响应式布局与导航 ===
+   ============================================================ */
+
+/* --- 响应式 Grid --- */
+@media (max-width: 767px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+}
+
+/* --- 底部导航栏 --- */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: var(--z-nav);
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 100%;
+  min-width: 44px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 11px;
+  transition: color var(--transition-fast);
+}
+
+.bottom-nav-item.active {
+  color: var(--primary);
+}
+
+/* --- 底部抽屉 --- */
+.bottom-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-radius: 16px 16px 0 0;
+  border-top: 1px solid var(--border);
+  max-height: 60vh;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  animation: bottomSheetSlideUp 250ms ease;
+}
+
+@keyframes bottomSheetSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.bottom-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 8px auto;
+  flex-shrink: 0;
+}
+
+.bottom-sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+
+/* --- 遮罩层 --- */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: calc(var(--z-modal) - 1);
+  animation: maskFadeIn 200ms ease;
+}
+
+@keyframes maskFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* --- hover 替代方案 --- */
+@media (hover: hover) {
+  .video-card:hover {
+    transform: scale(1.03);
+  }
+  .video-card:hover .poster-wrap {
+    box-shadow: 0 0 20px rgba(13, 148, 136, 0.15);
+  }
+  .video-card:hover .card-overlay {
+    opacity: 1;
+  }
+  .scroll-row-wrap:hover .scroll-arrow {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .video-card:active {
+    transform: scale(0.98);
+  }
+  .video-card .card-overlay {
+    display: none;
+  }
+  .scroll-arrow {
+    opacity: 1;
+  }
+}
+
+/* --- 移动端 main padding --- */
+@media (max-width: 767px) {
+  main {
+    padding: 12px 12px 72px 12px;
+  }
+}
+
+@media (min-width: 768px) {
+  main {
+    padding: 16px;
+  }
+}
+
+/* --- 顶部导航栏显隐 --- */
+@media (max-width: 767px) {
+  nav:not(.bottom-nav) {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .bottom-nav {
+    display: none;
+  }
+}
+
+/* --- 触摸目标最小尺寸 --- */
+@media (max-width: 767px) {
+  .btn,
+  .nav-link,
+  input[type="text"],
+  input[type="search"],
+  select,
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* --- 分类栏横向滚动 --- */
+@media (max-width: 767px) {
+  .category-bar-scroll {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 4px;
+  }
+  .category-bar-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .category-bar-scroll .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* --- 详情页移动端单栏 --- */
+@media (max-width: 767px) {
+  .detail-layout {
+    flex-direction: column;
+  }
+  .detail-poster-wrap {
+    width: 100%;
+    max-height: 60vh;
+  }
+  .detail-poster-wrap img {
+    max-height: 60vh;
+    object-fit: contain;
+    background: var(--card);
+  }
+  .detail-info-wrap {
+    width: 100%;
+    margin-top: 12px;
+  }
+  .detail-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .detail-actions .btn {
+    flex: 1;
+  }
+}
+
+/* --- 列表页移动端垂直堆叠 --- */
+@media (max-width: 767px) {
+  .list-item-card {
+    padding: 14px 12px;
+    min-height: 64px;
+  }
+  .list-item-card .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* --- 设置页移动端表单 --- */
+@media (max-width: 767px) {
+  .settings-tab-bar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .settings-tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-tab-bar .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .settings-form input,
+  .settings-form select,
+  .settings-form textarea {
+    width: 100%;
+  }
+  .settings-form .btn {
+    width: 100%;
+  }
+}
+
+/* --- 移动端日志表格横向滚动 --- */
+@media (max-width: 767px) {
+  .logs-table-wrap {
+    overflow-x: auto;
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+}
+
+/* --- 移动端搜索页 --- */
+@media (max-width: 767px) {
+  .search-page input[type="text"] {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+/* --- 移动端视频卡片标题 --- */
+@media (max-width: 767px) {
+  .video-card .card-title {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+}
+
+/* --- SourcePicker 移动端 --- */
+@media (max-width: 767px) {
+  .source-picker-desktop {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .source-picker-mobile {
+    display: none !important;
+  }
+}

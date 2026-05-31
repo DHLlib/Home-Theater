@@ -32,7 +32,7 @@ export default function Search() {
     <div>
       <form
         onSubmit={handleSearch}
-        className="row"
+        className="row search-page"
         style={{ marginBottom: 16 }}
       >
         <input

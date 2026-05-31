@@ -508,3 +508,66 @@ site_map = {sid: name for sid, name in sites_result.all()}
 | 首页刷新、数据变化、排序 | #20 首页排序抖动 |
 | scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
 | 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
+| 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |
+
+---
+
+## 23. 夸克浏览器全屏后不会自动横屏
+
+**症状**：在夸克浏览器中播放视频并点击全屏按钮，画面仍保持竖屏，两侧留有巨大黑边。
+
+**原因**：夸克浏览器（以及微信内置浏览器等部分国产 Android 浏览器）**不支持** `screen.orientation.lock()` API。标准全屏 API 只能把元素铺满屏幕，但无法改变设备的物理方向。
+
+**解决**：使用 CSS 伪横屏作为降级方案：
+
+1. `useFullscreen.ts` 中检测 `supportsOrientationLock()`，不支持时设置 `isFakeLandscape = true`
+2. `Player.tsx` 从 `useFullscreen` 解构 `isFakeLandscape`，条件添加 `fake-landscape` 类
+3. `global.css` 中定义 `.fake-landscape`：
+
+```css
+.fake-landscape {
+  position: fixed !important;
+  top: 0 !important;
+  left: 100vw !important;
+  width: 100vh !important;
+  height: 100vw !important;
+  transform: rotate(90deg) !important;
+  transform-origin: top left !important;
+  z-index: 9999 !important;
+}
+```
+
+原理：元素初始位置放在屏幕右上角外侧 (`left: 100vw`)，宽高交换后绕左上角旋转 90°，正好填满整个屏幕。
+
+**教训**：
+- 国产浏览器（夸克、微信、UC 等）对 Web API 的支持度参差不齐，全屏/方向/触摸事件都可能与 Chrome 不同
+- 必须准备降级方案，不能依赖单一 API
+- iOS Safari 的 `video.webkitEnterFullscreen()` 系统级全屏会自动横屏，不需要伪横屏
+
+---
+
+## 快速检索表
+
+| 关键词 | 对应问题 |
+|--------|---------|
+| 端口、8000、10013 | #1 端口冲突 |
+| 404、fetch-categories | #2 404 + #3 父分类 |
+| 分类、0 条、total:0 | #3 父分类陷阱 |
+| 中文、电影、t= | #4 360zy 中文名 |
+| 代码改了没效果 | #6 进程未重启 |
+| 动作片、返回不对 | #7 用错参数 |
+| curl、JSON、解析 | #8 curl JSON |
+| git、not a repo | #9 git init 位置 |
+| 展开、第二行 | #10 按钮位置 |
+| auto_disabled_at、no such column | #11 数据库列缺失 |
+| SourceClient、SyntaxError、aclose | #12 async context manager 语法陷阱 |
+| try/except、SyntaxError | #13 + #14 作用域/闭合错误 |
+| netstat、找不到进程、拒绝访问 | #15 多进程残留 |
+| 封面、poster、空白 | #16 VideoCard poster 策略 |
+| feifan、不支持播放、格式 | #17 feifan 后缀解析差异 |
+| 下载、卡顿、DB 事务 | #18 下载批量 commit |
+| SSE、轮询、实时 | #19 SSE 替代轮询 |
+| 首页刷新、数据变化、排序 | #20 首页排序抖动 |
+| scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
+| 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
+| 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |

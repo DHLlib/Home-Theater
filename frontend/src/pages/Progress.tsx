@@ -18,15 +18,20 @@ export default function Progress() {
         {items.map((p) => (
           <div
             key={p.id}
-            className="row"
+            className="list-item-card"
             role="button"
             tabIndex={0}
             aria-label={`继续播放 ${p.title} ${p.episode_name}`}
             style={{
-              padding: 10,
+              padding: "14px 12px",
               background: "var(--card)",
-              borderRadius: 6,
+              borderRadius: 8,
               cursor: "pointer",
+              border: "1px solid var(--border)",
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
             }}
             onClick={() =>
               navigate(
@@ -46,9 +51,9 @@ export default function Progress() {
               }
             }}
           >
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 500 }}>{p.title}</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
+              <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
                 {p.episode_name} · {formatTime(p.position_seconds)} /{" "}
                 {p.duration_seconds ? formatTime(p.duration_seconds) : "-"}
               </div>

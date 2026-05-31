@@ -145,6 +145,26 @@ components:
     owner: frontend
     visibility: public
     contract_version: "1.0"
+  - name: frontend/src/components/BottomNav.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/MobileSearchBar.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/BottomSheet.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/GestureOverlay.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
+  - name: frontend/src/components/SeekFeedback.tsx
+    owner: frontend
+    visibility: public
+    contract_version: "1.0"
   - name: frontend/src/components/CategorySettings.tsx
     owner: frontend
     visibility: public
@@ -193,7 +213,27 @@ components:
     owner: frontend
     visibility: private
     contract_version: "1.0"
+  - name: frontend/src/utils/fullscreen.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
   - name: frontend/src/utils/toast.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/hooks/useViewport.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/hooks/usePlayerGestures.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/hooks/useFullscreen.ts
+    owner: frontend
+    visibility: private
+    contract_version: "1.0"
+  - name: frontend/src/hooks/useAutoHide.ts
     owner: frontend
     visibility: private
     contract_version: "1.0"

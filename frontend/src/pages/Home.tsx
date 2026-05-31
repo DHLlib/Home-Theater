@@ -4,6 +4,8 @@ import { listSites } from "../api/sites";
 import { listVideos, searchVideos, getCrawlerStatus } from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
 import VideoCard from "../components/VideoCard";
+import MobileSearchBar from "../components/MobileSearchBar";
+import { useIsMobile } from "../hooks/useViewport";
 import {
   getCachedAggregated,
   setCachedAggregated,
@@ -134,6 +136,7 @@ export default function Home() {
   const [crawlerStatus, setCrawlerStatus] = useState<{ running: boolean; site_status: Record<string, string> } | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
 
   // 从 URL 读取搜索词
   const wdFromUrl = searchParams.get("wd") || "";
@@ -398,6 +401,9 @@ export default function Home() {
 
   return (
     <div>
+      {/* ===== 移动端顶部搜索栏 ===== */}
+      {isMobile && <MobileSearchBar />}
+
       {/* ===== 工具栏：紧凑排列 ===== */}
       <div
         className="row"
