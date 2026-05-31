@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Site, VideoCache
+
+logger = logging.getLogger(__name__)
 from app.schemas import (
     AggregatedListResponse,
     AggregatedVideo,
@@ -254,7 +258,10 @@ async def list_videos(
     db: AsyncSession = Depends(get_db),
 ):
     """从本地 VideoCache 查询并按分类聚合去重。"""
+    start = time.monotonic()
+    is_mobile = _detect_mobile(request)
     per_page = _get_page_size(request, pg_size)
+    logger.info("api_list_videos category=%s pg=%s mode=%s mobile=%s per_page=%s", category, pg, mode, is_mobile, per_page)
 
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
@@ -283,6 +290,8 @@ async def list_videos(
     filtered = _filter_fields(raw_items, fields)
     response.items = [AggregatedVideo(**item) for item in filtered]
 
+    elapsed = time.monotonic() - start
+    logger.info("api_list_videos_done items=%d elapsed=%.2fs", len(response.items), elapsed)
     return response
 
 
@@ -302,10 +311,12 @@ async def search_videos(
     db: AsyncSession = Depends(get_db),
 ):
     """本地 VideoCache LIKE 搜索。"""
+    start = time.monotonic()
     if not wd or not wd.strip():
         raise HTTPException(status_code=400, detail="搜索词不能为空")
 
     per_page = _get_page_size(request, pg_size)
+    logger.info("api_search_videos wd=%s category=%s pg=%s mode=%s per_page=%s", wd, category, pg, mode, per_page)
 
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
@@ -331,6 +342,8 @@ async def search_videos(
     filtered = _filter_fields(raw_items, fields)
     response.items = [AggregatedVideo(**item) for item in filtered]
 
+    elapsed = time.monotonic() - start
+    logger.info("api_search_videos_done items=%d elapsed=%.2fs", len(response.items), elapsed)
     return response
 
 
@@ -340,6 +353,9 @@ async def search_videos(
 
 @router.post("/detail")
 async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
+    start = time.monotonic()
+    logger.info("api_video_detail title=%s year=%s sources=%d", req.title, req.year, len(req.sources))
+
     result = await db.execute(
         select(Site).where(Site.id.in_([s.site_id for s in req.sources]))
     )
@@ -512,6 +528,12 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
     if not sources and failed_sources:
         raise HTTPException(status_code=502, detail="all sources failed")
 
+    elapsed = time.monotonic() - start
+    cache_hits = sum(1 for s in req.sources if s.site_id in sites)
+    logger.info(
+        "api_video_detail_done title=%s sources=%d failed=%d cached=%d elapsed=%.2fs",
+        req.title, len(sources), len(failed_sources), len(cache_entries), elapsed,
+    )
     return DetailResponse(
         title=req.title,
         year=req.year,

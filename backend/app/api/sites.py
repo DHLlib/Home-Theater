@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,7 @@ from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/sites", tags=["sites"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -23,6 +26,7 @@ async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
     db.add(db_site)
     await db.commit()
     await db.refresh(db_site)
+    logger.info("site_created site_id=%d name=%s url=%s", db_site.id, site.name, site.base_url)
     return db_site
 
 
@@ -45,6 +49,7 @@ async def delete_site(site_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Site not found")
     await db.delete(db_site)
     await db.commit()
+    logger.info("site_deleted site_id=%d name=%s", site_id, db_site.name)
     return {"ok": True}
 
 
@@ -58,6 +63,7 @@ async def probe_site(site_id: int, db: AsyncSession = Depends(get_db)):
         base_url=db_site.base_url,
         name=db_site.name,
     )
+    logger.info("site_probe site_id=%d name=%s ok=%s", db_site.id, db_site.name, result.get("ok"))
     return result
 
 
@@ -131,4 +137,5 @@ async def fetch_remote_categories(site_id: int, db: AsyncSession = Depends(get_d
                     name=str(raw.get("type_name") or raw.get("name") or ""),
                 )
             )
+    logger.info("site_fetch_categories site_id=%d name=%s categories=%d", db_site.id, db_site.name, len(categories))
     return SiteCategoriesOut(site_id=db_site.id, categories=categories)

@@ -12,11 +12,15 @@
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import asyncio
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class SourceProtocolError(Exception):
@@ -72,28 +76,57 @@ class SourceClient:
         return params
 
     async def _get(self, params: dict[str, str]) -> dict[str, Any]:
+        url_with_params = f"{self.base_url}?{ '&'.join(f'{k}={v}' for k, v in params.items()) }"
+        start = time.monotonic()
         for attempt in range(3):
             try:
                 resp = await self._client.get(self.base_url, params=params)
+                elapsed = time.monotonic() - start
                 if resp.status_code >= 400:
+                    logger.warning(
+                        "source_request_error site=%s attempt=%d status=%d url=%s elapsed=%.2fs",
+                        self.name, attempt + 1, resp.status_code, url_with_params, elapsed
+                    )
                     raise SourceProtocolError(
                         f"site={self.name} HTTP {resp.status_code}"
                     )
                 try:
                     data = resp.json()
                 except Exception as exc:
+                    logger.warning(
+                        "source_json_error site=%s attempt=%d url=%s text=%.100s",
+                        self.name, attempt + 1, url_with_params, resp.text
+                    )
                     raise SourceProtocolError(
                         f"site={self.name} 返回非 JSON：{resp.text[:200]}"
                     ) from exc
                 if not isinstance(data, dict) or not isinstance(data.get("list"), list):
+                    logger.warning(
+                        "source_protocol_error site=%s attempt=%d url=%s missing_list",
+                        self.name, attempt + 1, url_with_params
+                    )
                     raise SourceProtocolError(
                         f"site={self.name} 返回缺少 'list' 列表字段"
                     )
+                list_len = len(data.get("list", []))
+                logger.info(
+                    "source_request site=%s attempt=%d status=%d items=%d elapsed=%.2fs url=%s",
+                    self.name, attempt + 1, resp.status_code, list_len, elapsed, url_with_params
+                )
                 return data
             except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
+                elapsed = time.monotonic() - start
                 if attempt < 2:
+                    logger.warning(
+                        "source_retry site=%s attempt=%d error=%s elapsed=%.2fs url=%s",
+                        self.name, attempt + 1, type(exc).__name__, elapsed, url_with_params
+                    )
                     await asyncio.sleep(1 * (2 ** attempt))
                 else:
+                    logger.error(
+                        "source_failed site=%s attempts=%d error=%s elapsed=%.2fs url=%s",
+                        self.name, attempt + 1, exc, elapsed, url_with_params
+                    )
                     raise SourceProtocolError(
                         f"site={self.name} 请求重试后仍失败：{exc!s}"
                     ) from exc

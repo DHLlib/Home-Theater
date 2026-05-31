@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from app.models import PlayProgress
 from app.schemas import PlayProgressIn
 
 router = APIRouter(prefix="/progress", tags=["progress"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("")
@@ -39,6 +42,10 @@ async def upsert_progress(req: PlayProgressIn, db: AsyncSession = Depends(get_db
         db.add(row)
     await db.commit()
     await db.refresh(row)
+    logger.info(
+        "progress_upsert title=%s year=%s ep_index=%d pos=%ds",
+        req.title, req.year, req.episode_index, req.position_seconds,
+    )
     return row
 
 
@@ -61,4 +68,8 @@ async def get_progress(
         )
     )
     row = result.scalar_one_or_none()
+    if row:
+        logger.info("progress_get title=%s year=%s ep_index=%d pos=%ds", title, year, row.episode_index, row.position_seconds)
+    else:
+        logger.info("progress_get_miss title=%s year=%s", title, year)
     return row
