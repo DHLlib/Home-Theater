@@ -171,8 +171,8 @@ export default function Detail() {
 
   return (
     <div className="col">
-      <div className="row" style={{ alignItems: "flex-start" }}>
-        <div style={{ width: 220, flexShrink: 0 }}>
+      <div className="row detail-layout" style={{ alignItems: "flex-start" }}>
+        <div className="detail-poster-wrap" style={{ width: 220, flexShrink: 0 }}>
           {(item.poster_url || detail[0]?.poster_url) ? (
             <img
               src={item.poster_url || detail[0]?.poster_url || undefined}
@@ -185,7 +185,7 @@ export default function Detail() {
             </div>
           )}
         </div>
-        <div className="col" style={{ flex: 1, gap: 8 }}>
+        <div className="col detail-info-wrap" style={{ flex: 1, gap: 8 }}>
           <h2 style={{ margin: 0 }}>
             {item.title} {item.year ? `(${item.year})` : ""}
           </h2>
@@ -204,7 +204,7 @@ export default function Detail() {
               dangerouslySetInnerHTML={{ __html: detail[0].intro }}
             />
           )}
-          <div className="row" style={{ marginTop: 8 }}>
+          <div className="row detail-actions" style={{ marginTop: 8 }}>
             <button className="btn btn-primary" onClick={handlePlay}>
               播放
             </button>

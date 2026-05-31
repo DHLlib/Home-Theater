@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useSearchParams } from "react-router-dom";
+import BottomNav from "./BottomNav";
 
 function SearchIcon({ size = 14 }: { size?: number }) {
   return (
@@ -168,9 +169,10 @@ export default function Layout() {
           </button>
         </form>
       </nav>
-      <main style={{ padding: 16 }}>
+      <main>
         <Outlet />
       </main>
+      <BottomNav />
     </div>
   );
 }

@@ -14,11 +14,22 @@ export default function Favorites() {
   return (
     <div>
       <h2>我的收藏</h2>
-      <div className="grid" style={{ marginTop: 12 }}>
+      <div className="favorites-list" style={{ marginTop: 12 }}>
         {items.map((f) => (
           <div
             key={f.id}
-            style={{ cursor: "pointer", position: "relative" }}
+            className="list-item-card"
+            style={{
+              cursor: "pointer",
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              padding: "10px 12px",
+              background: "var(--card)",
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              marginBottom: 8,
+            }}
             onClick={() =>
               navigate("/detail", {
                 state: {
@@ -30,13 +41,15 @@ export default function Favorites() {
               })
             }
           >
+            {/* 海报缩略图 */}
             <div
               style={{
-                aspectRatio: "2/3",
-                background: "var(--card)",
-                borderRadius: 8,
+                width: 60,
+                height: 90,
+                flexShrink: 0,
+                borderRadius: 4,
                 overflow: "hidden",
-                border: "1px solid var(--border)",
+                background: "var(--muted)",
               }}
             >
               {f.poster_url ? (
@@ -50,23 +63,43 @@ export default function Favorites() {
                   }}
                 />
               ) : (
-                <div className="empty" style={{ height: "100%" }}>
+                <div
+                  className="empty"
+                  style={{
+                    height: "100%",
+                    fontSize: 11,
+                    padding: 4,
+                  }}
+                >
                   无封面
                 </div>
               )}
             </div>
-            <div style={{ marginTop: 8, fontSize: 14 }}>{f.title}</div>
-            {f.year && (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>{f.year}</div>
-            )}
+
+            {/* 信息 */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 500, fontSize: 14 }}>{f.title}</div>
+              {f.year && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    opacity: 0.7,
+                    marginTop: 4,
+                  }}
+                >
+                  {f.year}
+                </div>
+              )}
+            </div>
+
+            {/* 删除按钮 */}
             <button
               className="btn"
               style={{
-                position: "absolute",
-                top: 4,
-                right: 4,
-                padding: "4px 8px",
+                padding: "8px 12px",
                 fontSize: 12,
+                minHeight: 44,
+                minWidth: 44,
               }}
               aria-label={`取消收藏 ${f.title}`}
               onClick={(e) => {

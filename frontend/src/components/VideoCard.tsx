@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { addFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
+import { useIsMobile } from "../hooks/useViewport";
 import type { AggregatedVideo } from "../types";
 
 export interface VideoCardProps {
@@ -62,6 +63,7 @@ function VideoCard({
   showOverlay = true,
 }: VideoCardProps) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [imgError, setImgError] = useState(false);
 
   const poster = item.poster_url && !imgError ? item.poster_url : null;
@@ -135,7 +137,7 @@ function VideoCard({
         )}
 
         {/* 悬停信息层 */}
-        {showOverlay && (
+        {showOverlay && !isMobile && (
           <div className="card-overlay">
             <div className="card-overlay-content">
               <div className="meta-line">

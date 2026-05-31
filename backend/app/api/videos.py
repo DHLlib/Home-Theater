@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, desc, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,51 @@ import app.services.scheduler as scheduler_module
 from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/videos", tags=["videos"])
+
+# ------------------------------------------------------------------
+# 字段过滤 + 移动端检测 + 分页（AC-023）
+# ------------------------------------------------------------------
+
+ALLOWED_FIELDS = {"title", "year", "poster_url", "sources"}
+MAX_PAGE_SIZE = 100
+DEFAULT_DESKTOP_PAGE_SIZE = 20
+DEFAULT_MOBILE_PAGE_SIZE = 12
+
+
+def _filter_fields(items: list[dict], fields: str | None) -> list[dict]:
+    """白名单字段过滤。fields 为逗号分隔字段名，非法字段静默忽略。
+    无有效字段时返回完整字段（防御性处理）。"""
+    if not fields:
+        return items
+
+    requested = {f.strip() for f in fields.split(",")}
+    valid = requested & ALLOWED_FIELDS
+    if not valid:
+        return items
+
+    return [{k: v for k, v in item.items() if k in valid} for item in items]
+
+
+def _detect_mobile(request: Request) -> bool:
+    """双轨检测移动端：User-Agent 解析 + device 查询参数。"""
+    ua = request.headers.get("User-Agent", "")
+    device_param = request.query_params.get("device", "")
+    return (
+        device_param == "mobile"
+        or "Mobile" in ua
+        or "Android" in ua
+        or "iPhone" in ua
+        or "iPad" in ua
+    )
+
+
+def _get_page_size(request: Request, pg_size: int | None) -> int:
+    """计算每页条数。pg_size 显式传值优先，其次按设备类型取默认值。"""
+    if pg_size is not None:
+        return min(max(pg_size, 1), MAX_PAGE_SIZE)
+    if _detect_mobile(request):
+        return DEFAULT_MOBILE_PAGE_SIZE
+    return DEFAULT_DESKTOP_PAGE_SIZE
 
 
 # ------------------------------------------------------------------
@@ -96,6 +141,7 @@ async def _query_and_aggregate(
     wd: str | None,
     mode: str,
     pg: int | None = 1,
+    per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
 ) -> AggregatedListResponse:
     """Query VideoCache with filters/keyword, aggregate dedup, and paginate."""
     if not filters:
@@ -119,7 +165,6 @@ async def _query_and_aggregate(
 
     # 限制原始记录数，避免全表加载到内存做聚合。
     # 同一视频可能在多站点出现，放大 20 倍保证聚合后有足够结果。
-    per_page = 20
     page = pg or 1
     raw_limit = per_page * 20
     raw_offset = (page - 1) * raw_limit
@@ -197,15 +242,20 @@ async def _query_and_aggregate(
 
 @router.get("")
 async def list_videos(
+    request: Request,
     t: int | str | None = None,
     pg: int | None = 1,
     h: int | None = None,
     by: str | None = None,
     category: str | None = None,
     mode: str = "aggregated",
+    fields: str | None = None,
+    pg_size: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """从本地 VideoCache 查询并按分类聚合去重。"""
+    per_page = _get_page_size(request, pg_size)
+
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
     )
@@ -226,7 +276,14 @@ async def list_videos(
             # 不指定分类：该站点全部
             filters.append((site.id, None))
 
-    return await _query_and_aggregate(db, filters, None, mode, pg)
+    response = await _query_and_aggregate(db, filters, None, mode, pg, per_page)
+
+    # fields 字段过滤（AC-023）
+    raw_items = [item.model_dump() for item in response.items]
+    filtered = _filter_fields(raw_items, fields)
+    response.items = [AggregatedVideo(**item) for item in filtered]
+
+    return response
 
 
 # ------------------------------------------------------------------
@@ -235,15 +292,20 @@ async def list_videos(
 
 @router.get("/search")
 async def search_videos(
+    request: Request,
     wd: str,
     pg: int | None = 1,
     category: str | None = None,
     mode: str = "aggregated",
+    fields: str | None = None,
+    pg_size: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """本地 VideoCache LIKE 搜索。"""
     if not wd or not wd.strip():
         raise HTTPException(status_code=400, detail="搜索词不能为空")
+
+    per_page = _get_page_size(request, pg_size)
 
     result = await db.execute(
         select(Site).where(Site.enabled == True).order_by(Site.sort)
@@ -262,7 +324,14 @@ async def search_videos(
         else:
             filters.append((site.id, None))
 
-    return await _query_and_aggregate(db, filters, wd, mode, pg)
+    response = await _query_and_aggregate(db, filters, wd, mode, pg, per_page)
+
+    # fields 字段过滤（AC-023）
+    raw_items = [item.model_dump() for item in response.items]
+    filtered = _filter_fields(raw_items, fields)
+    response.items = [AggregatedVideo(**item) for item in filtered]
+
+    return response
 
 
 # ------------------------------------------------------------------

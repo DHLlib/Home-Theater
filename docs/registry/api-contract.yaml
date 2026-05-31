@@ -105,9 +105,23 @@ endpoints:
         type: str
         default: aggregated
         enum: [aggregated, source]
+      - name: fields
+        type: str
+        required: false
+        description: 逗号分隔的字段白名单，合法值 title,year,poster_url,sources
+      - name: pg_size
+        type: int
+        required: false
+        default: 20（桌面端）/ 12（移动端）
+        description: 每页条数，最大 100
+      - name: device
+        type: str
+        required: false
+        enum: [mobile, desktop]
+        description: 显式声明设备类型，用于分页默认值计算
     request_schema: null
     response_schema: AggregatedListResponse
-    consumers: [AC-003]
+    consumers: [AC-003, AC-023]
     notes: |
       [GAP-FIX-AC003] failed_sources 字段已废弃，响应中保留空数组以保证前向兼容，
       但在 data-schema 中标记为 deprecated，TDD 阶段由 backend agent 确保恒为空，
@@ -131,9 +145,23 @@ endpoints:
         type: str
         default: aggregated
         enum: [aggregated, source]
+      - name: fields
+        type: str
+        required: false
+        description: 逗号分隔的字段白名单，合法值 title,year,poster_url,sources
+      - name: pg_size
+        type: int
+        required: false
+        default: 20（桌面端）/ 12（移动端）
+        description: 每页条数，最大 100
+      - name: device
+        type: str
+        required: false
+        enum: [mobile, desktop]
+        description: 显式声明设备类型，用于分页默认值计算
     request_schema: null
     response_schema: AggregatedListResponse
-    consumers: [AC-004]
+    consumers: [AC-004, AC-023]
     notes: |
       [GAP-FIX-AC004] 同 AC-003，failed_sources 已废弃。
 

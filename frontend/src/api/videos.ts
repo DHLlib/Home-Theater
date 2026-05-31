@@ -7,6 +7,20 @@ import type {
   DetailResponse,
 } from "../types";
 
+/* ===== AC-023: 移动端检测，自动追加 device 参数 ===== */
+
+function isMobile(): boolean {
+  if (window.innerWidth < 768) return true;
+  if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) return true;
+  return false;
+}
+
+function appendDeviceParam(qs: URLSearchParams): void {
+  if (isMobile()) {
+    qs.set("device", "mobile");
+  }
+}
+
 export const listVideos = (params?: {
   t?: number | string;
   pg?: number;
@@ -22,6 +36,7 @@ export const listVideos = (params?: {
   if (params?.by) qs.set("by", params.by);
   if (params?.category) qs.set("category", params.category);
   if (params?.mode) qs.set("mode", params.mode);
+  appendDeviceParam(qs);
   return get<AggregatedListResponse>(`/api/videos?${qs}`);
 };
 
@@ -31,6 +46,7 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
   if (params.pg != null) qs.set("pg", String(params.pg));
   if (params.category) qs.set("category", params.category);
   if (params.mode) qs.set("mode", params.mode);
+  appendDeviceParam(qs);
   return get<AggregatedListResponse>(`/api/videos/search?${qs}`);
 };
 

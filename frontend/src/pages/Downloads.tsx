@@ -151,6 +151,7 @@ export default function Downloads() {
   return (
     <div className="col">
       <h2>下载任务</h2>
+      <div className="downloads-list">
       {tasks.map((t) => {
         const totalSegments = t.total_segments ?? 0;
         const hasSegmentProgress = totalSegments > 0;
@@ -168,13 +169,14 @@ export default function Downloads() {
         return (
           <div key={t.id}>
             <div
-              className="row"
+              className="row list-item-card"
               style={{
                 justifyContent: "space-between",
-                padding: 10,
+                padding: "14px 12px",
                 background: "var(--card)",
-                borderRadius: 6,
-                marginBottom: 6,
+                borderRadius: 8,
+                marginBottom: 8,
+                border: "1px solid var(--border)",
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -348,6 +350,7 @@ export default function Downloads() {
       {tasks.length === 0 && (
         <div className="empty">暂无下载任务</div>
       )}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,37 @@ const TTL_MS = {
   episodes: 10 * 60 * 1000, // 10 分钟
 };
 
+/* ===== 移动端检测（AC-023） ===== */
+
+function isMobileDevice(): boolean {
+  // 方式 1: 网络类型
+  const conn = (navigator as any).connection;
+  if (conn?.effectiveType === "2g" || conn?.effectiveType === "3g") {
+    return true;
+  }
+  // 方式 2: 屏幕宽度
+  if (window.innerWidth < 768) {
+    return true;
+  }
+  // 方式 3: User-Agent
+  if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+    return true;
+  }
+  return false;
+}
+
+const _isMobile = isMobileDevice();
+
+function getTTL(storeName: string): number {
+  const base = TTL_MS[storeName as keyof typeof TTL_MS] || 5 * 60 * 1000;
+  if (_isMobile) {
+    if (storeName === "aggregated") return 2 * 60 * 1000;   // 2 分钟
+    if (storeName === "detail") return 3 * 60 * 1000;       // 3 分钟
+    if (storeName === "episodes") return 3 * 60 * 1000;     // 3 分钟
+  }
+  return base;
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDb(): Promise<IDBDatabase> {
@@ -51,7 +82,7 @@ async function get<T>(storeName: string, key: string): Promise<T | null> {
       }
     );
     if (!entry) return null;
-    const ttl = TTL_MS[storeName as keyof typeof TTL_MS] || 5 * 60 * 1000;
+    const ttl = getTTL(storeName);
     if (Date.now() - entry.ts > ttl) return null;
     return entry.value;
   } catch {
@@ -135,7 +166,7 @@ export async function clearExpiredCache(): Promise<number> {
     for (const storeName of stores) {
       const tx = db.transaction(storeName, "readwrite");
       const store = tx.objectStore(storeName);
-      const ttl = TTL_MS[storeName] || 5 * 60 * 1000;
+      const ttl = getTTL(storeName);
       const now = Date.now();
 
       const entries: [string, CacheEntry<unknown>][] = await new Promise(

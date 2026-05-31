@@ -75,7 +75,7 @@ export default function CategoryBar({
       {/* 分类列表 */}
       <div
         ref={containerRef}
-        className="row"
+        className="row category-bar-scroll"
         style={{
           gap: 8,
           flexWrap: "wrap",

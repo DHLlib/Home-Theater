@@ -8,11 +8,18 @@ import {
 import CKPlayer from "ckplayer";
 import "ckplayer/css/ckplayer.css";
 import Hls from "hls.js";
+import GestureOverlay from "./GestureOverlay";
+import SeekFeedback from "./SeekFeedback";
+import { usePlayerGestures } from "../hooks/usePlayerGestures";
+import { useAutoHide } from "../hooks/useAutoHide";
 
 export interface VideoPlayerHandle {
   seekTo: (seconds: number) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  play: () => void;
+  pause: () => void;
+  togglePlay: () => boolean;
 }
 
 interface VideoPlayerProps {
@@ -22,15 +29,38 @@ interface VideoPlayerProps {
   onError?: (message: string) => void;
   onReady?: () => void;
   onEnded?: () => void;
+  /** 外部控制控制栏显隐（ckplayer 自带控制栏通过 CSS opacity 控制） */
+  controlsVisible?: boolean;
+  /** 是否禁用手势（如选集抽屉打开时） */
+  gesturesDisabled?: boolean;
+  /** 全屏状态，用于 autoHide 延迟 */
+  isFullscreen?: boolean;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ src, suffix = "", autoplay = true, onError, onReady, onEnded }, ref) => {
+  (
+    {
+      src,
+      suffix = "",
+      autoplay = true,
+      onError,
+      onReady,
+      onEnded,
+      controlsVisible: externalControlsVisible,
+      gesturesDisabled,
+      isFullscreen = false,
+    },
+    ref
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const playerRef = useRef<any>(null);
     const hlsRef = useRef<Hls | null>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
     const [buffering, setBuffering] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [seekDirection, setSeekDirection] = useState<"left" | "right" | null>(null);
+    const [seekVisible, setSeekVisible] = useState(false);
+    const [controlsVisible, setControlsVisible] = useState(true);
 
     const onErrorRef = useRef(onError);
     const onReadyRef = useRef(onReady);
@@ -39,13 +69,77 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     onReadyRef.current = onReady;
     onEndedRef.current = onEnded;
 
+    // 外部控制栏显隐优先
+    const effectiveControlsVisible =
+      externalControlsVisible !== undefined ? externalControlsVisible : controlsVisible;
+
     useImperativeHandle(ref, () => ({
       seekTo: (seconds: number) => {
         playerRef.current?.seek(seconds);
       },
       getCurrentTime: () => playerRef.current?.time() || 0,
       getDuration: () => playerRef.current?.duration() || 0,
+      play: () => {
+        videoRef.current?.play().catch(() => {});
+      },
+      pause: () => {
+        videoRef.current?.pause();
+      },
+      togglePlay: () => {
+        const video = videoRef.current;
+        if (!video) return true;
+        if (video.paused) {
+          video.play().catch(() => {});
+          return false;
+        } else {
+          video.pause();
+          return true;
+        }
+      },
     }));
+
+    // 控制栏 autoHide
+    const autoHide = useAutoHide({
+      isFullscreen,
+      onShow: () => setControlsVisible(true),
+      onHide: () => setControlsVisible(false),
+    });
+
+    // 手势识别
+    const gestureHandlers = usePlayerGestures({
+      disabled: gesturesDisabled,
+      onDoubleTap: () => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (video.paused) {
+          video.play().catch(() => {});
+        } else {
+          video.pause();
+        }
+        autoHide.showControls();
+      },
+      onSwipe: (direction) => {
+        const video = videoRef.current;
+        if (!video) return;
+        const delta = direction === "right" ? 10 : -10;
+        const next = Math.max(
+          0,
+          Math.min(video.currentTime + delta, video.duration || 0)
+        );
+        playerRef.current?.seek(next);
+        setSeekDirection(direction);
+        setSeekVisible(true);
+        setTimeout(() => setSeekVisible(false), 800);
+        autoHide.showControls();
+      },
+      onSingleTap: () => {
+        if (effectiveControlsVisible) {
+          autoHide.hideControls();
+        } else {
+          autoHide.showControls();
+        }
+      },
+    });
 
     useEffect(() => {
       const container = containerRef.current;
@@ -91,6 +185,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           playerRef.current = null;
           return;
         }
+        videoRef.current = video;
 
         if (isM3u8) {
           video.preload = "auto";
@@ -99,7 +194,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             const hls = new Hls({
               debug: false,
               autoStartLoad: true,
-              // 缓冲控制：限制单码率预加载长度，降低内存占用并减少卡住概率
               maxBufferLength: 60,
               maxMaxBufferLength: 120,
               maxBufferSize: 60 * 1000 * 1000,
@@ -108,16 +202,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               highBufferWatchdogPeriod: 2,
               nudgeOffset: 0.3,
               nudgeMaxRetry: 10,
-              // 重试策略：源站偶尔超时或丢包时自动恢复
               fragLoadingMaxRetry: 6,
               fragLoadingRetryDelay: 500,
               levelLoadingMaxRetry: 4,
               levelLoadingRetryDelay: 500,
               manifestLoadingMaxRetry: 4,
               manifestLoadingRetryDelay: 500,
-              // manifest 解析后立即预取首片，缩短起播等待
               startFragPrefetch: true,
-              // 在 Web Worker 中解析 TS，减少主线程卡顿
               enableWorker: true,
             });
             hlsRef.current = hls;
@@ -211,10 +302,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           video.removeEventListener("stalled", handleStalled);
           video.removeEventListener("ended", handleEnded);
           video.removeEventListener("timeupdate", handleTimeUpdate);
+          // 先暂停并释放 video，避免后台继续播放音频
+          try {
+            video.pause();
+            video.src = "";
+            video.load();
+          } catch {
+            // 忽略
+          }
           hlsRef.current?.destroy();
           hlsRef.current = null;
           player.remove();
           playerRef.current = null;
+          videoRef.current = null;
         };
       } catch (err) {
         console.error("[VideoPlayer] init error:", err);
@@ -225,39 +325,61 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
     }, [src, suffix, autoplay]);
 
+    // 同步控制栏显隐到 ckplayer 控制栏
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const controls = container.querySelector(
+        ".ckplayer-controls, .ck-control-bar, .ck-controls"
+      ) as HTMLElement | null;
+      if (controls) {
+        controls.style.opacity = effectiveControlsVisible ? "1" : "0";
+        controls.style.pointerEvents = effectiveControlsVisible ? "auto" : "none";
+        controls.style.transition = "opacity 300ms ease";
+      }
+    }, [effectiveControlsVisible]);
+
     return (
-      <div
-        ref={containerRef}
-        style={{
-          width: "100%",
-          height: "100%",
-          position: "relative",
-          background: "#000",
-        }}
-      >
-        {buffering && !error && (
-          <div className="spinner-overlay">
-            <div className="spinner" />
-          </div>
-        )}
-        {error && (
+      <GestureOverlay gestureHandlers={gestureHandlers}>
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            position: "relative",
+            background: "#000",
+          }}
+        >
+          {/* ckplayer 独占此容器，React 不往里面渲染任何内容 */}
           <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--danger)",
-              fontSize: 14,
-              padding: 16,
-              textAlign: "center",
-            }}
-          >
-            {error}
-          </div>
-        )}
-      </div>
+            ref={containerRef}
+            style={{ width: "100%", height: "100%" }}
+          />
+          {/* React 管理的 overlay 作为 sibling，避免与 ckplayer DOM 冲突 */}
+          {buffering && !error && (
+            <div className="spinner-overlay">
+              <div className="spinner" />
+            </div>
+          )}
+          {error && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--danger)",
+                fontSize: 14,
+                padding: 16,
+                textAlign: "center",
+              }}
+            >
+              {error}
+            </div>
+          )}
+          <SeekFeedback direction={seekDirection} visible={seekVisible} />
+        </div>
+      </GestureOverlay>
     );
   }
 );

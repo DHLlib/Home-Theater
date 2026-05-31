@@ -70,6 +70,7 @@ export default function EpisodeList({
                 className="btn"
                 onClick={() => onPick(ep.index)}
                 title={ep.url}
+                style={{ minHeight: 44, minWidth: 44 }}
               >
                 {ep.ep_name}
               </button>

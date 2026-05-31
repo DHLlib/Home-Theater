@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   listSites,
   createSite,
@@ -172,6 +173,88 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
 ];
 
+function SunIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function MoonIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+function PlayIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
 const inputStyle: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 6,
@@ -184,6 +267,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabKey>("sites");
   const [sites, setSites] = useState<Site[]>([]);
   const [root, setRoot] = useState("");
@@ -199,6 +283,9 @@ export default function Settings() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
+  const [theme, setTheme] = useState(() =>
+    document.documentElement.getAttribute("data-theme") || "light"
+  );
 
   /* ---- inline edit states ---- */
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -311,11 +398,18 @@ export default function Settings() {
     transition: "background-color 150ms ease, border-color 150ms ease",
   };
 
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+  };
+
   return (
-    <div className="col" style={{ gap: 20 }}>
+    <div className="col settings-form" style={{ gap: 20 }}>
       {/* Tab 菜单 */}
       <div
-        className="row"
+        className="row settings-tab-bar"
         style={{
           background: "var(--card)",
           border: "1px solid var(--border)",
@@ -1219,6 +1313,70 @@ export default function Settings() {
           )}
         </section>
       )}
+
+      {/* ===== 快捷入口：我的下载 / 播放记录 / 主题切换 ===== */}
+      <section
+        style={{
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          padding: 20,
+        }}
+      >
+        <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: 16,
+              fontWeight: 600,
+              letterSpacing: 0.3,
+            }}
+          >
+            快捷入口
+          </h3>
+        </div>
+        <div className="col" style={{ gap: 10 }}>
+          <button
+            className="btn"
+            onClick={() => navigate("/downloads")}
+            style={{
+              justifyContent: "flex-start",
+              gap: 10,
+              width: "100%",
+            }}
+          >
+            <DownloadIcon size={16} />
+            我的下载
+          </button>
+          <button
+            className="btn"
+            onClick={() => navigate("/progress")}
+            style={{
+              justifyContent: "flex-start",
+              gap: 10,
+              width: "100%",
+            }}
+          >
+            <PlayIcon size={16} />
+            播放记录
+          </button>
+          <button
+            className="btn"
+            onClick={toggleTheme}
+            style={{
+              justifyContent: "flex-start",
+              gap: 10,
+              width: "100%",
+            }}
+            aria-label={
+              theme === "light" ? "切换深色模式" : "切换浅色模式"
+            }
+          >
+            {theme === "light" ? <MoonIcon size={16} /> : <SunIcon size={16} />}
+            {theme === "light" ? "切换深色模式" : "切换浅色模式"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

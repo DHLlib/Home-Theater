@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { getEpisodes } from "../api/play";
 import { getProgress, upsertProgress } from "../api/progress";
 import VideoPlayer from "../components/VideoPlayer";
-import {
-  getCachedEpisodes,
-  setCachedEpisodes,
-} from "../utils/cache";
+import type { VideoPlayerHandle } from "../components/VideoPlayer";
+import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
+import { useFullscreen } from "../hooks/useFullscreen";
+import { useIsMobile } from "../hooks/useViewport";
 import type { Episode, PlayProgress } from "../types";
 
 export default function Player() {
@@ -24,17 +24,24 @@ export default function Player() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentIndex, setCurrentIndex] = useState(initialEp);
   const [progressRestored, setProgressRestored] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const playerRef = useRef<{
-    seekTo: (seconds: number) => void;
-    getCurrentTime: () => number;
-    getDuration: () => number;
-  } | null>(null);
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const playerRef = useRef<VideoPlayerHandle | null>(null);
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const keyDownTime = useRef<Record<string, number>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+
+  const { isFullscreen, isFakeLandscape, isSimulatedFullscreen, toggleFullscreen } = useFullscreen();
+
+  // 窗口从移动端变桌面端时自动展开 sidebar
+  useEffect(() => {
+    if (!isMobile && !sidebarOpen) {
+      setSidebarOpen(true);
+    }
+  }, [isMobile, sidebarOpen]);
 
   useEffect(() => {
     if (!site_id || !original_id) return;
@@ -103,6 +110,12 @@ export default function Player() {
   useEffect(() => {
     if (!title || episodes.length === 0 || progressRestored) return;
 
+    // 用户从详情页明确选择了集数（ep > 0），跳过进度恢复
+    if (initialEp > 0) {
+      setProgressRestored(true);
+      return;
+    }
+
     getProgress(title, year)
       .then((res: PlayProgress | null) => {
         if (
@@ -120,7 +133,7 @@ export default function Player() {
       })
       .catch(() => {})
       .finally(() => setProgressRestored(true));
-  }, [title, year, site_id, original_id, episodes, progressRestored]);
+  }, [title, year, site_id, original_id, episodes, progressRestored, initialEp]);
 
   useEffect(() => {
     if (!current) return;
@@ -262,6 +275,20 @@ export default function Player() {
     }
   };
 
+  const handleToggleFullscreen = useCallback(() => {
+    toggleFullscreen(playerContainerRef.current);
+  }, [toggleFullscreen]);
+
+  const handleEpisodeClick = useCallback(
+    (index: number) => {
+      setCurrentIndex(index);
+      if (isMobile) {
+        setSidebarOpen(false);
+      }
+    },
+    [isMobile]
+  );
+
   if (!site_id || !original_id) {
     return <div className="empty">参数缺失</div>;
   }
@@ -270,25 +297,15 @@ export default function Player() {
     <div
       ref={containerRef}
       tabIndex={0}
-      className="row"
+      className="player-layout"
       style={{
         height: "calc(100dvh - 80px)",
         minHeight: 0,
-        gap: 12,
-        alignItems: "stretch",
       }}
     >
       {/* 左侧：播放器 + 控制条 */}
-      <div className="col" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            background: "#000",
-            borderRadius: 8,
-            overflow: "hidden",
-          }}
-        >
+      <div className="player-main" ref={playerContainerRef}>
+        <div className={`player-video-wrap ${isSimulatedFullscreen ? "simulated-fullscreen" : ""} ${isFakeLandscape ? "fake-landscape" : ""}`}>
           <VideoPlayer
             ref={playerRef}
             src={current?.url || ""}
@@ -296,6 +313,8 @@ export default function Player() {
             autoplay
             onError={(msg) => console.error("播放错误:", msg)}
             onEnded={handleEnded}
+            isFullscreen={isFullscreen}
+            gesturesDisabled={isMobile && sidebarOpen}
           />
         </div>
 
@@ -315,27 +334,39 @@ export default function Player() {
               ? `${current.ep_name} (${current.suffix})`
               : "加载中..."}
           </div>
-          <button
-            className="btn"
-            disabled={currentIndex >= episodes.length - 1}
-            onClick={() => setCurrentIndex((i) => i + 1)}
-          >
-            下一集
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            {/* 移动端选集按钮 */}
+            {isMobile && (
+              <button
+                className="btn"
+                onClick={() => setSidebarOpen(true)}
+                style={{ padding: "4px 12px", minHeight: 44, fontSize: 13 }}
+              >
+                选集
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={handleToggleFullscreen}
+              style={{ padding: "4px 12px", minHeight: 44, fontSize: 13 }}
+              aria-label={isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
+            >
+              {isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
+            </button>
+            <button
+              className="btn"
+              disabled={currentIndex >= episodes.length - 1}
+              onClick={() => setCurrentIndex((i) => i + 1)}
+            >
+              下一集
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 右侧：选集面板 */}
-      {sidebarOpen ? (
-        <div
-          className="col"
-          style={{
-            width: 220,
-            flexShrink: 0,
-            minHeight: 0,
-            overflow: "hidden",
-          }}
-        >
+      {/* 桌面端：右侧 sidebar */}
+      {!isMobile && sidebarOpen && (
+        <div className="episode-sidebar">
           <div
             className="row"
             style={{ justifyContent: "space-between", flexShrink: 0 }}
@@ -350,7 +381,7 @@ export default function Player() {
               收起
             </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginTop: 8 }}>
+          <div className="episode-list">
             {groupedEpisodes.map((group, gi) => (
               <div key={gi} style={{ marginBottom: 12 }}>
                 <div
@@ -380,7 +411,7 @@ export default function Player() {
                         padding: "6px 10px",
                         minHeight: 36,
                       }}
-                      onClick={() => setCurrentIndex(ep.index)}
+                      onClick={() => handleEpisodeClick(ep.index)}
                     >
                       {ep.ep_name}
                     </button>
@@ -390,7 +421,10 @@ export default function Player() {
             ))}
           </div>
         </div>
-      ) : (
+      )}
+
+      {/* 桌面端收起状态 */}
+      {!isMobile && !sidebarOpen && (
         <button
           className="btn"
           onClick={() => setSidebarOpen(true)}
@@ -404,6 +438,85 @@ export default function Player() {
         >
           选集
         </button>
+      )}
+
+      {/* 移动端：底部抽屉 */}
+      {isMobile && (
+        <>
+          {/* 遮罩层 */}
+          {sidebarOpen && (
+            <div
+              className="episode-drawer-backdrop"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+          {/* 抽屉 */}
+          <div className={`episode-drawer ${sidebarOpen ? "open" : ""}`}>
+            <div
+              className="row"
+              style={{
+                justifyContent: "space-between",
+                flexShrink: 0,
+                padding: "12px 16px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <h4 style={{ margin: 0, fontSize: 15 }}>选集</h4>
+              <button
+                className="btn"
+                onClick={() => setSidebarOpen(false)}
+                style={{ padding: "4px 8px", minHeight: 28, fontSize: 12 }}
+                aria-label="关闭选集"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="episode-list" style={{ padding: "12px 16px" }}>
+              {groupedEpisodes.map((group, gi) => (
+                <div key={gi} style={{ marginBottom: 12 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      opacity: 0.6,
+                      marginBottom: 6,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {group.label}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gap: 8,
+                    }}
+                  >
+                    {group.eps.map((ep) => (
+                      <button
+                        key={ep.index}
+                        className="btn"
+                        style={{
+                          borderColor:
+                            ep.index === currentIndex
+                              ? "var(--accent)"
+                              : undefined,
+                          fontSize: 12,
+                          padding: "8px 4px",
+                          minHeight: 44,
+                        }}
+                        onClick={() => handleEpisodeClick(ep.index)}
+                      >
+                        {ep.ep_name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
