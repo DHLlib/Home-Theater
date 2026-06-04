@@ -313,8 +313,6 @@ export default function Player() {
             autoplay
             onError={(msg) => console.error("播放错误:", msg)}
             onEnded={handleEnded}
-            isFullscreen={isFullscreen}
-            gesturesDisabled={isMobile && sidebarOpen}
           />
         </div>
 
