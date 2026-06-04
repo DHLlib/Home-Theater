@@ -1,12 +1,12 @@
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Site
-from app.schemas import CategoryMapping, FailedSource, SiteCategoriesOut, SiteCategoriesUpdate, SiteCreate, SitePatch
+from app.schemas import CategoryMapping, SiteCategoriesOut, SiteCategoriesUpdate, SiteCreate, SitePatch
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
 

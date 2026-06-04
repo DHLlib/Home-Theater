@@ -384,7 +384,7 @@ class Crawler:
 
     async def _get_enabled_sites(self, db: AsyncSession) -> list[Site]:
         result = await db.execute(
-            select(Site).where(Site.enabled == True).order_by(Site.sort)
+            select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
         )
         return list(result.scalars().all())
 

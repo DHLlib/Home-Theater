@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Site, VideoCache
-
-logger = logging.getLogger(__name__)
 from app.schemas import (
     AggregatedListResponse,
     AggregatedVideo,
@@ -31,6 +29,7 @@ import app.services.scheduler as scheduler_module
 from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/videos", tags=["videos"])
+logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
 # 字段过滤 + 移动端检测 + 分页（AC-023）
@@ -264,7 +263,7 @@ async def list_videos(
     logger.info("api_list_videos category=%s pg=%s mode=%s mobile=%s per_page=%s", category, pg, mode, is_mobile, per_page)
 
     result = await db.execute(
-        select(Site).where(Site.enabled == True).order_by(Site.sort)
+        select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
     )
     sites = result.scalars().all()
 
@@ -319,7 +318,7 @@ async def search_videos(
     logger.info("api_search_videos wd=%s category=%s pg=%s mode=%s per_page=%s", wd, category, pg, mode, per_page)
 
     result = await db.execute(
-        select(Site).where(Site.enabled == True).order_by(Site.sort)
+        select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
     )
     sites = result.scalars().all()
 
@@ -529,7 +528,6 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=502, detail="all sources failed")
 
     elapsed = time.monotonic() - start
-    cache_hits = sum(1 for s in req.sources if s.site_id in sites)
     logger.info(
         "api_video_detail_done title=%s sources=%d failed=%d cached=%d elapsed=%.2fs",
         req.title, len(sources), len(failed_sources), len(cache_entries), elapsed,
@@ -610,7 +608,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
 
     # 有详情的数量
     detail_result = await db.execute(
-        select(func.count()).select_from(VideoCache).where(VideoCache.has_detail == True)
+        select(func.count()).select_from(VideoCache).where(VideoCache.has_detail.is_(True))
     )
     with_detail = detail_result.scalar_one()
 
