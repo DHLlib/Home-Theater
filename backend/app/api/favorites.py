@@ -23,7 +23,7 @@ async def list_favorites(db: AsyncSession = Depends(get_db)):
 
 @router.post("")
 async def add_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
-    fav = Favorite(title=req.title, year=req.year, poster_url=req.poster_url)
+    fav = Favorite(title=req.title, year=req.year, poster_url=req.poster_url, sources=[s.model_dump() for s in req.sources])
     db.add(fav)
     try:
         await db.commit()

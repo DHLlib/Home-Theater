@@ -117,6 +117,7 @@ class FavoriteIn(BaseModel):
     title: str
     year: int | None = None
     poster_url: str | None = None
+    sources: list[SourceRef] = Field(default_factory=list)
 
 
 class FavoriteOut(BaseModel):
@@ -124,6 +125,7 @@ class FavoriteOut(BaseModel):
     title: str
     year: int | None = None
     poster_url: str | None = None
+    sources: list[SourceRef] = Field(default_factory=list)
     created_at: str | None = None
 
 

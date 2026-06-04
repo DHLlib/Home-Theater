@@ -104,6 +104,7 @@ export default function Detail() {
       title: item.title,
       year: item.year,
       poster_url: item.poster_url || detail[0]?.poster_url || undefined,
+      sources: item.sources,
     }).then(() => toastSuccess("已收藏"));
   };
 
