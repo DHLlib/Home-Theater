@@ -2,6 +2,8 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
+from app.constants import LOG_BACKUP_COUNT, LOG_MAX_BYTES
+
 LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
 # 日志分类映射：前缀 -> 文件名
@@ -42,8 +44,8 @@ def _make_handler(log_file: str, level: int, formatter: logging.Formatter) -> Ro
     path = os.path.join(LOG_DIR, log_file)
     handler = RotatingFileHandler(
         path,
-        maxBytes=10 * 1024 * 1024,
-        backupCount=5,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
         encoding="utf-8",
     )
     handler.setLevel(level)
