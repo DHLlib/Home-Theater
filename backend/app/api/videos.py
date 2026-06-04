@@ -21,6 +21,7 @@ from app.schemas import (
     DetailResponse,
     FailedSource,
     SiteStat,
+    SourceRef,
 )
 from app.services.aggregator import normalize_title
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
@@ -353,10 +354,23 @@ async def search_videos(
 @router.post("/detail")
 async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
     start = time.monotonic()
-    logger.info("api_video_detail title=%s year=%s sources=%d", req.title, req.year, len(req.sources))
+
+    # 回退：sources 为空时按 title+year 查 VideoCache 补全
+    sources = req.sources
+    if not sources and req.title:
+        cache_q = select(VideoCache).where(VideoCache.title == req.title)
+        if req.year is not None:
+            cache_q = cache_q.where(VideoCache.year == req.year)
+        cache_result = await db.execute(cache_q)
+        sources = [
+            SourceRef(site_id=r.site_id, original_id=r.original_id)
+            for r in cache_result.scalars().all()
+        ]
+
+    logger.info("api_video_detail title=%s year=%s sources=%d", req.title, req.year, len(sources))
 
     result = await db.execute(
-        select(Site).where(Site.id.in_([s.site_id for s in req.sources]))
+        select(Site).where(Site.id.in_([s.site_id for s in sources]))
     )
     sites = {s.id: s for s in result.scalars().all()}
 
@@ -478,7 +492,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                     error=str(exc),
                 )
 
-    tasks = [fetch_one(s) for s in req.sources]
+    tasks = [fetch_one(s) for s in sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     sources = []
