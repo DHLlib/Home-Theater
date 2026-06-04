@@ -35,6 +35,7 @@ class Favorite(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sources: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 

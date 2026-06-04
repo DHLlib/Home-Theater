@@ -37,6 +37,9 @@ async def _ensure_columns(conn) -> None:
             ("play_from", "VARCHAR", "NULL"),
             ("has_detail", "BOOLEAN", "0"),
         ],
+        "favorites": [
+            ("sources", "TEXT", "NULL"),
+        ],
     }
     async with conn.begin_nested():
         for table, alterations in _ALLOWED.items():

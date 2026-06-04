@@ -85,6 +85,7 @@ function VideoCard({
       title: item.title,
       year: item.year,
       poster_url: item.poster_url || undefined,
+      sources: item.sources,
     }).then(() => toastSuccess("已收藏"));
   };
 

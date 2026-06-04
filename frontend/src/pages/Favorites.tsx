@@ -36,7 +36,7 @@ export default function Favorites() {
                   title: f.title,
                   year: f.year,
                   poster_url: f.poster_url,
-                  sources: [],
+                  sources: f.sources || [],
                 },
               })
             }

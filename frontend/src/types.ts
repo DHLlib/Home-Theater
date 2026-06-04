@@ -111,6 +111,7 @@ export interface FavoriteIn {
   title: string;
   year?: number | null;
   poster_url?: string | null;
+  sources?: SourceRef[];
 }
 
 export interface Favorite {
@@ -118,6 +119,7 @@ export interface Favorite {
   title: string;
   year?: number | null;
   poster_url?: string | null;
+  sources?: SourceRef[];
   created_at?: string | null;
 }
 
