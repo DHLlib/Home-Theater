@@ -1,5 +1,8 @@
 import re
+
 import httpx
+
+from app.constants import HTTP_TIMEOUT_RESOLVE
 
 FEIFAN_URL_RE = re.compile(r'const url\s*=\s*"([^"]+)"')
 
@@ -12,7 +15,9 @@ async def resolve_feifan(share_url: str) -> str | None:
       返回 "https://vip.ffzy-plays.com/2026xxx/index.m3u8?sign=xxx"
     """
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT_RESOLVE, follow_redirects=True
+        ) as client:
             headers = {
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

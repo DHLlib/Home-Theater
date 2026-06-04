@@ -19,6 +19,16 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import (
+    CRAWLER_BATCH_INSERT_SIZE,
+    CRAWLER_BATCH_VIDEOLIST_SIZE,
+    CRAWLER_PAGE_CONCURRENCY,
+    CRAWLER_PAGE_SIZE_THRESHOLD,
+    CRAWLER_SITE_CONCURRENCY,
+    CRAWLER_VIDEOLIST_BATCH_SIZE,
+    RETRY_BASE_DELAY_SECONDS,
+    RETRY_MAX_ATTEMPTS,
+)
 from app.models import AppConfig, Site, VideoCache
 from app.services.source_client import SourceClient
 
@@ -32,8 +42,8 @@ class Crawler:
     """
 
     STATE_KEY = "crawler_state"
-    BATCH_SIZE = 20
-    PAGE_CONCURRENCY = 5
+    BATCH_SIZE = CRAWLER_VIDEOLIST_BATCH_SIZE
+    PAGE_CONCURRENCY = CRAWLER_PAGE_CONCURRENCY
 
     def __init__(self, db_factory):
         self._db_factory = db_factory
@@ -61,7 +71,7 @@ class Crawler:
         async with self._db_factory() as db:
             sites = await self._get_enabled_sites(db)
 
-        semaphore = asyncio.Semaphore(3)
+        semaphore = asyncio.Semaphore(CRAWLER_SITE_CONCURRENCY)
 
         async def _crawl_one(site: Site):
             if not self._running:
@@ -192,7 +202,7 @@ class Crawler:
                             need_videolist.append(entry)
 
                         # 批量 upsert list 字段（每 100 条一刷）
-                        if len(batch_entries) >= 100:
+                        if len(batch_entries) >= CRAWLER_BATCH_INSERT_SIZE:
                             async with self._db_factory() as db:
                                 await self._batch_upsert_list_fields(db, batch_entries)
                             batch_entries = []
@@ -200,12 +210,12 @@ class Crawler:
                         last_vod_time = items[-1].get("updated_at")
 
                         # 页末检测：返回不足一页说明已到末尾
-                        if len(items) < 20:
+                        if len(items) < CRAWLER_PAGE_SIZE_THRESHOLD:
                             reached_end = True
                             break
 
                         # 避免内存无限堆积
-                        if len(need_videolist) >= 200:
+                        if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
                             await self._batch_videolist(site, client, need_videolist)
                             need_videolist = []
 
@@ -325,7 +335,7 @@ class Crawler:
                         # 已有且未变化：跳过，不更新 cached_at，避免首页排序抖动
 
                         # 批量 upsert list 字段（每 100 条一刷）
-                        if len(batch_entries) >= 100:
+                        if len(batch_entries) >= CRAWLER_BATCH_INSERT_SIZE:
                             async with self._db_factory() as db:
                                 await self._batch_upsert_list_fields(db, batch_entries)
                             batch_entries = []
@@ -344,11 +354,11 @@ class Crawler:
 
                     if not stopped:
                         new_last_vod_time = items[-1].get("updated_at")
-                        if len(items) < 20:
+                        if len(items) < CRAWLER_PAGE_SIZE_THRESHOLD:
                             break
                         page += 1
 
-                        if len(need_videolist) >= 200:
+                        if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
                             await self._batch_videolist(site, client, need_videolist)
                             need_videolist = []
 
@@ -403,14 +413,14 @@ class Crawler:
         self, client: SourceClient, cat_id, page: int
     ) -> list[dict]:
         """请求单页 list，带重试。"""
-        for attempt in range(3):
+        for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
                 t = cat_id if cat_id is not None else None
                 items = await client.list(t=t, pg=page)
                 return items
             except Exception:
-                if attempt < 2:
-                    await asyncio.sleep(1 * (2**attempt))
+                if attempt < RETRY_MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
                 continue
         return []
 

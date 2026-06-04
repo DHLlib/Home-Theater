@@ -20,6 +20,12 @@ import asyncio
 
 import httpx
 
+from app.constants import (
+    HTTP_TIMEOUT_DEFAULT,
+    RETRY_BASE_DELAY_SECONDS,
+    RETRY_MAX_ATTEMPTS,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +34,7 @@ class SourceProtocolError(Exception):
 
 
 class SourceClient:
-    def __init__(self, site_id: int, base_url: str, name: str = "", timeout: float = 8.0):
+    def __init__(self, site_id: int, base_url: str, name: str = "", timeout: float = HTTP_TIMEOUT_DEFAULT):
         self.site_id = site_id
         self.base_url = base_url
         self.name = name or str(site_id)
@@ -78,7 +84,7 @@ class SourceClient:
     async def _get(self, params: dict[str, str]) -> dict[str, Any]:
         url_with_params = f"{self.base_url}?{ '&'.join(f'{k}={v}' for k, v in params.items()) }"
         start = time.monotonic()
-        for attempt in range(3):
+        for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
                 resp = await self._client.get(self.base_url, params=params)
                 elapsed = time.monotonic() - start
@@ -116,12 +122,12 @@ class SourceClient:
                 return data
             except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
                 elapsed = time.monotonic() - start
-                if attempt < 2:
+                if attempt < RETRY_MAX_ATTEMPTS - 1:
                     logger.warning(
                         "source_retry site=%s attempt=%d error=%s elapsed=%.2fs url=%s",
                         self.name, attempt + 1, type(exc).__name__, elapsed, url_with_params
                     )
-                    await asyncio.sleep(1 * (2 ** attempt))
+                    await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
                 else:
                     logger.error(
                         "source_failed site=%s attempts=%d error=%s elapsed=%.2fs url=%s",

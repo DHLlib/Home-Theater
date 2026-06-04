@@ -13,14 +13,27 @@ import aiofiles
 import httpx
 from sqlalchemy import select
 
+from app.constants import (
+    DOWNLOAD_BATCH_COMMIT_CHUNKS,
+    DOWNLOAD_BATCH_COMMIT_SEGMENTS,
+    DOWNLOAD_CHUNK_SIZE,
+    DOWNLOAD_DB_COMMIT_INTERVAL,
+    DOWNLOAD_PAUSE_CHECK_INTERVAL,
+    DOWNLOAD_TS_CONCURRENCY,
+    DOWNLOAD_WORKER_EMPTY_SLEEP,
+    DOWNLOAD_WORKER_TASK_INTERVAL,
+    HTTP_TIMEOUT_DOWNLOAD,
+    HTTP_TIMEOUT_FFMPEG,
+    HTTP_TIMEOUT_RESOLVE,
+    RETRY_BASE_DELAY_SECONDS,
+    RETRY_MAX_ATTEMPTS,
+)
 from app.db import async_session_factory
 from app.models import DownloadTask, Site
 from app.services.event_bus import Event, publish
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 64 * 1024
-TS_CONCURRENCY = 5
 M3U8_SUFFIXES = ("m3u8", "ffm3u8")
 
 
@@ -71,7 +84,7 @@ async def download_worker() -> None:
     while True:
         task_id = await _pick_next_task()
         if task_id is None:
-            await asyncio.sleep(5)
+            await asyncio.sleep(DOWNLOAD_WORKER_EMPTY_SLEEP)
             continue
 
         try:
@@ -80,7 +93,7 @@ async def download_worker() -> None:
             logger.exception("下载任务异常终止 task_id=%s", task_id)
             await _set_error(task_id, "connection_error: 未知异常，请重试")
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(DOWNLOAD_WORKER_TASK_INTERVAL)
 
 
 async def _pick_next_task() -> int | None:
@@ -151,7 +164,7 @@ async def _run_direct_download(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_DOWNLOAD, follow_redirects=True) as client:
             async with client.stream("GET", task.url, headers=headers) as resp:
                 if resp.status_code == 404:
                     await _set_error(task_id, "file_removed: 资源已失效")
@@ -178,11 +191,11 @@ async def _run_direct_download(
                 chunk_counter = 0
                 try:
                     async with aiofiles.open(task.file_path, "ab") as f:
-                        async for chunk in resp.aiter_bytes(CHUNK_SIZE):
+                        async for chunk in resp.aiter_bytes(DOWNLOAD_CHUNK_SIZE):
                             now = time.monotonic()
 
-                            # 每 3 秒检查一次暂停状态
-                            if now - last_refresh >= 3:
+                            # 每 N 秒检查一次暂停状态
+                            if now - last_refresh >= DOWNLOAD_PAUSE_CHECK_INTERVAL:
                                 await session.refresh(task)
                                 last_refresh = now
                                 if task.status == "paused":
@@ -194,8 +207,8 @@ async def _run_direct_download(
                             task.downloaded_bytes += len(chunk)
                             chunk_counter += 1
 
-                            # 每 5 秒或每 100 个 chunk commit 一次
-                            if now - last_commit >= 5 or chunk_counter >= 100:
+                            # 每 N 秒或每 N 个 chunk commit 一次
+                            if now - last_commit >= DOWNLOAD_DB_COMMIT_INTERVAL or chunk_counter >= DOWNLOAD_BATCH_COMMIT_CHUNKS:
                                 await session.commit()
                                 last_commit = now
                                 chunk_counter = 0
@@ -243,7 +256,7 @@ async def _run_m3u8_download(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_DOWNLOAD, follow_redirects=True) as client:
             # 1. 确认 m3u8 URL（防御性：非直接 m3u8 时尝试解析）
             m3u8_url = task.url
             if "index.m3u8" not in m3u8_url and not m3u8_url.endswith(".m3u8"):
@@ -309,7 +322,7 @@ async def _run_m3u8_download(
                 await session.commit()
 
             # 6. 并发下载 .ts（批量 commit 优化）
-            semaphore = asyncio.Semaphore(TS_CONCURRENCY)
+            semaphore = asyncio.Semaphore(DOWNLOAD_TS_CONCURRENCY)
             _commit_lock = asyncio.Lock()
             _commit_counter = 0
             _last_commit = time.monotonic()
@@ -320,7 +333,7 @@ async def _run_m3u8_download(
                 async with _commit_lock:
                     _commit_counter += 1
                     now = time.monotonic()
-                    if force or now - _last_commit >= 5 or _commit_counter >= 10:
+                    if force or now - _last_commit >= DOWNLOAD_DB_COMMIT_INTERVAL or _commit_counter >= DOWNLOAD_BATCH_COMMIT_SEGMENTS:
                         await session.commit()
                         _last_commit = now
                         _commit_counter = 0
@@ -349,17 +362,17 @@ async def _run_m3u8_download(
                     # 检查暂停（每 3 秒才 refresh 一次）
                     nonlocal _last_refresh
                     now = time.monotonic()
-                    if now - _last_refresh >= 3:
+                    if now - _last_refresh >= DOWNLOAD_PAUSE_CHECK_INTERVAL:
                         await session.refresh(task)
                         _last_refresh = now
                         if task.status == "paused":
                             await _batch_commit(force=True)
                             return "paused"
 
-                    for attempt in range(3):
+                    for attempt in range(RETRY_MAX_ATTEMPTS):
                         try:
                             resp = await client.get(
-                                ts_url, headers=headers, timeout=30
+                                ts_url, headers=headers, timeout=HTTP_TIMEOUT_DOWNLOAD
                             )
                             if resp.status_code >= 400:
                                 raise httpx.HTTPError(f"HTTP {resp.status_code}")
@@ -381,7 +394,7 @@ async def _run_m3u8_download(
                                 exc,
                             )
                             if attempt < 2:
-                                await asyncio.sleep(1 * (2 ** attempt))
+                                await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
                             else:
                                 return False
                     return False
@@ -442,7 +455,7 @@ async def _resolve_m3u8_url(
 ) -> str | None:
     """对分享页提取真实 m3u8 地址（const url = \"...\"）。"""
     try:
-        resp = await client.get(url, headers=headers, timeout=15)
+        resp = await client.get(url, headers=headers, timeout=HTTP_TIMEOUT_RESOLVE)
         resp.raise_for_status()
         match = re.search(r'const\s+url\s*=\s*"([^"]+)"', resp.text)
         if match:
@@ -460,7 +473,7 @@ async def _fetch_text(
     client: httpx.AsyncClient, url: str, headers: dict
 ) -> str | None:
     try:
-        resp = await client.get(url, headers=headers, timeout=15)
+        resp = await client.get(url, headers=headers, timeout=HTTP_TIMEOUT_RESOLVE)
         if resp.status_code >= 400:
             return None
         return resp.text
@@ -551,7 +564,7 @@ async def _merge_ts_files(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=HTTP_TIMEOUT_FFMPEG)
         if proc.returncode == 0:
             return True
         logger.error(
@@ -577,7 +590,7 @@ async def _concat_ts_files(
                 continue
             async with aiofiles.open(ts_path, "rb") as in_f:
                 while True:
-                    chunk = await in_f.read(CHUNK_SIZE)
+                    chunk = await in_f.read(DOWNLOAD_CHUNK_SIZE)
                     if not chunk:
                         break
                     await out_f.write(chunk)
