@@ -5,38 +5,39 @@ import VideoPlayer from "../VideoPlayer";
 import type { VideoPlayerHandle } from "../VideoPlayer";
 
 const mockSeek = vi.fn();
+const mockPlay = vi.fn();
+const mockPause = vi.fn();
+const mockDestroy = vi.fn();
 
-vi.mock("ckplayer", () => ({
-  default: vi.fn(({ container }: any) => {
-    let videoEl = container.querySelector("video");
-    if (!videoEl) {
-      videoEl = document.createElement("video");
-      container.appendChild(videoEl);
-    }
-    return {
-      seek: mockSeek,
-      time: vi.fn(() => 42),
-      duration: vi.fn(() => 120),
-      remove: vi.fn(),
-    };
+function createMockPlayer() {
+  return {
+    seek: mockSeek,
+    currentTime: 42,
+    duration: 120,
+    paused: false,
+    play: mockPlay,
+    pause: mockPause,
+    destroy: mockDestroy,
+    on: vi.fn(),
+  };
+}
+
+vi.mock("xgplayer", () => ({
+  default: vi.fn(function () {
+    return createMockPlayer();
   }),
 }));
 
-vi.mock("hls.js", () => {
-  const Hls = vi.fn(() => ({
-    loadSource: vi.fn(),
-    attachMedia: vi.fn(),
-    on: vi.fn(),
-    destroy: vi.fn(),
-  })) as any;
-  Hls.isSupported = vi.fn(() => false);
-  Hls.Events = { MANIFEST_PARSED: "manifestParsed", ERROR: "error" };
-  return { default: Hls };
-});
+vi.mock("xgplayer-hls.js", () => ({
+  default: vi.fn(),
+}));
 
-describe("VideoPlayer (AC-008)", () => {
+describe("VideoPlayer (xgplayer)", () => {
   beforeEach(() => {
     mockSeek.mockClear();
+    mockPlay.mockClear();
+    mockPause.mockClear();
+    mockDestroy.mockClear();
   });
 
   afterEach(() => {
@@ -71,14 +72,9 @@ describe("VideoPlayer (AC-008)", () => {
     expect(onError).toHaveBeenCalledWith(expect.stringContaining("暂不支持"));
   });
 
-  it("播放器初始化失败时触发 onError", () => {
-    const onError = vi.fn();
-    // 强制 ckplayer 不创建 video 元素（通过不传入 container 内部有 video 的情况模拟）
-    // 但由于 mock 总是创建 video，这里我们通过 mock 返回 null 来模拟
-    // 实际上在 jsdom 中 ckplayer mock 总是创建 video，所以直接测试 onError 回调
-    // 上一个测试已经验证了 onError 路径，这里验证错误消息渲染
+  it("错误消息渲染在 DOM 中", () => {
     render(
-      <VideoPlayer src="http://example.com/video.flv" suffix="flv" onError={onError} />
+      <VideoPlayer src="http://example.com/video.flv" suffix="flv" />
     );
     expect(screen.getByText(/暂不支持/)).toBeInTheDocument();
   });

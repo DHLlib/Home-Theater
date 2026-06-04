@@ -520,70 +520,6 @@ textarea:focus {
   color: var(--fg);
 }
 
-/* ============================================================
-   === AC-022: 播放器触摸交互与手势控制 ===
-   ============================================================ */
-
-/* --- 手势覆盖层 --- */
-.gesture-overlay {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.gesture-overlay > div:first-child {
-  position: relative;
-  z-index: 1;
-}
-
-/* --- Seek 反馈提示 --- */
-.seek-feedback {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 20px 32px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  color: #fff;
-  pointer-events: none;
-  animation: seekFadeIn 150ms ease;
-}
-
-.seek-feedback-icon {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1;
-  opacity: 0.9;
-}
-
-.seek-feedback-text {
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-@keyframes seekFadeIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-}
-
 /* --- 播放器布局（桌面端） --- */
 .player-layout {
   display: flex;
@@ -681,19 +617,7 @@ textarea:focus {
     transform: translateY(0);
   }
 
-  /* 移动端 ckplayer 控制栏适配 */
-  .ckplayer-controls,
-  .ck-control-bar,
-  .ck-controls {
-    min-height: 44px !important;
-  }
-
-  .ckplayer-controls button,
-  .ck-control-bar button,
-  .ck-controls button {
-    min-width: 40px !important;
-    min-height: 40px !important;
-  }
+  /* xgplayer 移动端触控优化已在组件内部处理 */
 }
 
 /* --- 全屏模式下的播放器布局 --- */
