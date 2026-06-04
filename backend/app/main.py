@@ -2,12 +2,13 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
+from app.api import favorites, downloads, play, progress, settings_api, sites, sse, videos
 from app.db import init_db
 from app.logging_config import setup_logging
 from app.services.downloader import download_worker
@@ -68,8 +69,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
-
-from app.api import favorites, downloads, play, progress, settings_api, sites, sse, videos
 
 app.include_router(sites.router, prefix="/api")
 app.include_router(videos.router, prefix="/api")

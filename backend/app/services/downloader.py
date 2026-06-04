@@ -16,7 +16,6 @@ from sqlalchemy import select
 from app.db import async_session_factory
 from app.models import DownloadTask, Site
 from app.services.event_bus import Event, publish
-from app.services.health import probe
 
 logger = logging.getLogger(__name__)
 
