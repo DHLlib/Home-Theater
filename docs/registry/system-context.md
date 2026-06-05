@@ -1,11 +1,11 @@
 # System Context — Home Theater v0.1.0
 
-**最后更新**: 2026-05-27（Assembly 阶段）  
-**环境**: Python 3.13, FastAPI, React 18, Vite, SQLite
+**最后更新**: 2026-06-05（Sprint-006 完成）  
+**环境**: Python 3.13, FastAPI, React 18, Vite, SQLite, xgplayer v3
 
 ---
 
-## 已实现的 AC（17/17）
+## 已实现的 AC（23/23）
 
 | AC | 状态 | 后端文件 | 前端文件 |
 |----|------|---------|---------|
@@ -16,7 +16,7 @@
 | AC-005 视频详情 | ✅ | `api/videos.py`, `services/resolver.py` | `pages/Detail.tsx` |
 | AC-006 播放地址解析 | ✅ | `services/parser.py`, `services/resolver.py` | — |
 | AC-007 显式选源 | ✅ | — | `components/SourcePicker.tsx` |
-| AC-008 ckplayer 播放 | ✅ | — | `components/VideoPlayer.tsx`, `pages/Player.tsx` |
+| AC-008 xgplayer 播放 | ✅ | — | `components/VideoPlayer.tsx`, `pages/Player.tsx` |
 | AC-009 播放进度 | ✅ | `api/progress.py` | `pages/Player.tsx` |
 | AC-010 收藏管理 | ✅ | `api/favorites.py` | `pages/Favorites.tsx` |
 | AC-011 下载任务管理 | ✅ | `api/downloads.py`, `api/settings_api.py` | `pages/Downloads.tsx`, `pages/Settings.tsx` |
@@ -26,6 +26,12 @@
 | AC-015 前端 IndexedDB 缓存 | ✅ | — | `utils/cache.ts` |
 | AC-016 SSE 推送 | ✅ | `api/sse.py`, `services/event_bus.py` | `api/sse.ts`, `pages/Downloads.tsx` |
 | AC-017 局域网部署 | ✅ | `main.py`, `config.py` | — |
+| AC-018 刮削日志 | ✅ | `services/crawler.py`, `api/videos.py` | `pages/Settings.tsx` |
+| AC-019 刮削看板 | ✅ | `api/videos.py` | `pages/Settings.tsx` |
+| AC-020 手动触发刮削 | ✅ | `api/videos.py` | `pages/Settings.tsx` |
+| AC-021 移动端响应式布局 | ✅ | — | `styles/global.css`, `components/Layout.tsx` 等 |
+| AC-022 播放器手势控制 | ✅ | — | `components/VideoPlayer.tsx` |
+| AC-023 网络传输优化 | ✅ | `main.py`, `api/videos.py` | `components/VideoCard.tsx`, `utils/cache.ts` |
 
 ---
 
@@ -46,7 +52,10 @@
 - `GET    /api/videos/search`                  → search_videos
 - `POST   /api/videos/detail`                  → video_detail
 - `GET    /api/videos/crawler/status`          → crawler_status
+- `POST   /api/videos/crawler/full`            → trigger_full
 - `POST   /api/videos/crawler/incremental/{site_id}` → trigger_incremental
+- `GET    /api/videos/crawler/stats`           → crawler_stats
+- `GET    /api/videos/crawler/logs`            → crawler_logs
 - `DELETE /api/videos/cache`                   → clear_video_cache
 
 ### Play (`/api/play`)
@@ -87,7 +96,7 @@
 |------|------|------|
 | `/` | Home | 聚合列表，支持分类/时间筛选 |
 | `/detail` | Detail | 视频详情，选集，显式选源 |
-| `/player` | Player | ckplayer 播放，进度恢复 |
+| `/player` | Player | xgplayer 播放，进度恢复 |
 | `/downloads` | Downloads | 下载任务列表，SSE 实时进度 |
 | `/favorites` | Favorites | 收藏列表 |
 | `/progress` | Progress | 最近播放记录 |
@@ -103,7 +112,7 @@
 | Favorite | `favorites` | `(title, year)` UNIQUE |
 | PlayProgress | `play_progress` | `(title, year)` UNIQUE, `updated_at` 索引 |
 | DownloadTask | `download_tasks` | `status` 索引, `created_at` 索引 |
-| VideoCache | `video_cache` | `(site_id, original_id)` UNIQUE, 5000 行 LRU 淘汰 |
+| VideoCache | `video_cache` | `(site_id, original_id)` UNIQUE, 完整保留（取消 LRU 上限） |
 | AppConfig | `app_config` | `key` PK |
 
 ---
@@ -122,7 +131,6 @@
 ## 已知限制
 
 - 前端无自动化测试（jest/playwright），依赖手工验证
-- `VideoCache` 上限淘汰仅在 `videos.py` 的 detail upsert 触发，`crawler.py` 的批量 upsert 可能绕过淘汰
+- 前端无自动化测试（jest/playwright），依赖手工验证
 - `_failure_counts` / `_recovery_counts` 为内存字典，多进程部署时状态不共享
 - `failed_sources` 字段已废弃但代码中仍保留（兼容）
-- `ckplayer` 使用 eval，构建时产生安全警告（第三方依赖不可控）

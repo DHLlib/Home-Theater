@@ -62,11 +62,13 @@
 
 ---
 
-## AC-008 ckplayer 播放
+## AC-008 xgplayer 播放
 
 **Given** 用户进入播放页并显式选择了来源  
 **When** 用户播放视频时  
-**Then** ckplayer 加载视频，支持上一集/下一集切换、进度恢复、键盘快进快退（短按 15s，长按连续）
+**Then** xgplayer 加载视频，支持 HLS/m3u8 和 MP4，内置手势控制、自动隐藏控件、进度恢复
+
+> 历史：2026-06-04 从 ckplayer 迁移至 xgplayer v3 + xgplayer-hls.js
 
 ---
 
