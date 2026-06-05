@@ -250,7 +250,7 @@ acceptance_criteria:
     status: completed
   architect:
     status: completed
-  notes: '[MIGRATED] 2026-06-04 从 ckplayer 迁移至 xgplayer v3 + xgplayer-hls.js，bundle 减小 70KB，移动端手势/全屏体验改善'
+  notes: '[MIGRATED] 2026-06-04 从 ckplayer 迁移至 xgplayer v3 + xgplayer-hls.js，bundle 减小 70KB，移动端手势/全屏体验改善；2026-06-05 修复 HLS ABR 自动降码率导致画面模糊问题（锁定 currentLevel 为最高级别）'
   tdd:
     status: completed
   bdd:
