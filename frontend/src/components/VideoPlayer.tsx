@@ -111,6 +111,33 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         playerRef.current = player;
 
+        // 画质锁定：hls.js 初始化后强制选择最高码率
+        if (isM3u8) {
+          const lockMax = () => {
+            try {
+              const p = player as any;
+              const hlsPlugin =
+                p.getPlugin?.("hlsJs") || p.plugins?.hlsJs || p.hls;
+              const hls = hlsPlugin?.hls || hlsPlugin?.core || hlsPlugin;
+              if (hls && Array.isArray(hls.levels) && hls.levels.length > 1) {
+                hls.currentLevel = hls.levels.length - 1;
+                return true;
+              }
+            } catch {
+              // 单码率流或插件结构不同，忽略
+            }
+            return false;
+          };
+          if (!lockMax()) {
+            let attempts = 0;
+            const timer = setInterval(() => {
+              if (lockMax() || ++attempts > 50) {
+                clearInterval(timer);
+              }
+            }, 100);
+          }
+        }
+
         player.on("playing", () => {
           onReadyRef.current?.();
         });
