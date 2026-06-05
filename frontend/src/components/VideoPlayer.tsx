@@ -91,7 +91,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           autoplay,
           width: "100%",
           height: "100%",
-          videoFillMode: "fill",
+          videoFillMode: "auto",
+          hls: isM3u8
+            ? {
+                startLevel: -1,
+                capLevelToPlayerSize: false,
+                abrEwmaDefaultEstimate: 5000000,
+              }
+            : undefined,
           videoAttributes: {
             "x5-video-player-type": "h5",
             "x5-video-player-fullscreen": "true",
