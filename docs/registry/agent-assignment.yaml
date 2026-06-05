@@ -49,7 +49,7 @@ groups:
     rationale: |
       纯前端 AC，无后端依赖：
       - AC-007: 显式选源（frontend/src/components/SourcePicker.tsx）
-      - AC-008: ckplayer 播放集成（frontend/src/components/VideoPlayer.tsx, pages/Player.tsx）
+      - AC-008: xgplayer 播放集成（frontend/src/components/VideoPlayer.tsx, pages/Player.tsx）
       - AC-015: IndexedDB 三层缓存（frontend/src/utils/cache.ts）
     cross_ac:
       - ac_id: AC-009
