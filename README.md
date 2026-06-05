@@ -11,12 +11,15 @@
 - **首页聚合**：跨多源并发查询，同名同年合并为一张卡片
 - **搜索**：以关键字跨所有源并发搜索
 - **详情页**：封面、简介、年份、地区、演员表、导演、选集列表
-- **播放**：ckplayer 播放，支持上一集/下一集切换，键盘快进快退，播放进度自动保存
+- **播放**：xgplayer 播放（支持 HLS/m3u8、MP4），内置手势控制、自动隐藏控件，播放进度自动保存
 - **下载**：HTTP Range 断点续传，支持暂停/继续，下载根目录一次性配置
-- **收藏**：单用户收藏列表
+- **收藏**：单用户收藏列表，保留来源信息
 - **站点管理**：采集站 CRUD、连通性探测、远程分类抓取
 - **分类映射**：将各站点的子分类映射到统一的扁平系统分类
-- **视频缓存**：详情元数据本地缓存（SQLite + IndexedDB），减少重复请求源站
+- **本地聚合数据库**：后台自动刮削资源站数据到 VideoCache，首页/搜索纯本地查询
+- **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，状态持久化
+- **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
+- **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
 - **性能优化**：下载批量 commit、前端请求去重/并发限制、全局 IntersectionObserver、静态文件缓存头
 
 ---
@@ -27,7 +30,7 @@
 |------|------|
 | 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), aiosqlite |
 | 前端 | React 18, Vite, TypeScript, react-router-dom |
-| 播放器 | ckplayer |
+| 播放器 | xgplayer v3 + xgplayer-hls.js |
 | 数据库 | SQLite（启动时自动建表） |
 | 部署 | uvicorn + FastAPI 静态托管前端构建产物 |
 
@@ -132,22 +135,23 @@ http://localhost.com:8181
 Home Theater/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py           # FastAPI 入口、路由挂载、静态托管、启动建表
+│   │   ├── main.py           # FastAPI 入口、路由挂载、静态托管（含缓存头）、启动建表
+│   │   ├── constants.py      # 项目级常量（HTTP 超时、重试策略、下载/刮削/日志参数）
 │   │   ├── models.py         # ORM：Site / Favorite / PlayProgress / DownloadTask / VideoCache / AppConfig
 │   │   ├── schemas.py        # Pydantic 请求/响应模型
-│   │   ├── db.py             # async engine + session_factory
-│   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings
-│   │   └── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health
+│   │   ├── db.py             # async engine + session_factory + 列迁移
+│   │   ├── logging_config.py # 日志分类路由（api/source/crawler/download）
+│   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings / sse
+│   │   └── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver
 │   ├── data/                 # SQLite 文件（运行时生成）
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
 │   │   ├── api/              # fetch 封装 + 各模块 API
 │   │   ├── pages/            # Home / Search / Detail / Player / Downloads / Favorites / Progress / Settings
-│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout
+│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout / BottomNav
 │   │   ├── utils/            # cache（IndexedDB）/ toast
 │   │   └── types.ts          # TypeScript 类型
-│   ├── public/ckplayer/      # 播放器资源（需手动放置）
 │   └── vite.config.ts
 ├── docs/
 │   ├── lessons-learned.md    # 排错/踩坑记录
@@ -169,6 +173,8 @@ Home Theater/
 | 显式选源（无默认） | `frontend/src/components/SourcePicker.tsx` |
 | 下载根目录一次性配置 | `backend/app/api/settings_api.py` + `frontend/src/pages/Settings.tsx` |
 | 分类映射（扁平系统分类，互斥约束） | `frontend/src/components/CategorySettings.tsx` |
+| 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
+| 项目常量（禁止魔法数字） | `backend/app/constants.py` |
 
 ---
 
