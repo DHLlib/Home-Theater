@@ -509,6 +509,7 @@ site_map = {sid: name for sid, name in sites_result.all()}
 | scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
 | 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
 | 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |
+| 模糊、画质、HLS | #24 HLS ABR 自动降码率 |
 
 ---
 
@@ -571,3 +572,42 @@ site_map = {sid: name for sid, name in sites_result.all()}
 | scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
 | 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
 | 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |
+| 模糊、画质、HLS | #24 HLS ABR 自动降码率 |
+
+---
+
+## 24. HLS ABR 自动降码率导致播放中画面变模糊
+
+**症状**：播放过程中（尤其是画面复杂、运动剧烈时），视频会突然变模糊，过一会儿又恢复清晰，反复切换。
+
+**原因**：hls.js 默认启用 ABR（Adaptive Bitrate，自适应码率）。当网络波动或 buffer 不足时，ABR 算法会自动切换到低码率流（level 0），导致画质骤降。画面复杂时码率需求更高，更容易触发降级。
+
+**解决**：播放器初始化后获取 hls.js 实例，强制锁定最高级别：
+
+```typescript
+const lockMax = () => {
+  try {
+    const hlsPlugin = player.getPlugin?.("hlsJs") || player.plugins?.hlsJs;
+    const hls = hlsPlugin?.hls || hlsPlugin?.core;
+    if (hls && Array.isArray(hls.levels) && hls.levels.length > 1) {
+      hls.currentLevel = hls.levels.length - 1; // 锁定最高码率
+      return true;
+    }
+  } catch { /* 单码率流忽略 */ }
+  return false;
+};
+
+// ready 时尝试，失败则轮询最多 5 秒
+if (!lockMax()) {
+  let attempts = 0;
+  const timer = setInterval(() => {
+    if (lockMax() || ++attempts > 50) clearInterval(timer);
+  }, 100);
+}
+```
+
+**教训**：
+- hls.js 的 `startLevel: -1` 不是"最高级别"，而是"自动选择"
+- `capLevelToPlayerSize: false` 只能防止窗口尺寸限制，不能阻止带宽自适应
+- 要彻底避免降码率，必须在 manifest 解析后显式设置 `currentLevel`
+- 单码率流（levels.length === 1）不存在此问题，安全忽略
