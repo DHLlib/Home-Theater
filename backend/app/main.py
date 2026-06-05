@@ -50,7 +50,9 @@ class CacheControlStaticFiles(StaticFiles):
             else:
                 raise
         if is_fallback or path == "" or path.endswith(".html"):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, proxy-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         elif path.endswith(".js") or path.endswith(".css"):
             # JS/CSS 用短缓存 + must-revalidate，避免构建产物更新后浏览器仍用旧缓存
             response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
