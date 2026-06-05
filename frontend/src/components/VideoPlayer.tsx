@@ -94,9 +94,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           videoFillMode: "auto",
           hls: isM3u8
             ? {
-                startLevel: -1,
                 capLevelToPlayerSize: false,
-                abrEwmaDefaultEstimate: 5000000,
               }
             : undefined,
           videoAttributes: {
