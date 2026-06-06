@@ -702,6 +702,36 @@ acceptance_criteria:
     status: completed
   assembly:
     status: completed
+- id: AC-024
+  title: source_client 日志精细化
+  description: source_client 所有请求日志增加 op 上下文标识，区分首页列表、搜索、刮削、健康探测、详情回源、播放解析等场景
+  status: completed
+  stage: qa
+  source: backend/app/services/source_client.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/services/source_client.py
+  - backend/app/services/crawler.py
+  - backend/app/services/health.py
+  - backend/app/api/play.py
+  - backend/app/api/videos.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 新增 AC，从 atdd 开始
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
 sprints:
 - id: sprint-002
   name: 技术债务清理与边界测试补充

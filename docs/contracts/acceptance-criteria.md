@@ -202,3 +202,18 @@
 **Given** 用户通过移动网络访问  
 **When** 系统传输数据时  
 **Then** 后端启用 Gzip 压缩 JSON 响应；列表 API 支持 `fields` 参数精简字段；分页移动端默认 12 条。前端封面图懒加载、虚拟滚动、移动端缩小缓存 TTL
+
+---
+
+## AC-024 source_client 日志精细化
+
+**Given** 后端通过 `source_client` 发起资源站请求  
+**When** 请求完成并记录日志时  
+**Then** 日志中包含 `op` 字段标识操作场景：
+- `op=home_list` — 首页聚合列表查询
+- `op=search` — 搜索查询
+- `op=crawler_full` — 刮削器全量刮削
+- `op=crawler_incremental` — 刮削器增量检测
+- `op=health_probe` — 站点健康探测
+- `op=detail_resolve` — 详情页实时回源
+- `op=play_resolve` — 播放地址解析

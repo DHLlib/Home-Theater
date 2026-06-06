@@ -25,7 +25,7 @@ async def probe(site_id: int, base_url: str, name: str = "", timeout: float = 5.
         started = time.perf_counter()
         items = None
         try:
-            items = await client.list(pg=1)
+            items = await client.list(pg=1, op="health_probe")
         except httpx.TimeoutException as exc:
             return ProbeResult(ok=False, latency_ms=None, error=f"超时：{exc!s}")
         except httpx.HTTPError as exc:

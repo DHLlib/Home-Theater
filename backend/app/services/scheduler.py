@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 PROBE_INTERVAL = 600       # 每 10 分钟探测一次
 FAIL_THRESHOLD = 3         # 连续失败 3 次自动禁用
 RECOVER_THRESHOLD = 2      # 连续成功 2 次自动恢复
-CHECK_UPDATE_INTERVAL = 300  # 每 5 分钟检测一次更新
+CHECK_UPDATE_INTERVAL = 3600  # 每 1 小时检测一次更新
 
 # 内存中的失败计数：site_id -> int
 _failure_counts: dict[int, int] = {}

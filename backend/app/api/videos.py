@@ -433,7 +433,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
             site_id=site.id, base_url=site.base_url, name=site.name
         ) as client:
             try:
-                items = await client.videolist(ids=[source_ref.original_id])
+                items = await client.videolist(ids=[source_ref.original_id], op="detail_resolve")
                 if not items:
                     return None, None, FailedSource(
                         site_id=site.id,
