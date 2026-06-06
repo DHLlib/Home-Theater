@@ -118,7 +118,7 @@ class Crawler:
                 client = SourceClient(
                     site_id=site.id, base_url=site.base_url, name=site.name
                 )
-                items = await self._fetch_list_page(client, None, 1)
+                items = await self._fetch_list_page(client, None, 1, op="crawler_incremental")
                 await client.aclose()
 
                 if not items:
@@ -182,7 +182,7 @@ class Crawler:
                     start_time = time.time()
                     # 并发拉取多页，减少等待时间
                     tasks = [
-                        self._fetch_list_page(client, cat_id, p)
+                        self._fetch_list_page(client, cat_id, p, op="crawler_full")
                         for p in range(page, page + self.PAGE_CONCURRENCY)
                     ]
                     results = await asyncio.gather(*tasks)
@@ -216,7 +216,7 @@ class Crawler:
 
                         # 避免内存无限堆积
                         if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
-                            await self._batch_videolist(site, client, need_videolist)
+                            await self._batch_videolist(site, client, need_videolist, op="crawler_full")
                             need_videolist = []
 
                     # 记录本页日志（全量）
@@ -245,7 +245,7 @@ class Crawler:
                 cat_states[cat_key] = {"last_vod_time": last_vod_time}
 
             if need_videolist:
-                await self._batch_videolist(site, client, need_videolist)
+                await self._batch_videolist(site, client, need_videolist, op="crawler_full")
 
             site_state["status"] = "idle"
             site_state["last_full_crawl"] = datetime.now(timezone.utc).isoformat()
@@ -298,7 +298,7 @@ class Crawler:
 
                 while self._running and not stopped:
                     start_time = time.time()
-                    items = await self._fetch_list_page(client, cat_id, page)
+                    items = await self._fetch_list_page(client, cat_id, page, op="crawler_incremental")
                     if not items:
                         break
 
@@ -359,7 +359,7 @@ class Crawler:
                         page += 1
 
                         if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
-                            await self._batch_videolist(site, client, need_videolist)
+                            await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
                             need_videolist = []
 
                 # 分类结束：刷新剩余 batch_entries
@@ -372,7 +372,7 @@ class Crawler:
                     cat_states[cat_key] = {"last_vod_time": new_last_vod_time}
 
             if need_videolist:
-                await self._batch_videolist(site, client, need_videolist)
+                await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
 
             site_state["last_incremental"] = datetime.now(timezone.utc).isoformat()
             all_times = [
@@ -410,13 +410,13 @@ class Crawler:
         return cats
 
     async def _fetch_list_page(
-        self, client: SourceClient, cat_id, page: int
+        self, client: SourceClient, cat_id, page: int, op: str = "unknown"
     ) -> list[dict]:
         """请求单页 list，带重试。"""
         for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
                 t = cat_id if cat_id is not None else None
-                items = await client.list(t=t, pg=page)
+                items = await client.list(t=t, pg=page, op=op)
                 return items
             except Exception:
                 if attempt < RETRY_MAX_ATTEMPTS - 1:
@@ -425,7 +425,7 @@ class Crawler:
         return []
 
     async def _batch_videolist(
-        self, site: Site, client: SourceClient, entries: list[dict]
+        self, site: Site, client: SourceClient, entries: list[dict], op: str = "unknown"
     ):
         """批量 videolist 补充 detail 字段。"""
         for i in range(0, len(entries), self.BATCH_SIZE):
@@ -433,7 +433,7 @@ class Crawler:
             ids = [e["original_id"] for e in batch]
 
             try:
-                details = await client.videolist(ids=ids)
+                details = await client.videolist(ids=ids, op=op)
                 detail_map = {str(d.get("original_id", "")): d for d in details}
 
                 detail_entries = []

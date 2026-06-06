@@ -81,7 +81,7 @@ class SourceClient:
             params["ids"] = ",".join(str(i) for i in ids)
         return params
 
-    async def _get(self, params: dict[str, str]) -> dict[str, Any]:
+    async def _get(self, params: dict[str, str], op: str = "unknown") -> dict[str, Any]:
         url_with_params = f"{self.base_url}?{ '&'.join(f'{k}={v}' for k, v in params.items()) }"
         start = time.monotonic()
         for attempt in range(RETRY_MAX_ATTEMPTS):
@@ -116,8 +116,8 @@ class SourceClient:
                     )
                 list_len = len(data.get("list", []))
                 logger.info(
-                    "source_request site=%s attempt=%d status=%d items=%d elapsed=%.2fs url=%s",
-                    self.name, attempt + 1, resp.status_code, list_len, elapsed, url_with_params
+                    "source_request op=%s site=%s attempt=%d status=%d items=%d elapsed=%.2fs url=%s",
+                    op, self.name, attempt + 1, resp.status_code, list_len, elapsed, url_with_params
                 )
                 return data
             except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
@@ -147,9 +147,10 @@ class SourceClient:
         wd: str | None = None,
         h: int | None = None,
         by: str | None = None,
+        op: str = "unknown",
     ) -> list[dict[str, Any]]:
         params = self._build_params("list", t=t, pg=pg, wd=wd, h=h, by=by)
-        data = await self._get(params)
+        data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:
             items.append(self._normalize_list_item(raw))
@@ -162,9 +163,10 @@ class SourceClient:
         t: int | str | None = None,
         pg: int | None = None,
         h: int | None = None,
+        op: str = "unknown",
     ) -> list[dict[str, Any]]:
         params = self._build_params("videolist", t=t, pg=pg, h=h, ids=ids)
-        data = await self._get(params)
+        data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:
             items.append(self._normalize_detail_item(raw))

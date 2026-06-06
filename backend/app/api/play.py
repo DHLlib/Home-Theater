@@ -33,7 +33,7 @@ async def get_episodes(
     async with SourceClient(
         site_id=site.id, base_url=site.base_url, name=site.name
     ) as client:
-        items = await client.videolist(ids=[original_id])
+        items = await client.videolist(ids=[original_id], op="play_resolve")
     if not items:
         logger.warning("play_videolist_empty site=%s original_id=%s", site.name, original_id)
         raise HTTPException(status_code=404, detail="Video not found")
