@@ -13,6 +13,22 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class SystemCategory(Base):
+    __tablename__ = "system_categories"
+    __table_args__ = (
+        Index("ix_system_categories_parent", "parent_id"),
+        UniqueConstraint("parent_id", "name", name="uix_system_category_parent_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("system_categories.id"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class Site(Base):
     __tablename__ = "sites"
     __table_args__ = (Index("ix_sites_enabled_sort", "enabled", "sort"),)
@@ -97,6 +113,7 @@ class VideoCache(Base):
         UniqueConstraint("site_id", "original_id", name="uix_video_cache"),
         Index("ix_video_cache_title_year", "title", "year"),
         Index("ix_video_cache_type", "site_id", "type_id"),
+        Index("ix_video_cache_site_detail", "site_id", "has_detail"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

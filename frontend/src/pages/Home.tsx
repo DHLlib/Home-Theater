@@ -520,7 +520,7 @@ export default function Home() {
         <>
           {!hasContent && (
             <div className="empty" style={{ padding: 40 }}>
-              {isSyncing ? (
+              {isSyncing && !activeCategory ? (
                 <>
                   <div
                     className="spinner"

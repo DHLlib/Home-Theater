@@ -74,10 +74,19 @@ def setup_logging() -> None:
     default_handler = _make_handler(DEFAULT_LOG, logging.INFO, formatter)
     default_handler.addFilter(_DefaultFilter(categorized_prefixes))
 
-    # 控制台：输出所有日志（不附加过滤器）
+    class _ExcludeCrawlerFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return not record.name.startswith((
+                "app.services.source_client",
+                "app.services.scheduler",
+                "app.services.crawler",
+            ))
+
+    # 控制台：输出非刮削日志（刮削日志只写入文件）
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(_ExcludeCrawlerFilter())
 
     # 降低第三方库噪音
     logging.getLogger("httpx").setLevel(logging.WARNING)

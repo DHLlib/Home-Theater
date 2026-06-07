@@ -75,10 +75,32 @@ function SettingsIcon({ active }: { active: boolean }) {
   );
 }
 
+function DashboardIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2.5 : 2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
 const TABS = [
   { to: "/", label: "首页", end: true, Icon: HomeIcon },
   { to: "/search", label: "搜索", end: true, Icon: SearchIcon },
   { to: "/favorites", label: "收藏", end: false, Icon: HeartIcon },
+  { to: "/dashboard", label: "看板", end: false, Icon: DashboardIcon },
   { to: "/settings", label: "设置", end: false, Icon: SettingsIcon },
 ];
 

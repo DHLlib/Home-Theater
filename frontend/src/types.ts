@@ -134,6 +134,28 @@ export interface CategoryMapping {
   name: string;
 }
 
+export interface CategoryMappingWithPid {
+  remote_id: string;
+  name: string;
+  type_pid?: string | null;
+}
+
+export interface CategoryGroup {
+  parent_id: string | null;
+  parent_name: string | null;
+  categories: CategoryMappingWithPid[];
+}
+
+export interface FetchCategoriesResponse {
+  site_id: number;
+  groups: CategoryGroup[];
+}
+
+export interface SiteCategoriesOut {
+  site_id: number;
+  categories: CategoryMapping[];
+}
+
 export interface Site {
   id: number;
   name: string;
@@ -165,6 +187,8 @@ export interface SiteStat {
   site_id: number;
   site_name: string;
   count: number;
+  with_detail: number;
+  without_detail: number;
 }
 
 export interface CrawlerStatsResponse {
@@ -190,4 +214,95 @@ export interface BatchProbeResult {
 
 export interface BatchProbeResponse {
   results: BatchProbeResult[];
+}
+
+// ===== AC-026 智能分类映射 =====
+
+export interface SmartMatchItem {
+  remote_id: string;
+  remote_name: string;
+  suggested_system_name: string | null;
+  confidence: number;
+  status: "auto_mapped" | "suggested" | "unrecognized" | "already_mapped";
+  flag?: "adult_content" | null;
+}
+
+export interface SmartMatchSummary {
+  total: number;
+  auto_mapped: number;
+  suggested: number;
+  unrecognized: number;
+  already_mapped: number;
+}
+
+export interface SmartMatchResponse {
+  site_id: number;
+  matches: SmartMatchItem[];
+  summary: SmartMatchSummary;
+}
+
+// ===== AC-028 分类映射模板预设 =====
+
+export interface TemplateApplySkipped {
+  remote_id: string;
+  name: string;
+  reason: "already_mapped";
+  existing_system_name: string;
+}
+
+export interface TemplateApplyUnrecognized {
+  remote_id: string;
+  name: string;
+}
+
+export interface TemplateApplySummary {
+  total_in_template: number;
+  applied_count: number;
+  skipped_count: number;
+  unrecognized_count: number;
+}
+
+export interface TemplateApplyResponse {
+  site_id: number;
+  template_matched: boolean;
+  template_name: string | null;
+  applied: CategoryMapping[];
+  skipped: TemplateApplySkipped[];
+  unrecognized: TemplateApplyUnrecognized[];
+  summary: TemplateApplySummary;
+}
+
+export interface TemplatePreviewItem {
+  remote_id: string;
+  name: string;
+  action: "apply" | "skip";
+  existing?: string;
+}
+
+export interface TemplatePreviewResponse {
+  site_id: number;
+  template_matched: boolean;
+  template_name: string | null;
+  would_apply: number;
+  would_skip: number;
+  would_unrecognized: number;
+  preview: TemplatePreviewItem[];
+}
+
+// ===== SystemCategory: 系统分类（父子层级）=====
+
+export interface SystemCategory {
+  id: number;
+  parent_id: number | null;
+  name: string;
+  sort: number;
+  created_at?: string | null;
+}
+
+export interface SystemCategoryTreeItem {
+  id: number;
+  parent_id: number | null;
+  name: string;
+  sort: number;
+  children: SystemCategoryTreeItem[];
 }

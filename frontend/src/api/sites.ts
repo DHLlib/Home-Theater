@@ -1,5 +1,5 @@
 import { get, post, put, patch, del } from "./client";
-import type { Site, ProbeResult, CategoryMapping, BatchProbeItem, BatchProbeResponse } from "../types";
+import type { Site, ProbeResult, CategoryMapping, FetchCategoriesResponse, BatchProbeItem, BatchProbeResponse, SmartMatchResponse, TemplatePreviewResponse, TemplateApplyResponse } from "../types";
 
 export const listSites = () => get<Site[]>("/api/sites");
 export const createSite = (body: Omit<Site, "id" | "created_at">) =>
@@ -18,7 +18,16 @@ export const updateSiteCategories = (id: number, categories: CategoryMapping[]) 
   put<{ site_id: number; categories: CategoryMapping[] }>(`/api/sites/${id}/categories`, { categories });
 
 export const fetchRemoteCategories = (id: number) =>
-  post<{ site_id: number; categories: CategoryMapping[] }>(`/api/sites/${id}/fetch-categories`);
+  post<FetchCategoriesResponse>(`/api/sites/${id}/fetch-categories`);
 
 export const batchProbe = (items: BatchProbeItem[]) =>
   post<BatchProbeResponse>("/api/sites/batch-probe", items);
+
+export const smartMatchCategories = (id: number) =>
+  post<SmartMatchResponse>(`/api/sites/${id}/smart-match`);
+
+export const previewTemplate = (id: number) =>
+  get<TemplatePreviewResponse>(`/api/sites/${id}/template-preview`);
+
+export const applyTemplate = (id: number) =>
+  post<TemplateApplyResponse>(`/api/sites/${id}/apply-template`);

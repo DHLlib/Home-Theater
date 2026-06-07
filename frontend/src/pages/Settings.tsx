@@ -9,7 +9,7 @@ import {
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
 import { clearVideoCache, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
-import CategorySettings from "../components/CategorySettings";
+import CategorySettings from "../components/category-settings/CategorySettings";
 import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
@@ -197,7 +197,6 @@ export default function Settings() {
   const [crawlerLogs, setCrawlerLogs] = useState<CrawlerLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
 
@@ -231,11 +230,9 @@ export default function Settings() {
         .catch(() => setCrawlerLogs([]))
         .finally(() => setLogsLoading(false));
 
-      setStatsLoading(true);
       getCrawlerStats()
         .then((res) => setCrawlerStats(res))
-        .catch(() => setCrawlerStats(null))
-        .finally(() => setStatsLoading(false));
+        .catch(() => setCrawlerStats(null));
     }
   }, [activeTab]);
 
@@ -592,6 +589,40 @@ export default function Settings() {
                           <ActivityIcon size={12} />
                           检测
                         </button>
+                        {s.enabled && (
+                          <button
+                            className="btn"
+                            disabled={triggeringIncremental[s.id]}
+                            onClick={() => {
+                              setTriggeringIncremental((prev) => ({
+                                ...prev,
+                                [s.id]: true,
+                              }));
+                              triggerIncremental(s.id)
+                                .then(() =>
+                                  alert(`站点 ${s.name} 增量更新已启动`)
+                                )
+                                .catch(() => alert("启动失败"))
+                                .finally(() =>
+                                  setTriggeringIncremental((prev) => ({
+                                    ...prev,
+                                    [s.id]: false,
+                                  }))
+                                );
+                            }}
+                            title="增量刮削"
+                            style={{
+                              padding: "8px 14px",
+                              minHeight: 40,
+                              fontSize: 12,
+                            }}
+                          >
+                            <ActivityIcon size={12} />
+                            {triggeringIncremental[s.id]
+                              ? "启动中..."
+                              : "增量"}
+                          </button>
+                        )}
                         <button
                           className="btn"
                           onClick={() => startEdit(s)}
@@ -982,179 +1013,43 @@ export default function Settings() {
             padding: 20,
           }}
         >
-          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-            <span style={{ color: "var(--primary)" }}>
-              <ActivityIcon size={16} />
-            </span>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 16,
-                fontWeight: 600,
-                textShadow: "0 0 12px rgba(52,211,153,0.35)",
-                letterSpacing: 0.3,
-              }}
-            >
-              刮削日志
-            </h3>
+          <div
+            className="row"
+            style={{
+              gap: 8,
+              marginBottom: 16,
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div className="row" style={{ gap: 8, alignItems: "center" }}>
+              <span style={{ color: "var(--primary)" }}>
+                <ActivityIcon size={16} />
+              </span>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 16,
+                  fontWeight: 600,
+                  textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                  letterSpacing: 0.3,
+                }}
+              >
+                刮削日志
+              </h3>
+            </div>
+            {crawlerStats?.last_updated_at && (
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                最近更新{" "}
+                {new Date(crawlerStats.last_updated_at).toLocaleString("zh-CN")}
+              </span>
+            )}
           </div>
-
-          {/* 刮削看板 */}
-          {statsLoading ? (
-            <div
-              style={{
-                padding: 20,
-                textAlign: "center",
-                fontSize: 13,
-                color: "var(--text-secondary)",
-              }}
-            >
-              加载统计中...
-            </div>
-          ) : crawlerStats ? (
-            <div
-              className="row"
-              style={{
-                gap: 12,
-                marginBottom: 20,
-                flexWrap: "wrap",
-              }}
-            >
-              {/* 总数量 */}
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 140,
-                  background: "var(--muted)",
-                  borderRadius: 10,
-                  padding: "16px 20px",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 700,
-                    color: "var(--primary)",
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {crawlerStats.total.toLocaleString("zh-CN")}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
-                    marginTop: 4,
-                  }}
-                >
-                  总刮削数量
-                </div>
-              </div>
-
-              {/* 有详情 */}
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 140,
-                  background: "var(--muted)",
-                  borderRadius: 10,
-                  padding: "16px 20px",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 700,
-                    color: "var(--success)",
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {crawlerStats.with_detail.toLocaleString("zh-CN")}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
-                    marginTop: 4,
-                  }}
-                >
-                  已补全详情
-                </div>
-              </div>
-
-              {/* 各站点数量 */}
-              {crawlerStats.by_site.map((s) => (
-                <div
-                  key={s.site_id}
-                  style={{
-                    flex: 1,
-                    minWidth: 140,
-                    background: "var(--muted)",
-                    borderRadius: 10,
-                    padding: "16px 20px",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 24,
-                      fontWeight: 700,
-                      color: "var(--warning)",
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {s.count.toLocaleString("zh-CN")}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      marginTop: 4,
-                    }}
-                  >
-                    {s.site_name}
-                  </div>
-                </div>
-              ))}
-
-              {/* 最近更新 */}
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 140,
-                  background: "var(--muted)",
-                  borderRadius: 10,
-                  padding: "16px 20px",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--fg)",
-                    lineHeight: 1.4,
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {crawlerStats.last_updated_at
-                    ? new Date(crawlerStats.last_updated_at).toLocaleString("zh-CN")
-                    : "—"}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
-                    marginTop: 4,
-                  }}
-                >
-                  最近更新
-                </div>
-              </div>
-            </div>
-          ) : null}
 
           {/* 手动触发刮削 */}
           <div
@@ -1182,29 +1077,6 @@ export default function Settings() {
               <ActivityIcon size={14} />
               {triggeringFull ? "启动中..." : "重新全量刮削"}
             </button>
-
-            {sites
-              .filter((s) => s.enabled)
-              .map((s) => (
-                <button
-                  key={s.id}
-                  className="btn"
-                  disabled={triggeringIncremental[s.id]}
-                  onClick={() => {
-                    setTriggeringIncremental((prev) => ({ ...prev, [s.id]: true }));
-                    triggerIncremental(s.id)
-                      .then(() => alert(`站点 ${s.name} 增量更新已启动`))
-                      .catch(() => alert("启动失败"))
-                      .finally(() =>
-                        setTriggeringIncremental((prev) => ({ ...prev, [s.id]: false }))
-                      );
-                  }}
-                  style={{ gap: 6, fontSize: 12 }}
-                >
-                  <ActivityIcon size={12} />
-                  {triggeringIncremental[s.id] ? "启动中..." : `${s.name} 增量`}
-                </button>
-              ))}
           </div>
 
           {logsLoading ? (

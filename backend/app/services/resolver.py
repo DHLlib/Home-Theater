@@ -2,7 +2,7 @@ import re
 
 import httpx
 
-from app.constants import HTTP_TIMEOUT_RESOLVE
+from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
 
 FEIFAN_URL_RE = re.compile(r'const url\s*=\s*"([^"]+)"')
 
@@ -19,11 +19,7 @@ async def resolve_feifan(share_url: str) -> str | None:
             timeout=HTTP_TIMEOUT_RESOLVE, follow_redirects=True
         ) as client:
             headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
+                "User-Agent": DEFAULT_USER_AGENT,
                 "Referer": share_url,
             }
             resp = await client.get(share_url, headers=headers)

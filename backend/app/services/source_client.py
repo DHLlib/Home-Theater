@@ -21,6 +21,7 @@ import asyncio
 import httpx
 
 from app.constants import (
+    DEFAULT_USER_AGENT,
     HTTP_TIMEOUT_DEFAULT,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
@@ -40,7 +41,7 @@ class SourceClient:
         self.name = name or str(site_id)
         self.timeout = timeout
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": DEFAULT_USER_AGENT,
             "Referer": self.base_url,
         }
         self._client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
