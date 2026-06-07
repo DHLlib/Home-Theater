@@ -60,16 +60,14 @@ if ($alreadyRunning) {
     exit 0
 }
 
-# ── Production: ensure frontend built ───────────────────────────
+# ── Production: rebuild frontend every start ────────────────────
 if (-not $Dev) {
+    Write-Host "[INFO] Building frontend..." -ForegroundColor Cyan
+    Set-Location $frontendDir
+    npm run build
     if (-not (Test-Path (Join-Path $distDir "index.html"))) {
-        Write-Host "[WARN] Frontend not built, running npm run build..." -ForegroundColor Yellow
-        Set-Location $frontendDir
-        npm run build
-        if (-not (Test-Path (Join-Path $distDir "index.html"))) {
-            Write-Host "[ERROR] Frontend build failed" -ForegroundColor Red
-            exit 1
-        }
+        Write-Host "[ERROR] Frontend build failed" -ForegroundColor Red
+        exit 1
     }
 }
 
