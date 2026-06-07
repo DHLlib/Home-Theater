@@ -12,7 +12,6 @@ import {
 } from "../utils/cache";
 import type { AggregatedVideo, Site } from "../types";
 
-type ViewMode = "aggregated" | "source";
 type TimeFilter = "all" | 24 | 72 | 168;
 
 const TIME_OPTIONS: { key: TimeFilter; label: string }[] = [
@@ -26,16 +25,16 @@ function videoKey(item: AggregatedVideo): string {
   return `${item.title}-${item.year ?? "null"}`;
 }
 
-function getEarliestUpdatedAt(item: AggregatedVideo): string | null {
-  let earliest: string | null = null;
+function getLatestUpdatedAt(item: AggregatedVideo): string | null {
+  let latest: string | null = null;
   for (const s of item.sources) {
     if (s.updated_at) {
-      if (!earliest || s.updated_at < earliest) {
-        earliest = s.updated_at;
+      if (!latest || s.updated_at > latest) {
+        latest = s.updated_at;
       }
     }
   }
-  return earliest;
+  return latest;
 }
 
 /* ===== 子组件 ===== */
@@ -128,12 +127,12 @@ export default function Home() {
   const [videos, setVideos] = useState<AggregatedVideo[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("aggregated");
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [noMore, setNoMore] = useState(false);
   const [crawlerStatus, setCrawlerStatus] = useState<{ running: boolean; site_status: Record<string, string> } | null>(null);
+  const [showBackTop, setShowBackTop] = useState(false);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -143,55 +142,41 @@ export default function Home() {
 
   // 计算聚合模式三区域
   const latestSection = useMemo(() => {
-    if (viewMode !== "aggregated") return [];
     const sorted = [...videos].sort((a, b) => {
-      const ta = getEarliestUpdatedAt(a);
-      const tb = getEarliestUpdatedAt(b);
+      const ta = getLatestUpdatedAt(a);
+      const tb = getLatestUpdatedAt(b);
       if (!ta && !tb) return 0;
       if (!ta) return 1;
       if (!tb) return -1;
       return tb.localeCompare(ta);
     });
     return sorted.slice(0, 12);
-  }, [videos, viewMode]);
+  }, [videos]);
 
   const hotSection = useMemo(() => {
-    if (viewMode !== "aggregated") return [];
     const featured = new Set(latestSection.map((v) => videoKey(v)));
     const sorted = [...videos]
       .filter((v) => !featured.has(videoKey(v)))
       .sort((a, b) => b.sources.length - a.sources.length);
     return sorted.slice(0, 12);
-  }, [videos, viewMode, latestSection]);
+  }, [videos, latestSection]);
 
   const allSection = useMemo(() => {
-    if (viewMode !== "aggregated") return [];
     const featured = new Set([
       ...latestSection.map((v) => videoKey(v)),
       ...hotSection.map((v) => videoKey(v)),
     ]);
-    return videos.filter((v) => !featured.has(videoKey(v)));
-  }, [videos, viewMode, latestSection, hotSection]);
-
-  // 源站模式分组
-  const sourceGroups = useMemo(() => {
-    if (viewMode !== "source") return {};
-    const groups: Record<number, { siteName: string; items: AggregatedVideo[] }> =
-      {};
-    for (const item of videos) {
-      const source = item.sources[0];
-      if (!source) continue;
-      if (!groups[source.site_id]) {
-        const site = sites.find((s) => s.id === source.site_id);
-        groups[source.site_id] = {
-          siteName: site?.name || `站点 ${source.site_id}`,
-          items: [],
-        };
-      }
-      groups[source.site_id].items.push(item);
-    }
-    return groups;
-  }, [videos, viewMode, sites]);
+    return [...videos]
+      .filter((v) => !featured.has(videoKey(v)))
+      .sort((a, b) => {
+        const ta = getLatestUpdatedAt(a);
+        const tb = getLatestUpdatedAt(b);
+        if (!ta && !tb) return 0;
+        if (!ta) return 1;
+        if (!tb) return -1;
+        return tb.localeCompare(ta);
+      });
+  }, [videos, latestSection, hotSection]);
 
   // 加载数据（先读缓存，再调 API 刷新）
   const loadPage = useCallback(
@@ -200,7 +185,7 @@ export default function Home() {
       const cacheParams = {
         category: activeCategory,
         timeFilter,
-        viewMode,
+        viewMode: "aggregated",
         page: pg,
         wd: q,
       };
@@ -225,7 +210,7 @@ export default function Home() {
 
       const params: Record<string, string | number> = {
         pg,
-        mode: viewMode,
+        mode: "aggregated",
       };
       if (timeFilter !== "all") params.h = timeFilter;
       if (activeCategory) params.category = activeCategory;
@@ -241,7 +226,7 @@ export default function Home() {
           } = {
             wd: q,
             pg,
-            mode: viewMode,
+            mode: "aggregated",
           };
           if (activeCategory) searchParams.category = activeCategory;
           r = await searchVideos(searchParams);
@@ -278,7 +263,7 @@ export default function Home() {
         }
       }
     },
-    [timeFilter, activeCategory, viewMode, wdFromUrl]
+    [timeFilter, activeCategory, wdFromUrl]
   );
 
   const loadInitial = useCallback(() => {
@@ -293,6 +278,15 @@ export default function Home() {
     setPage(nextPage);
     loadPage(nextPage, true);
   }, [loadingMore, noMore, loading, page, loadPage]);
+
+  // 返回顶部按钮显隐
+  useEffect(() => {
+    const onScroll = () => {
+      setShowBackTop(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // 初始加载站点列表
   useEffect(() => {
@@ -329,7 +323,7 @@ export default function Home() {
     if (sites.length > 0) {
       loadInitialRef.current();
     }
-  }, [activeCategory, timeFilter, viewMode, sites.length, wdFromUrl]);
+  }, [activeCategory, timeFilter, sites.length, wdFromUrl]);
 
   // 无限滚动：监听 sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -389,11 +383,9 @@ export default function Home() {
   }
 
   const hasContent =
-    viewMode === "aggregated"
-      ? latestSection.length > 0 ||
-        hotSection.length > 0 ||
-        allSection.length > 0
-      : Object.keys(sourceGroups).length > 0;
+    latestSection.length > 0 ||
+    hotSection.length > 0 ||
+    allSection.length > 0;
 
   const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
     (s) => s === "full_crawling" || s === "incremental_running"
@@ -415,42 +407,6 @@ export default function Home() {
           flexWrap: "wrap",
         }}
       >
-        {/* 视图模式切换 */}
-        <div
-          className="row"
-          style={{
-            gap: 0,
-            borderRadius: 8,
-            overflow: "hidden",
-            border: "1px solid var(--border)",
-          }}
-        >
-          {(
-            [
-              { key: "aggregated" as ViewMode, label: "聚合" },
-              { key: "source" as ViewMode, label: "源站" },
-            ] as const
-          ).map((m, idx, arr) => (
-            <button
-              key={m.key}
-              className="btn"
-              style={{
-                borderRadius: 0,
-                border: "none",
-                borderRight: idx < arr.length - 1 ? "1px solid var(--border)" : "none",
-                background: viewMode === m.key ? "var(--primary)" : undefined,
-                color: viewMode === m.key ? "var(--primary-fg)" : undefined,
-                fontSize: 13,
-                padding: "6px 16px",
-                minHeight: 36,
-              }}
-              onClick={() => setViewMode(m.key)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-
         {/* 时间筛选 */}
         <div
           className="row"
@@ -604,73 +560,50 @@ export default function Home() {
             </div>
           )}
 
-          {viewMode === "aggregated" && (
-            <>
-              {/* 区域一：最新更新 */}
-              {latestSection.length > 0 && (
-                <ScrollRow title="最新更新" titleColor="var(--primary)">
-                  {latestSection.map((v) => (
-                    <div key={videoKey(v)} style={{ width: 160 }}>
-                      <VideoCard item={v} width={160} />
-                    </div>
-                  ))}
-                </ScrollRow>
-              )}
+          <>
+            {/* 区域一：最新更新 */}
+            {latestSection.length > 0 && (
+              <ScrollRow title="最新更新" titleColor="var(--primary)">
+                {latestSection.map((v) => (
+                  <div key={videoKey(v)} style={{ width: 160 }}>
+                    <VideoCard item={v} width={160} />
+                  </div>
+                ))}
+              </ScrollRow>
+            )}
 
-              {/* 区域二：热门视频 */}
-              {hotSection.length > 0 && (
-                <ScrollRow title="热门视频" titleColor="var(--warning)">
-                  {hotSection.map((v) => (
-                    <div key={videoKey(v)} style={{ width: 160 }}>
-                      <VideoCard item={v} width={160} />
-                    </div>
-                  ))}
-                </ScrollRow>
-              )}
+            {/* 区域二：热门视频 */}
+            {hotSection.length > 0 && (
+              <ScrollRow title="热门视频" titleColor="var(--warning)">
+                {hotSection.map((v) => (
+                  <div key={videoKey(v)} style={{ width: 160 }}>
+                    <VideoCard item={v} width={160} />
+                  </div>
+                ))}
+              </ScrollRow>
+            )}
 
-              {/* 区域三：全部视频 */}
-              <section style={{ marginBottom: 24 }}>
-                <div className="section-title">
-                  <span
-                    className="section-title-bar"
-                    style={{ background: "var(--text-secondary)" }}
-                  />
-                  全部视频
+            {/* 区域三：全部视频 */}
+            <section style={{ marginBottom: 24 }}>
+              <div className="section-title">
+                <span
+                  className="section-title-bar"
+                  style={{ background: "var(--text-secondary)" }}
+                />
+                全部视频
+              </div>
+              {allSection.length === 0 && !loadingMore && (
+                <div className="empty" style={{ padding: 20 }}>
+                  <p>该条件下暂无更新</p>
                 </div>
-                {allSection.length === 0 && !loadingMore && (
-                  <div className="empty" style={{ padding: 20 }}>
-                    <p>该条件下暂无更新</p>
-                  </div>
-                )}
-                <div className="grid">
-                  {allSection.map((v) => (
-                    <VideoCard key={videoKey(v)} item={v} />
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-
-          {viewMode === "source" && (
-            <>
-              {Object.entries(sourceGroups).map(([siteId, group]) => (
-                <section key={siteId} style={{ marginBottom: 24 }}>
-                  <div className="section-title">
-                    <span
-                      className="section-title-bar"
-                      style={{ background: "var(--primary)" }}
-                    />
-                    {group.siteName}
-                  </div>
-                  <div className="grid">
-                    {group.items.map((v) => (
-                      <VideoCard key={videoKey(v)} item={v} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </>
-          )}
+              )}
+              <div className="grid">
+                {allSection.map((v) => (
+                  <VideoCard key={videoKey(v)} item={v} />
+                ))}
+              </div>
+            </section>
+          </>
         </>
       )}
 
@@ -703,6 +636,41 @@ export default function Home() {
         >
           — 已加载全部内容 —
         </div>
+      )}
+
+      {showBackTop && (
+        <button
+          className="btn"
+          aria-label="返回顶部"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: 24,
+            zIndex: 100,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            padding: 0,
+          }}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
+        </button>
       )}
     </div>
   );

@@ -11,13 +11,13 @@ export interface VideoCardProps {
   showOverlay?: boolean;
 }
 
-function HeartIcon({ size = 12 }: { size?: number }) {
+function HeartIcon({ size = 12, color = "currentColor" }: { size?: number; color?: string }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill={color}
       aria-hidden="true"
     >
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -65,6 +65,7 @@ function VideoCard({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [imgError, setImgError] = useState(false);
+  const [favorited, setFavorited] = useState(false);
 
   const poster = item.poster_url && !imgError ? item.poster_url : null;
 
@@ -86,7 +87,10 @@ function VideoCard({
       year: item.year,
       poster_url: item.poster_url || undefined,
       sources: item.sources,
-    }).then(() => toastSuccess("已收藏"));
+    }).then(() => {
+      setFavorited(true);
+      toastSuccess("已收藏");
+    });
   };
 
   return (
@@ -171,7 +175,7 @@ function VideoCard({
                   onClick={handleFavorite}
                   aria-label={`收藏 ${item.title}`}
                 >
-                  <HeartIcon size={12} />
+                  <HeartIcon size={12} color={favorited ? "#ff4081" : "currentColor"} />
                 </button>
               </div>
             </div>
