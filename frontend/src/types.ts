@@ -173,3 +173,21 @@ export interface CrawlerStatsResponse {
   with_detail: number;
   last_updated_at: string | null;
 }
+
+export interface BatchProbeItem {
+  name: string;
+  url: string;
+}
+
+export interface BatchProbeResult {
+  name: string;
+  url: string;
+  ok: boolean;
+  latency_ms?: number | null;
+  error?: string | null;
+  added: boolean;
+}
+
+export interface BatchProbeResponse {
+  results: BatchProbeResult[];
+}
