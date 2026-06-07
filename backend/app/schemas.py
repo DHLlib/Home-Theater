@@ -187,6 +187,24 @@ class CrawlerLogsResponse(BaseModel):
     logs: list[CrawlerLog]
 
 
+class BatchProbeItem(BaseModel):
+    name: str = Field(..., min_length=1)
+    url: str = Field(..., min_length=1)
+
+
+class BatchProbeResult(BaseModel):
+    name: str
+    url: str
+    ok: bool
+    latency_ms: int | None
+    error: str | None
+    added: bool
+
+
+class BatchProbeResponse(BaseModel):
+    results: list[BatchProbeResult]
+
+
 class SiteStat(BaseModel):
     site_id: int
     site_name: str

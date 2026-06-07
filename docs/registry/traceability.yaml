@@ -732,6 +732,34 @@ acceptance_criteria:
     status: completed
   assembly:
     status: completed
+- id: AC-025
+  title: 批量站点嗅探
+  description: 资源站管理页面增加批量嗅探功能，用户传入 JSON 数组，系统自动并发探测并添加可用站点
+  status: completed
+  stage: qa
+  source: backend/app/api/sites.py
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sites.py
+  - backend/app/services/health.py
+  - frontend/src/pages/Settings.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 新增 AC，从 atdd 开始
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
 sprints:
 - id: sprint-002
   name: 技术债务清理与边界测试补充

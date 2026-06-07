@@ -6,11 +6,12 @@ import {
   deleteSite,
   probeSite,
   updateSite,
+  batchProbe,
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
 import { clearVideoCache, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import CategorySettings from "../components/CategorySettings";
-import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site } from "../types";
+import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
   return (
@@ -295,6 +296,12 @@ export default function Settings() {
   const [addName, setAddName] = useState("");
   const [addUrl, setAddUrl] = useState("");
 
+  /* ---- batch probe states ---- */
+  const [batchJson, setBatchJson] = useState("");
+  const [batchResults, setBatchResults] = useState<BatchProbeResult[] | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [showBatchPanel, setShowBatchPanel] = useState(false);
+
   useEffect(() => {
     listSites().then(setSites);
     getDownloadRoot().then((r) => {
@@ -350,6 +357,32 @@ export default function Settings() {
       setSites((prev) => [...prev, s]);
       cancelAdd();
     });
+  };
+
+  /* ---- batch probe ---- */
+  const handleBatchProbe = () => {
+    let items: { name: string; url: string }[];
+    try {
+      items = JSON.parse(batchJson.trim());
+      if (!Array.isArray(items)) throw new Error("必须是数组");
+      if (items.length === 0) throw new Error("数组不能为空");
+      if (items.length > 20) throw new Error("一次最多 20 个站点");
+    } catch (e: any) {
+      alert("JSON 格式错误: " + (e?.message || "未知错误"));
+      return;
+    }
+    setBatchLoading(true);
+    setBatchResults(null);
+    batchProbe(items)
+      .then((r) => {
+        setBatchResults(r.results);
+        // 刷新站点列表（新站点已自动添加）
+        listSites().then(setSites);
+      })
+      .catch((err) => {
+        alert("探测失败: " + (err?.message || "未知错误"));
+      })
+      .finally(() => setBatchLoading(false));
   };
 
   /* ---- edit site (inline) ---- */
@@ -767,14 +800,109 @@ export default function Settings() {
             )}
 
             {!isAdding && (
-              <button
-                className="btn btn-primary"
-                onClick={startAdd}
-                style={{ alignSelf: "flex-start", gap: 6 }}
+              <div className="row" style={{ gap: 10 }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={startAdd}
+                  style={{ gap: 6 }}
+                >
+                  <PlusIcon size={16} />
+                  添加站点
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => setShowBatchPanel((v) => !v)}
+                  style={{ gap: 6 }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
+                  批量嗅探
+                </button>
+              </div>
+            )}
+
+            {/* 批量嗅探面板 */}
+            {showBatchPanel && (
+              <div
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: 16,
+                  background: "var(--card)",
+                  marginTop: 8,
+                }}
               >
-                <PlusIcon size={16} />
-                添加站点
-              </button>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+                  批量嗅探站点
+                </div>
+                <textarea
+                  value={batchJson}
+                  onChange={(e) => setBatchJson(e.target.value)}
+                  placeholder={`[\n  {"name": "站点名称", "url": "http://xxx/api.php/provide/vod"}\n]`}
+                  style={{
+                    ...inputStyle,
+                    width: "100%",
+                    minHeight: 120,
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                    resize: "vertical",
+                  }}
+                />
+                <div className="row" style={{ marginTop: 10, gap: 8, justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                    {`格式: [{"name": "...", "url": "..."}]，最多 20 条`}
+                  </span>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn" onClick={() => { setShowBatchPanel(false); setBatchJson(""); setBatchResults(null); }}>
+                      取消
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleBatchProbe}
+                      disabled={batchLoading}
+                    >
+                      {batchLoading ? "嗅探中..." : "嗅探并添加"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 嗅探结果 */}
+                {batchResults && (
+                  <div style={{ marginTop: 12 }}>
+                    {batchResults.map((r, i) => (
+                      <div
+                        key={i}
+                        className="row"
+                        style={{
+                          gap: 8,
+                          padding: "6px 0",
+                          borderBottom: i < batchResults.length - 1 ? "1px solid var(--border)" : "none",
+                          fontSize: 13,
+                        }}
+                      >
+                        <span style={{ flexShrink: 0 }}>
+                          {r.ok ? (
+                            <span style={{ color: "var(--success)" }}>✓</span>
+                          ) : (
+                            <span style={{ color: "var(--danger)" }}>✗</span>
+                          )}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.name}
+                        </span>
+                        <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                          {r.ok
+                            ? r.added
+                              ? `已添加 ${r.latency_ms}ms`
+                              : `已存在 ${r.latency_ms}ms`
+                            : r.error}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </section>

@@ -1,5 +1,5 @@
 import { get, post, put, patch, del } from "./client";
-import type { Site, ProbeResult, CategoryMapping } from "../types";
+import type { Site, ProbeResult, CategoryMapping, BatchProbeItem, BatchProbeResponse } from "../types";
 
 export const listSites = () => get<Site[]>("/api/sites");
 export const createSite = (body: Omit<Site, "id" | "created_at">) =>
@@ -19,3 +19,6 @@ export const updateSiteCategories = (id: number, categories: CategoryMapping[]) 
 
 export const fetchRemoteCategories = (id: number) =>
   post<{ site_id: number; categories: CategoryMapping[] }>(`/api/sites/${id}/fetch-categories`);
+
+export const batchProbe = (items: BatchProbeItem[]) =>
+  post<BatchProbeResponse>("/api/sites/batch-probe", items);

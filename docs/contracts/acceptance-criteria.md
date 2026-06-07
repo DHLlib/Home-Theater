@@ -217,3 +217,25 @@
 - `op=health_probe` — 站点健康探测
 - `op=detail_resolve` — 详情页实时回源
 - `op=play_resolve` — 播放地址解析
+
+---
+
+## AC-025 批量站点嗅探
+
+**Given** 用户访问「设置 → 站点管理」页面
+**When** 在批量嗅探区域粘贴站点 JSON 并点击「嗅探并添加」
+**Then** 系统并发探测每个 URL，返回探测结果（成功/失败 + 延迟），探测成功的自动添加到站点列表
+
+**输入格式**:
+```json
+[
+  {"name": "非凡资源", "url": "http://ffzy5.tv/api.php/provide/vod"},
+  {"name": "卧龙资源", "url": "https://wolongzyw.com/api.php/provide/vod"}
+]
+```
+
+**约束**:
+- 并发探测最多 5 个同时进行
+- 同名或同 URL 的已有站点需跳过
+- 仅支持 http/https 协议，防止 SSRF
+- 探测逻辑复用现有 `health.probe` 函数
