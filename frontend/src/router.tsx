@@ -7,6 +7,7 @@ import Player from "./pages/Player";
 import Downloads from "./pages/Downloads";
 import Favorites from "./pages/Favorites";
 import Progress from "./pages/Progress";
+import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 
 export const router = createBrowserRouter([
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: "downloads", element: <Downloads /> },
       { path: "favorites", element: <Favorites /> },
       { path: "progress", element: <Progress /> },
+      { path: "dashboard", element: <Dashboard /> },
       { path: "settings", element: <Settings /> },
     ],
   },

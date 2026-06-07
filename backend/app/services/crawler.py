@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -32,6 +33,8 @@ from app.constants import (
 from app.models import AppConfig, Site, VideoCache
 from app.services.source_client import SourceClient
 
+logger = logging.getLogger(__name__)
+
 
 class Crawler:
     """资源站定时刮削器。
@@ -42,6 +45,7 @@ class Crawler:
     """
 
     STATE_KEY = "crawler_state"
+    STATS_KEY = "crawler_stats"
     BATCH_SIZE = CRAWLER_VIDEOLIST_BATCH_SIZE
     PAGE_CONCURRENCY = CRAWLER_PAGE_CONCURRENCY
 
@@ -97,42 +101,53 @@ class Crawler:
 
             await self._crawl_site_incremental(site)
         except Exception as exc:
-            print(f"增量更新站点 {site_id} 失败: {exc}")
+            logger.warning("增量更新站点 %s 失败: %s", site_id, exc)
         finally:
             self._site_status[site_id] = "idle"
 
+    async def check_one_site(self, site: Site) -> bool:
+        """检测单个站点是否有更新。返回 True 表示需要刮削。"""
+        if not self._running:
+            return False
+        if self._site_status.get(site.id) in ("full_crawling", "incremental_running"):
+            return False
+
+        state = await self._load_state()
+        try:
+            client = SourceClient(
+                site_id=site.id, base_url=site.base_url, name=site.name
+            )
+            items = await self._fetch_list_page(
+                client, None, 1, op="crawler_check"
+            )
+            await client.aclose()
+
+            if not items:
+                return False
+
+            first_vod_time = items[0].get("updated_at")
+            site_state = state.get("sites", {}).get(str(site.id), {})
+            last_vod_time = site_state.get("last_vod_time")
+
+            return bool(
+                not last_vod_time or (first_vod_time and first_vod_time > last_vod_time)
+            )
+        except Exception as exc:
+            logger.warning("检测站点 %s 更新失败: %s", site.name, exc)
+            return False
+
     async def check_updates(self):
-        """5分钟检测：查各站第一页，有新内容则触发增量。"""
+        """并发检测所有站点（兼容旧调用，由 scheduler 调用）。"""
         async with self._db_factory() as db:
             sites = await self._get_enabled_sites(db)
 
-        state = await self._load_state()
-
-        for site in sites:
-            if not self._running:
-                break
-            if self._site_status.get(site.id) in ("full_crawling", "incremental_running"):
-                continue
-
-            try:
-                client = SourceClient(
-                    site_id=site.id, base_url=site.base_url, name=site.name
-                )
-                items = await self._fetch_list_page(client, None, 1, op="crawler_incremental")
-                await client.aclose()
-
-                if not items:
-                    continue
-
-                first_vod_time = items[0].get("updated_at")
-                site_state = state.get("sites", {}).get(str(site.id), {})
-                last_vod_time = site_state.get("last_vod_time")
-
-                if not last_vod_time or (first_vod_time and first_vod_time > last_vod_time):
-                    await self.run_incremental(site.id)
-
-            except Exception as exc:
-                print(f"检测站点 {site.name} 更新失败: {exc}")
+        results = await asyncio.gather(
+            *[self.check_one_site(s) for s in sites], return_exceptions=True
+        )
+        return [
+            site.id for site, has_update in zip(sites, results)
+            if has_update is True
+        ]
 
     def get_status(self) -> dict[str, Any]:
         """返回各站点刮削状态。"""
@@ -262,10 +277,11 @@ class Crawler:
             await self._save_state(state)
 
         except Exception as exc:
-            print(f"全量刮削站点 {site.name} 失败: {exc}")
+            logger.warning("全量刮削站点 %s 失败: %s", site.name, exc)
         finally:
             self._site_status[site.id] = "idle"
             await client.aclose()
+            await self._update_stats_cache()
 
     # ------------------------------------------------------------------
     # 增量刮削（单站点）
@@ -298,31 +314,45 @@ class Crawler:
 
                 while self._running and not stopped:
                     start_time = time.time()
-                    items = await self._fetch_list_page(client, cat_id, page, op="crawler_incremental")
+                    items = await self._fetch_list_page(
+                        client, cat_id, page, op="crawler_incremental"
+                    )
                     if not items:
                         break
 
-                    page_items_count = 0
+                    # 1. 先过滤：遇旧即停
+                    page_items: list[dict] = []
+                    for item in items:
+                        item_vod_time = item.get("updated_at")
+                        if (
+                            last_vod_time
+                            and item_vod_time
+                            and item_vod_time <= last_vod_time
+                        ):
+                            stopped = True
+                            break
+                        page_items.append(item)
+
+                    page_items_count = len(page_items)
                     new_count = 0
                     update_count = 0
 
-                    for item in items:
-                        item_vod_time = item.get("updated_at")
+                    # 2. 批量查缓存（一页只查一次数据库）
+                    original_ids = [
+                        item.get("original_id")
+                        for item in page_items
+                        if item.get("original_id")
+                    ]
+                    async with self._db_factory() as db:
+                        existing_map = await self._batch_get_cached_items(
+                            db, site.id, original_ids
+                        )
 
-                        # 遇旧即停
-                        if last_vod_time and item_vod_time and item_vod_time <= last_vod_time:
-                            stopped = True
-                            break
-
-                        page_items_count += 1
-
-                        # 判断是否需要 videolist
-                        async with self._db_factory() as db:
-                            existing = await self._get_cached_item(
-                                db, site.id, item.get("original_id")
-                            )
-
+                    # 3. 逐条判断新增 / 更新 / 跳过
+                    for item in page_items:
                         entry = self._build_list_entry(site.id, item)
+                        existing = existing_map.get(entry["original_id"])
+                        item_vod_time = item.get("updated_at")
 
                         if not existing:
                             new_count += 1
@@ -332,12 +362,14 @@ class Crawler:
                             update_count += 1
                             batch_entries.append(entry)
                             need_videolist.append(entry)
-                        # 已有且未变化：跳过，不更新 cached_at，避免首页排序抖动
+                        # 已有且未变化：跳过，不更新 cached_at
 
                         # 批量 upsert list 字段（每 100 条一刷）
                         if len(batch_entries) >= CRAWLER_BATCH_INSERT_SIZE:
                             async with self._db_factory() as db:
-                                await self._batch_upsert_list_fields(db, batch_entries)
+                                await self._batch_upsert_list_fields(
+                                    db, batch_entries
+                                )
                             batch_entries = []
 
                     # 记录本页日志（增量）
@@ -387,6 +419,7 @@ class Crawler:
 
         finally:
             await client.aclose()
+            await self._update_stats_cache()
 
     # ------------------------------------------------------------------
     # 内部工具
@@ -448,7 +481,7 @@ class Crawler:
                         await self._batch_upsert_detail_fields(db, detail_entries)
 
             except Exception as exc:
-                print(f"批量 videolist 站点 {site.name} 失败: {exc}")
+                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
 
     async def _get_cached_item(
         self, db: AsyncSession, site_id: int, original_id: str
@@ -460,6 +493,20 @@ class Crawler:
             )
         )
         return result.scalar_one_or_none()
+
+    async def _batch_get_cached_items(
+        self, db: AsyncSession, site_id: int, original_ids: list[str]
+    ) -> dict[str, VideoCache]:
+        """批量查询缓存记录，返回 original_id -> VideoCache 的映射。"""
+        if not original_ids:
+            return {}
+        result = await db.execute(
+            select(VideoCache).where(
+                VideoCache.site_id == site_id,
+                VideoCache.original_id.in_(original_ids),
+            )
+        )
+        return {r.original_id: r for r in result.scalars().all()}
 
     # ------------------------------------------------------------------
     # 缓存淘汰（write-time eviction，上限 5000）
@@ -651,6 +698,78 @@ class Crawler:
             if row:
                 return json.loads(row.value)
             return {}
+
+    async def _update_stats_cache(self):
+        """将统计结果预计算并写入 AppConfig，供看板 O(1) 读取。"""
+        from sqlalchemy import func, case
+
+        async with self._db_factory() as db:
+            # 站点分组统计
+            site_result = await db.execute(
+                select(
+                    VideoCache.site_id,
+                    func.count().label("cnt"),
+                    func.sum(case((VideoCache.has_detail.is_(True), 1), else_=0)).label(
+                        "detail_cnt"
+                    ),
+                )
+                .group_by(VideoCache.site_id)
+            )
+            site_rows = site_result.all()
+
+            site_ids = [r.site_id for r in site_rows]
+            site_map = {}
+            if site_ids:
+                sites_result = await db.execute(
+                    select(Site.id, Site.name).where(Site.id.in_(site_ids))
+                )
+                site_map = {sid: name for sid, name in sites_result.all()}
+
+            by_site = [
+                {
+                    "site_id": r.site_id,
+                    "site_name": site_map.get(r.site_id, f"站点 {r.site_id}"),
+                    "count": r.cnt,
+                    "with_detail": int(r.detail_cnt or 0),
+                    "without_detail": r.cnt - int(r.detail_cnt or 0),
+                }
+                for r in site_rows
+            ]
+
+            # 全局统计
+            global_result = await db.execute(
+                select(
+                    func.count().label("total"),
+                    func.sum(case((VideoCache.has_detail.is_(True), 1), else_=0)).label(
+                        "with_detail"
+                    ),
+                    func.max(VideoCache.source_updated_at).label("last_updated"),
+                ).select_from(VideoCache)
+            )
+            global_row = global_result.one()
+
+            stats = {
+                "total": global_row.total or 0,
+                "by_site": by_site,
+                "with_detail": int(global_row.with_detail or 0),
+                "last_updated_at": global_row.last_updated,
+                "computed_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            stmt = insert(AppConfig).values(
+                key=self.STATS_KEY,
+                value=json.dumps(stats),
+                updated_at=datetime.now(timezone.utc),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["key"],
+                set_={
+                    "value": json.dumps(stats),
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
+            await db.execute(stmt)
+            await db.commit()
 
     async def _save_state(self, state: dict):
         async with self._db_factory() as db:

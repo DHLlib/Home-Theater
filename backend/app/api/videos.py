@@ -9,8 +9,9 @@ from sqlalchemy import delete, desc, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
 from app.db import get_db
-from app.models import Site, VideoCache
+from app.models import Site, SystemCategory, VideoCache
 from app.schemas import (
     AggregatedListResponse,
     AggregatedVideo,
@@ -168,9 +169,9 @@ async def _query_and_aggregate(
     query = query.order_by(desc(VideoCache.source_updated_at), desc(VideoCache.id))
 
     # 限制原始记录数，避免全表加载到内存做聚合。
-    # 同一视频可能在多站点出现，放大 20 倍保证聚合后有足够结果。
+    # 同一视频可能在多站点出现，放大后保证聚合后有足够结果。
     page = pg or 1
-    raw_limit = per_page * 20
+    raw_limit = per_page * AGGREGATION_RAW_LIMIT_MULTIPLIER
     raw_offset = (page - 1) * raw_limit
     query = query.limit(raw_limit).offset(raw_offset)
 
@@ -268,11 +269,27 @@ async def list_videos(
     )
     sites = result.scalars().all()
 
+    # 分类回退：若子分类无映射，尝试查找其父分类的映射
+    fallback_category: str | None = None
+    if category:
+        parent_result = await db.execute(
+            select(SystemCategory.parent_id).where(SystemCategory.name == category)
+        )
+        parent_id = parent_result.scalar_one_or_none()
+        if parent_id:
+            parent_name_result = await db.execute(
+                select(SystemCategory.name).where(SystemCategory.id == parent_id)
+            )
+            fallback_category = parent_name_result.scalar_one_or_none()
+
     # 构建 (site_id, type_id) 过滤条件
     filters = []
     for site in sites:
         if category:
             remote_cats = _resolve_remote_categories(site, category)
+            # 子分类无映射时回退到父分类
+            if not remote_cats and fallback_category:
+                remote_cats = _resolve_remote_categories(site, fallback_category)
             if not remote_cats:
                 continue
             for rid in remote_cats:
@@ -593,16 +610,52 @@ async def trigger_incremental(site_id: int):
 
 @router.get("/crawler/stats")
 async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsResponse:
-    """返回刮削统计数据。"""
-    from sqlalchemy import func
+    """返回刮削统计数据。优先读预计算缓存（O(1)），缓存不存在则实时计算。"""
+    import json
 
-    # 总数
-    total_result = await db.execute(select(func.count()).select_from(VideoCache))
-    total = total_result.scalar_one()
+    from app.models import AppConfig
 
-    # 按站点统计
+    STATS_KEY = "crawler_stats"
+
+    # 1. 先读预计算缓存
+    cache_result = await db.execute(
+        select(AppConfig).where(AppConfig.key == STATS_KEY)
+    )
+    cache_row = cache_result.scalar_one_or_none()
+    if cache_row:
+        try:
+            data = json.loads(cache_row.value)
+            by_site_raw = data.get("by_site", [])
+            by_site = [
+                SiteStat(
+                    site_id=s["site_id"],
+                    site_name=s["site_name"],
+                    count=s["count"],
+                    with_detail=s["with_detail"],
+                    without_detail=s.get("without_detail", s["count"] - s["with_detail"]),
+                )
+                for s in by_site_raw
+            ]
+            return CrawlerStatsResponse(
+                total=data.get("total", 0),
+                by_site=by_site,
+                with_detail=data.get("with_detail", 0),
+                last_updated_at=data.get("last_updated_at"),
+            )
+        except (json.JSONDecodeError, KeyError):
+            pass  # 缓存损坏，fallback 到实时查询
+
+    # 2. Fallback：实时计算（首次或缓存损坏时）
+    from sqlalchemy import case, func
+
     site_result = await db.execute(
-        select(VideoCache.site_id, func.count().label("cnt"))
+        select(
+            VideoCache.site_id,
+            func.count().label("cnt"),
+            func.sum(case((VideoCache.has_detail.is_(True), 1), else_=0)).label(
+                "detail_cnt"
+            ),
+        )
         .group_by(VideoCache.site_id)
     )
     site_rows = site_result.all()
@@ -616,27 +669,32 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
         site_map = {sid: name for sid, name in sites_result.all()}
 
     by_site = [
-        SiteStat(site_id=r.site_id, site_name=site_map.get(r.site_id, f"站点 {r.site_id}"), count=r.cnt)
+        SiteStat(
+            site_id=r.site_id,
+            site_name=site_map.get(r.site_id, f"站点 {r.site_id}"),
+            count=r.cnt,
+            with_detail=int(r.detail_cnt or 0),
+            without_detail=r.cnt - int(r.detail_cnt or 0),
+        )
         for r in site_rows
     ]
 
-    # 有详情的数量
-    detail_result = await db.execute(
-        select(func.count()).select_from(VideoCache).where(VideoCache.has_detail.is_(True))
+    global_result = await db.execute(
+        select(
+            func.count().label("total"),
+            func.sum(case((VideoCache.has_detail.is_(True), 1), else_=0)).label(
+                "with_detail"
+            ),
+            func.max(VideoCache.source_updated_at).label("last_updated"),
+        ).select_from(VideoCache)
     )
-    with_detail = detail_result.scalar_one()
-
-    # 最近更新时间
-    last_result = await db.execute(
-        select(func.max(VideoCache.source_updated_at)).select_from(VideoCache)
-    )
-    last_updated_at = last_result.scalar_one()
+    global_row = global_result.one()
 
     return CrawlerStatsResponse(
-        total=total,
+        total=global_row.total or 0,
         by_site=by_site,
-        with_detail=with_detail,
-        last_updated_at=last_updated_at,
+        with_detail=int(global_row.with_detail or 0),
+        last_updated_at=global_row.last_updated,
     )
 
 

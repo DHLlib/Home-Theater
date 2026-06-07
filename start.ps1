@@ -44,16 +44,41 @@ if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir | O
 
 # ── Check if already running ────────────────────────────────────
 $alreadyRunning = $false
+
+# 1. 检查 .pid 文件：验证进程存在 + 是 python + health 接口可用
 if (Test-Path $pidFile) {
     $oldPid = Get-Content $pidFile
     try {
         $proc = Get-Process -Id $oldPid -ErrorAction Stop
-        Write-Host "[INFO] Already running (PID: $oldPid)" -ForegroundColor Cyan
-        $alreadyRunning = $true
+        if ($proc.ProcessName -eq "python") {
+            try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8181/api/health" -TimeoutSec 3 -ErrorAction Stop
+                Write-Host "[INFO] Already running (PID: $oldPid)" -ForegroundColor Cyan
+                $alreadyRunning = $true
+            } catch {
+                Write-Host "[WARN] Stale process detected (PID: $oldPid), terminating..." -ForegroundColor Yellow
+                Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                Remove-Item $pidFile -Force
+                Start-Sleep -Seconds 1
+            }
+        } else {
+            Write-Host "[WARN] .pid points to non-python process (PID: $oldPid), removing..." -ForegroundColor Yellow
+            Remove-Item $pidFile -Force
+        }
     } catch {
         Remove-Item $pidFile -Force
     }
 }
+
+# 2. 兜底：直接访问 health 接口（.pid 丢失或指向错误进程时）
+if (-not $alreadyRunning) {
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8181/api/health" -TimeoutSec 2 -ErrorAction Stop
+        Write-Host "[INFO] Service already running on port 8181 (.pid file missing or stale)" -ForegroundColor Cyan
+        $alreadyRunning = $true
+    } catch {}
+}
+
 if ($alreadyRunning) {
     Write-Host "[INFO] URLs:"
     Write-Host "  http://localhost:8181  (or http://<lan-ip>:8181)" -ForegroundColor Green

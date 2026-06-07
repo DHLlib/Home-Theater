@@ -13,6 +13,8 @@ import aiofiles
 import httpx
 from sqlalchemy import select
 
+from app.constants import DEFAULT_USER_AGENT
+
 from app.constants import (
     DOWNLOAD_BATCH_COMMIT_CHUNKS,
     DOWNLOAD_BATCH_COMMIT_SEGMENTS,
@@ -155,11 +157,7 @@ async def _run_direct_download(
     """直接文件下载（HTTP Range 流式）。"""
     headers = {
         "Range": f"bytes={task.downloaded_bytes}-",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": DEFAULT_USER_AGENT,
         "Referer": base_url or task.url,
     }
 
@@ -247,11 +245,7 @@ async def _run_m3u8_download(
 ) -> None:
     """m3u8 播放列表下载：解析 → 下载 .ts 片段 → ffmpeg 合并。"""
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": DEFAULT_USER_AGENT,
         "Referer": base_url or task.url,
     }
 

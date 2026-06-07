@@ -209,6 +209,8 @@ class SiteStat(BaseModel):
     site_id: int
     site_name: str
     count: int
+    with_detail: int
+    without_detail: int
 
 
 class CrawlerStatsResponse(BaseModel):
@@ -216,3 +218,139 @@ class CrawlerStatsResponse(BaseModel):
     by_site: list[SiteStat]
     with_detail: int
     last_updated_at: str | None = None
+
+
+# ===== AC-026: 智能分类映射 Schema =====
+
+class SmartMatchItem(BaseModel):
+    remote_id: str
+    remote_name: str
+    suggested_system_name: str | None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    status: str  # auto_mapped | suggested | unrecognized | already_mapped
+    flag: str | None = None  # adult_content | None
+
+
+class SmartMatchSummary(BaseModel):
+    total: int
+    auto_mapped: int
+    suggested: int
+    unrecognized: int
+    already_mapped: int
+
+
+class SmartMatchResponse(BaseModel):
+    site_id: int
+    matches: list[SmartMatchItem]
+    summary: SmartMatchSummary
+
+
+# ===== AC-027: 分类层级展示 Schema =====
+
+class CategoryMappingWithPid(BaseModel):
+    """带子分类标记的分类映射"""
+    remote_id: str
+    name: str
+    type_pid: str | None = None
+
+
+class CategoryGroup(BaseModel):
+    """父分类分组"""
+    parent_id: str | None = None
+    parent_name: str | None = None
+    categories: list[CategoryMappingWithPid]
+
+
+class SiteCategoriesFetchOut(BaseModel):
+    """fetch-categories 新响应格式（层级分组）"""
+    site_id: int
+    groups: list[CategoryGroup]
+
+
+# ===== AC-028: 分类映射模板预设 Schema =====
+
+class TemplateMatchRules(BaseModel):
+    site_name_keywords: list[str]
+    url_keywords: list[str]
+
+
+class CategoryTemplate(BaseModel):
+    name: str
+    match_rules: TemplateMatchRules
+    mappings: dict[str, str]  # remote_id -> system_name
+
+
+class TemplateApplySkipped(BaseModel):
+    remote_id: str
+    name: str
+    reason: str  # "already_mapped"
+    existing_system_name: str
+
+
+class TemplateApplyUnrecognized(BaseModel):
+    remote_id: str
+    name: str
+
+
+class TemplateApplySummary(BaseModel):
+    total_in_template: int
+    applied_count: int
+    skipped_count: int
+    unrecognized_count: int
+
+
+class TemplateApplyResponse(BaseModel):
+    site_id: int
+    template_matched: bool
+    template_name: str | None
+    applied: list[CategoryMapping]
+    skipped: list[TemplateApplySkipped]
+    unrecognized: list[TemplateApplyUnrecognized]
+    summary: TemplateApplySummary
+
+
+class TemplatePreviewItem(BaseModel):
+    remote_id: str
+    name: str
+    action: str  # "apply" | "skip"
+    existing: str | None = None
+
+
+class TemplatePreviewResponse(BaseModel):
+    site_id: int
+    template_matched: bool
+    template_name: str | None
+    would_apply: int
+    would_skip: int
+    would_unrecognized: int
+    preview: list[TemplatePreviewItem]
+
+
+# ===== SystemCategory: 系统分类（父子层级）=====
+
+class SystemCategoryCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    parent_id: int | None = None
+    sort: int = 0
+
+
+class SystemCategoryUpdate(BaseModel):
+    name: str | None = None
+    parent_id: int | None = None
+    sort: int | None = None
+
+
+class SystemCategoryOut(BaseModel):
+    id: int
+    parent_id: int | None = None
+    name: str
+    sort: int
+    created_at: str | None = None
+
+
+class SystemCategoryTreeItem(BaseModel):
+    id: int
+    parent_id: int | None = None
+    name: str
+    sort: int
+    children: list[SystemCategoryTreeItem] = Field(default_factory=list)

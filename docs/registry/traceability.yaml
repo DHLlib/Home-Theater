@@ -550,14 +550,15 @@ acceptance_criteria:
   assembly:
     status: completed
 - id: AC-019
-  title: 刮削看板
-  description: 在设置页刮削日志上方展示刮削统计数据（总数量、各站点数量、已补全详情数、最近更新时间）
-  status: completed
+  title: 刮削看板（已迁移 → AC-029）
+  description: 在设置页刮削日志上方展示刮削统计数据（总数量、各站点数量、已补全详情数、最近更新时间）→ 已迁移到独立「看板」页面
+  status: superseded
   stage: assembly
-  source: backend/app/api/videos.py, frontend/src/pages/Settings.tsx
+  source: backend/app/api/videos.py, frontend/src/pages/Dashboard.tsx
   owner: frontend+backend
   tests: []
-  blockedBy: []
+  blockedBy:
+  - AC-029
   impl_files:
   - backend/app/api/videos.py
   - backend/app/schemas.py
@@ -568,7 +569,7 @@ acceptance_criteria:
     status: completed
   architect:
     status: completed
-  notes: 轻量增量，复用现有日志 tab 区域上方空间
+  notes: UI 布局被 AC-029 取代，数据接口 /crawler/stats 不变
   tdd:
     status: completed
   bdd:
@@ -760,6 +761,130 @@ acceptance_criteria:
     status: completed
   assembly:
     status: completed
+- id: AC-026
+  title: 智能分类映射
+  description: 后端根据分类名称关键词自动匹配推荐系统分类，支持置信度阈值和手动覆盖
+  status: completed
+  stage: bdd
+  source: backend/app/api/sites.py
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sites.py
+  - backend/app/schemas.py
+  - frontend/src/components/CategorySettings.tsx
+  - backend/app/services/smart_matcher.py
+  - frontend/src/components/category-settings/SmartMatchResultModal.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[PERF-CONSTRAINT] 25+ 站点时需前端虚拟滚动/按需渲染，避免卡死'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-027
+  title: 分类层级展示
+  description: 按父分类分组展示子分类，支持折叠/展开；仅子分类可映射到系统分类
+  status: completed
+  stage: qa
+  source: frontend/src/components/CategorySettings.tsx
+  owner: frontend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/components/CategorySettings.tsx
+  - frontend/src/pages/Settings.tsx
+  - frontend/src/components/category-settings/SiteTabs.tsx
+  - frontend/src/components/category-settings/SiteCategoryPanel.tsx
+  - frontend/src/components/category-settings/CategoryGroupHeader.tsx
+  - frontend/src/components/category-settings/CategoryMappingItem.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[PERF-CONSTRAINT] 25+ 站点时需前端虚拟滚动/按需渲染，避免卡死'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-028
+  title: 分类映射模板预设
+  description: 一键应用已知资源站的常见分类映射模板，不覆盖用户已手动配置
+  status: completed
+  stage: qa
+  source: backend/app/api/sites.py
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sites.py
+  - backend/app/schemas.py
+  - frontend/src/components/CategorySettings.tsx
+  - backend/app/services/template_manager.py
+  - backend/data/category_templates.json
+  - frontend/src/components/category-settings/TemplateApplyModal.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '[PERF-CONSTRAINT] 25+ 站点时需前端虚拟滚动/按需渲染，避免卡死'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-029
+  title: 刮削日志改造
+  description: 控制台静默 + 看板页面独立 + 增量按钮迁移到站点管理
+  status: completed
+  stage: qa
+  source: frontend/src/pages/Dashboard.tsx, frontend/src/pages/Settings.tsx, backend/app/services/crawler.py, backend/app/services/scheduler.py
+  owner: frontend+backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - frontend/src/App.tsx
+  - frontend/src/components/Layout.tsx
+  - frontend/src/components/BottomNav.tsx
+  - frontend/src/router.tsx
+  - frontend/src/pages/Dashboard.tsx
+  - frontend/src/pages/Settings.tsx
+  - backend/app/services/crawler.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: '取代 AC-019 和 AC-020 的 UI 布局，数据接口不变。TypeScript 编译通过。'
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: pending
 sprints:
 - id: sprint-002
   name: 技术债务清理与边界测试补充
@@ -821,3 +946,24 @@ sprints:
   - agent: ac023-impl
     status: completed
     changes: GzipMiddleware、fields 参数、移动端分页、动态缓存 TTL
+- id: sprint-007
+  name: 分类系统 A+D+E 重构
+  status: completed
+  started_at: '2026-06-07'
+  completed_at: '2026-06-07'
+  tasks:
+  - agent: atdd-analyst
+    status: completed
+    changes: AC-026/027/028 ATDD 文档（验收场景、API 契约、类型定义）
+  - agent: architect
+    status: completed
+    changes: AC-026/027/028 架构设计（组件拆分、数据流、实现顺序）
+  - agent: backend-impl
+    status: completed
+    changes: smart_matcher.py、template_manager.py、category_templates.json、fetch-categories 改 groups、3 个新 API 路由、32 个测试
+  - agent: frontend-ac027-impl
+    status: completed
+    changes: CategorySettings 重构为组件目录（SiteTabs/SiteCategoryPanel/CategoryGroupHeader/CategoryMappingItem）、站点 Tab 切换、折叠分组
+  - agent: frontend-ac026-028-impl
+    status: completed
+    changes: SmartMatchResultModal、TemplateApplyModal、自动匹配/一键应用按钮逻辑
