@@ -611,3 +611,151 @@ if (!lockMax()) {
 - `capLevelToPlayerSize: false` 只能防止窗口尺寸限制，不能阻止带宽自适应
 - 要彻底避免降码率，必须在 manifest 解析后显式设置 `currentLevel`
 - 单码率流（levels.length === 1）不存在此问题，安全忽略
+
+---
+
+## 25. SQLite `database is locked` — 刮削期间前端请求报错
+
+**症状**：首次启动全量刮削时，前端请求 `/api/sites`、`/api/play/progress` 等接口报 500，`OperationalError: database is locked`。
+
+**原因**：
+1. SQLite 默认 journal 模式为 DELETE，写入时独占整个数据库文件
+2. 6 个站点并发刮削 + 每 100 条 commit 一次，写入队列堆积
+3. 前端请求的读写操作与刮削任务争抢锁，没有 busy_timeout 时立即报错
+
+**解决**：三层防线
+1. **WAL 模式**：`PRAGMA journal_mode=WAL`，读写并发，写入不阻塞读取
+2. **busy_timeout**：`PRAGMA busy_timeout=30000` + `connect_args={"timeout": 30.0}`，锁等待 30 秒
+3. **降低刮削争用**：
+   - 全量刮削站点并发 6 → 2
+   - 批量写入 100 条 → 500 条，减少 commit 频率
+   - commit 后 `await asyncio.sleep(0)` 主动让出事件循环
+   - 预聚合缓存刷新拆分为"只读聚合 + 短写事务"两阶段
+
+```python
+# db.py 引擎配置
+engine = create_async_engine(
+    settings.db_url,
+    echo=False,
+    connect_args={"timeout": 30.0},
+    pool_pre_ping=True,
+)
+
+# init_db 中启用 WAL
+await conn.execute(text("PRAGMA journal_mode=WAL"))
+await conn.execute(text("PRAGMA busy_timeout=30000"))
+```
+
+**教训**：
+- SQLite 不是 PostgreSQL，并发写入能力有限，不能照搬多站点并发设计
+- WAL 模式是 SQLite 并发的基础，但写入仍串行，高频 commit 会产生排队
+- `asyncio.sleep(0)` 在 async/await 程序中是让出事件循环的有效手段
+- 长事务必须拆分为"计算在内存 + 写入最小化"
+
+---
+
+## 26. 首页导航冻结 — IndexedDB 阻塞 UI 状态更新
+
+**症状**：首次启动后，从详情页点击【首页】返回，页面卡死在骨架屏，无网络请求发出，浏览器标签页无响应。
+
+**原因**：`Home.tsx` `loadPage` 中 `setCachedAggregated` 放在 `try` 块内：
+1. 如果 IndexedDB 被锁（如另一个标签页正在清理过期缓存），`getCachedAggregated` 卡住
+2. 即使请求成功，`setCachedAggregated` 卡住会阻止 `finally` → `setLoading(false)` 执行
+3. 用户看到无限骨架屏，且无法交互
+
+**解决**：
+1. `cache.ts`：所有 IndexedDB 操作加 `withTimeout(..., 3000)`，3 秒超时后静默失败
+2. `Home.tsx`：`setCachedAggregated` 移出 `try` 块，改为 fire-and-forget
+3. `client.ts`：`listVideos`/`searchVideos` 添加 15 秒 `AbortController` 超时
+
+```typescript
+// cache.ts：超时包装
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("IndexedDB timeout")), ms)
+    ),
+  ]);
+}
+
+// Home.tsx：fire-and-forget
+if (cacheResult) {
+  setCachedAggregated(cacheParams, { items: cacheResult.items }).catch(() => {});
+}
+```
+
+**教训**：
+- IndexedDB 是异步但非确定性的，可能被其他标签页/进程阻塞
+- 缓存写入是锦上添花，绝不能阻塞核心 UI 状态更新
+- `try/finally` 中不要放非关键路径的异步操作
+
+---
+
+## 27. 新站点播放提示"暂不支持播放该格式"
+
+**症状**：添加新站点后，点击播放提示 `暂不支持播放该格式 (dytt)` / `(155m3u8)` / `(xlyun)` 等。
+
+**原因**：
+1. 后端 `play.py` 只对 `feifan` 做了解析，新站点的 `dytt`、`155m3u8`、`xlyun` 等后缀未处理
+2. 前端 `VideoPlayer.tsx` 的 M3U8 检测只匹配固定后缀（`m3u8`、`ffm3u8`、`ckplayer`）
+
+**解决**：
+1. 后端 `play.py` 后缀归一化：所有 `*m3u8`、`*yun`、`360zy`、`dytt` → `ffm3u8`
+2. 前端 VideoPlayer 放宽检测：`suffix.endsWith("m3u8") || suffix.endsWith("yun")`
+
+```python
+# play.py
+for i, e in enumerate(episodes):
+    suffix_lower = e.suffix.lower()
+    if suffix_lower.endswith("m3u8") or suffix_lower.endswith("yun"):
+        episodes[i] = replace(e, suffix="ffm3u8")
+    elif suffix_lower == "360zy":
+        episodes[i] = replace(e, suffix="ffm3u8")
+```
+
+```typescript
+// VideoPlayer.tsx
+const isM3u8 =
+  suffixLower.endsWith("m3u8") ||
+  suffixLower.endsWith("yun") ||
+  urlLower.endsWith(".m3u8") ||
+  urlLower.includes(".m3u8?");
+```
+
+**教训**：
+- 站点后缀命名没有统一规范，不能假设只有已知后缀存在
+- 用 `.endsWith()` 匹配模式比白名单枚举更鲁棒
+- 后端和前端的格式检测逻辑必须保持一致，否则会出现"后端返回了但前端不认识"的情况
+
+---
+
+## 快速检索表
+
+| 关键词 | 对应问题 |
+|--------|---------|
+| 端口、8000、10013 | #1 端口冲突 |
+| 404、fetch-categories | #2 404 + #3 父分类 |
+| 分类、0 条、total:0 | #3 父分类陷阱 |
+| 中文、电影、t= | #4 360zy 中文名 |
+| 代码改了没效果 | #6 进程未重启 |
+| 动作片、返回不对 | #7 用错参数 |
+| curl、JSON、解析 | #8 curl JSON |
+| git、not a repo | #9 git init 位置 |
+| 展开、第二行 | #10 按钮位置 |
+| auto_disabled_at、no such column | #11 数据库列缺失 |
+| SourceClient、SyntaxError、aclose | #12 async context manager 语法陷阱 |
+| try/except、SyntaxError | #13 + #14 作用域/闭合错误 |
+| netstat、找不到进程、拒绝访问 | #15 多进程残留 |
+| 封面、poster、空白 | #16 VideoCard poster 策略 |
+| feifan、不支持播放、格式 | #17 feifan 后缀解析差异 |
+| 下载、卡顿、DB 事务 | #18 下载批量 commit |
+| SSE、轮询、实时 | #19 SSE 替代轮询 |
+| 首页刷新、数据变化、排序 | #20 首页排序抖动 |
+| scalars、多列、AttributeError | #21 SQLAlchemy scalars 陷阱 |
+| 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
+| 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |
+| 模糊、画质、HLS | #24 HLS ABR 自动降码率 |
+| database is locked、sqlite | #25 SQLite 并发锁 |
+| 首页、无响应、骨架屏 | #26 导航冻结（IndexedDB） |
+| 不支持播放、格式、dytt | #27 新站点播放格式兼容 |

@@ -266,13 +266,82 @@ db_models:
       - name: ix_video_cache_type
         columns: [site_id, type_id]
     eviction_policy:
-      strategy: lru_by_cached_at
-      limit: 5000
-      trigger: write_time
+      strategy: none
       description: |
-        [GAP-FIX-AC014] 每次写入（crawler upsert 或 detail upsert）后，
-        若 video_cache 总行数 > 5000，则按 cached_at ASC 删除最旧记录，
-        直至剩余 5000 行。建议在 upsert 事务之后立即执行，避免竞态。
+        [AC-014-UPDATE] 已取消 5000 行上限。本机/局域网部署磁盘空间充足，
+        完整保留刮削数据以支持全分类覆盖和精确聚合。
+
+  - name: AggregatedVideoV1
+    table: aggregated_videos_v1
+    owner: backend
+    description: 预聚合缓存表 V1（双缓冲之一）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: sources
+        type: JSON
+        nullable: false
+        description: list[{site_id, original_id, type, remarks, updated_at}]
+      - name: latest_updated_at
+        type: String
+        nullable: true
+      - name: source_count
+        type: Integer
+        nullable: false
+      - name: cached_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_agg_v1_latest
+        columns: [latest_updated_at]
+
+  - name: AggregatedVideoV2
+    table: aggregated_videos_v2
+    owner: backend
+    description: 预聚合缓存表 V2（双缓冲之二，与 V1 结构完全相同）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: sources
+        type: JSON
+        nullable: false
+      - name: latest_updated_at
+        type: String
+        nullable: true
+      - name: source_count
+        type: Integer
+        nullable: false
+      - name: cached_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_agg_v2_latest
+        columns: [latest_updated_at]
+    notes: |
+      V1/V2 通过 AppConfig key="aggregated_active_version" 切换，
+      写入时先清空非活跃表，批量插入后原子切换版本标记。
 
   - name: AppConfig
     table: app_config
