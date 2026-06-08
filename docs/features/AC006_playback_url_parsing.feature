@@ -75,6 +75,22 @@ Feature: AC-006 播放地址解析
     When 通过 GET /api/play/episodes 获取集数列表
     Then 返回的 Episode 的 suffix 为 "ffm3u8"
 
+  Scenario: dytt 分享页解析为真实 m3u8 并替换后缀为 ffm3u8
+    Given 存在一个 dytt 分享页
+    When 调用 resolve_feifan 解析（dytt 与 feifan 共享解析器）
+    Then 返回真实 m3u8 地址
+    And 在 GET /api/play/episodes 接口中，dytt 后缀被统一替换为 "ffm3u8"
+
+  Scenario: 155m3u8 后缀自动归一化为 ffm3u8
+    Given 原始播放字符串为 "第1集$https://example.com/playlist.m3u8$155m3u8"
+    When 通过 GET /api/play/episodes 获取集数列表
+    Then 返回的 Episode 的 suffix 为 "ffm3u8"
+
+  Scenario: xlyun 后缀自动归一化为 ffm3u8
+    Given 原始播放字符串为 "第1集$https://example.com/playlist.m3u8$xlyun"
+    When 通过 GET /api/play/episodes 获取集数列表
+    Then 返回的 Episode 的 suffix 为 "ffm3u8"
+
   Scenario: 网络异常时 resolve_feifan 返回 None
     Given feifan 分享页网络不可达
     When 调用 resolve_feifan 解析

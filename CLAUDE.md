@@ -26,6 +26,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 刮削状态 API：`GET /api/videos/crawler/status`
 手动触发增量：`POST /api/videos/crawler/incremental/{site_id}`
 
+### v1.2 预聚合缓存架构（新增）
+
+为解决首页大数据量聚合查询缓慢（~8s）问题，引入**预聚合双缓冲表**：
+
+- **表结构**：`AggregatedVideoV1` / `AggregatedVideoV2` 两张结构相同的表，通过 `AppConfig key="aggregated_active_version"` 原子切换活跃版本
+- **刷新时机**：每次全量/增量刮削完成后触发 `_refresh_aggregated_cache()`，间隔控制 ≥5 分钟
+- **聚合逻辑**：两阶段——先按 `(normalize_title, year)` 分组，再对 `year=None` 的桶回填同名记录中出现最频繁的非 None year，解决同名视频因年份缺失未聚合的问题
+- **查询路由**：`GET /api/videos` 无 category 参数时直接读活跃预聚合表（O(1)），有 category 时走实时聚合
+- **性能**：首页查询从 ~8s 降至 ~26ms
+
+SQLite 配置：
+- `PRAGMA journal_mode=WAL`：启用 WAL，读写并发
+- `PRAGMA busy_timeout=30000`：锁等待 30 秒
+- 全量刮削站点并发从 6 降到 2，批量写入从 100 提升到 500，commit 后 `asyncio.sleep(0)` 主动让出
+
 ## 技术栈（已定）
 
 - **后端**：FastAPI（Python，async）；HTTP 客户端使用 `httpx.AsyncClient` 并发拉取多源
@@ -199,6 +214,10 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - **刮削模块**：`app/services/crawler.py` 负责全量/增量刮削；`app/services/scheduler.py` 负责定时调度。修改刮削逻辑时需同步更新状态持久化（AppConfig key="crawler_state"）。
 - **列表排序**：`app/api/videos.py` 的 list/search 查询必须带二级排序 `desc(VideoCache.id)`，否则 `cached_at` 相同时返回顺序不稳定。
 - **crawler 导入**：`app/api/videos.py` 中不能写 `from app.services.scheduler import crawler`（快照导入），必须用 `import app.services.scheduler as scheduler_module` 然后通过 `scheduler_module.crawler` 访问（模块引用）。
+- **SQLite 并发**：WAL 模式 + busy_timeout 是底线，但写入仍串行。刮削任务 commit 后必须 `await asyncio.sleep(0)` 让出，避免独占事件循环。预聚合缓存刷新必须读写分阶段，写事务保持亚秒级。
+- **IndexedDB 超时**：`cache.ts` 中所有 IndexedDB 操作（`get`/`set`/`clearExpired`）已包裹 `withTimeout(..., 3000)`。前端 `Home.tsx` 的 `setCachedAggregated` 必须放在 `try` 块外 fire-and-forget，避免阻塞 `setLoading(false)`。
+- **播放器后缀检测**：VideoPlayer 使用 `suffix.toLowerCase().endsWith("m3u8") || suffix.toLowerCase().endsWith("yun")` 检测 M3U8 流。新增站点后缀如 `155m3u8`、`xlyun`、`dytt` 都通过此规则覆盖，不需要逐个硬编码。
+- **预聚合缓存**：`_refresh_aggregated_cache` 读取阶段使用只读事务，聚合到内存后关闭；写入阶段开启新事务执行清空+插入+版本切换。不要在同一个事务中既读全表又写目标表。
 
 ## 排错优先顺序
 
