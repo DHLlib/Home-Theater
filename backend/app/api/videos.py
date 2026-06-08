@@ -636,11 +636,31 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
                 )
                 for s in by_site_raw
             ]
+
+            # 读取历史趋势数据
+            history_result = await db.execute(
+                select(AppConfig).where(AppConfig.key == "crawler_stats_history")
+            )
+            history_row = history_result.scalar_one_or_none()
+            history = []
+            if history_row:
+                try:
+                    history_raw = json.loads(history_row.value)
+                    if isinstance(history_raw, list):
+                        history = [
+                            {"ts": h["ts"], "total": h["total"], "with_detail": h["with_detail"]}
+                            for h in history_raw
+                        ]
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
             return CrawlerStatsResponse(
                 total=data.get("total", 0),
                 by_site=by_site,
                 with_detail=data.get("with_detail", 0),
                 last_updated_at=data.get("last_updated_at"),
+                history=history,
+                computed_at=data.get("computed_at"),
             )
         except (json.JSONDecodeError, KeyError):
             pass  # 缓存损坏，fallback 到实时查询
@@ -690,11 +710,30 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
     )
     global_row = global_result.one()
 
+    # fallback 时也尝试读取历史数据
+    history_result = await db.execute(
+        select(AppConfig).where(AppConfig.key == "crawler_stats_history")
+    )
+    history_row = history_result.scalar_one_or_none()
+    history = []
+    if history_row:
+        try:
+            history_raw = json.loads(history_row.value)
+            if isinstance(history_raw, list):
+                history = [
+                    {"ts": h["ts"], "total": h["total"], "with_detail": h["with_detail"]}
+                    for h in history_raw
+                ]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
     return CrawlerStatsResponse(
         total=global_row.total or 0,
         by_site=by_site,
         with_detail=int(global_row.with_detail or 0),
         last_updated_at=global_row.last_updated,
+        history=history,
+        computed_at=datetime.now(timezone.utc).isoformat(),
     )
 
 

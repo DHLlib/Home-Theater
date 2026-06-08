@@ -700,10 +700,32 @@ class Crawler:
             return {}
 
     async def _update_stats_cache(self):
-        """将统计结果预计算并写入 AppConfig，供看板 O(1) 读取。"""
+        """将统计结果预计算并写入 AppConfig，供看板 O(1) 读取。
+
+        控制策略：
+        - 每 15 分钟最多计算一次，避免频繁查询
+        - 每次计算时追加一个历史快照到 crawler_stats_history
+        """
         from sqlalchemy import func, case
 
         async with self._db_factory() as db:
+            # --- 15 分钟间隔控制 ---
+            MIN_INTERVAL_SECONDS = 15 * 60
+            cache_result = await db.execute(
+                select(AppConfig).where(AppConfig.key == self.STATS_KEY)
+            )
+            cache_row = cache_result.scalar_one_or_none()
+            if cache_row:
+                try:
+                    old = json.loads(cache_row.value)
+                    computed_at = old.get("computed_at")
+                    if computed_at:
+                        last = datetime.fromisoformat(computed_at)
+                        if (datetime.now(timezone.utc) - last).total_seconds() < MIN_INTERVAL_SECONDS:
+                            return  # 不到 15 分钟，跳过
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
             # 站点分组统计
             site_result = await db.execute(
                 select(
@@ -756,6 +778,7 @@ class Crawler:
                 "computed_at": datetime.now(timezone.utc).isoformat(),
             }
 
+            # --- 保存当前 stats ---
             stmt = insert(AppConfig).values(
                 key=self.STATS_KEY,
                 value=json.dumps(stats),
@@ -769,7 +792,64 @@ class Crawler:
                 },
             )
             await db.execute(stmt)
+
+            # --- 保存历史快照（同一事务） ---
+            await self._append_history_snapshot(
+                db, global_row.total or 0, int(global_row.with_detail or 0)
+            )
+
             await db.commit()
+
+    async def _append_history_snapshot(self, db, total: int, with_detail: int):
+        """向 crawler_stats_history 追加一个快照，保留最近 30 天。
+
+        每个快照：{ts: ISO时间, total: 总刮削数, with_detail: 已补全数}
+        每天最多 96 个点（15 分钟间隔），30 天 ≈ 2880 条记录。
+        """
+        HISTORY_KEY = "crawler_stats_history"
+        MAX_HISTORY_DAYS = 30
+        MAX_POINTS = MAX_HISTORY_DAYS * 24 * 4  # 30天 * 每天96个点
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        new_point = {"ts": now_iso, "total": total, "with_detail": with_detail}
+
+        # 读取现有历史
+        result = await db.execute(
+            select(AppConfig).where(AppConfig.key == HISTORY_KEY)
+        )
+        row = result.scalar_one_or_none()
+        history = []
+        if row:
+            try:
+                history = json.loads(row.value)
+                if not isinstance(history, list):
+                    history = []
+            except json.JSONDecodeError:
+                history = []
+
+        # 追加新点，去重（同一天同一小时只保留最新的，避免重复计算）
+        # 简单策略：直接追加，然后按时间排序截断
+        history.append(new_point)
+        history.sort(key=lambda x: x["ts"])
+
+        # 截断：只保留最近 MAX_POINTS 条
+        if len(history) > MAX_POINTS:
+            history = history[-MAX_POINTS:]
+
+        stmt = insert(AppConfig).values(
+            key=HISTORY_KEY,
+            value=json.dumps(history),
+            updated_at=datetime.now(timezone.utc),
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["key"],
+            set_={
+                "value": json.dumps(history),
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+        await db.execute(stmt)
+        # commit 由调用方 _update_stats_cache 统一执行
 
     async def _save_state(self, state: dict):
         async with self._db_factory() as db:
