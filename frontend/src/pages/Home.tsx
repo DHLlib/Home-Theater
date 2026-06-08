@@ -215,24 +215,17 @@ export default function Home() {
       if (timeFilter !== "all") params.h = timeFilter;
       if (activeCategory) params.category = activeCategory;
 
+      let cacheResult: { items: AggregatedVideo[] } | undefined;
       try {
-        let r;
-        if (q) {
-          const searchParams: {
-            wd: string;
-            pg: number;
-            mode: string;
-            category?: string;
-          } = {
-            wd: q,
-            pg,
-            mode: "aggregated",
-          };
-          if (activeCategory) searchParams.category = activeCategory;
-          r = await searchVideos(searchParams);
-        } else {
-          r = await listVideos(params);
-        }
+        const r = q
+          ? await searchVideos({
+              wd: q,
+              pg,
+              mode: "aggregated",
+              ...(activeCategory ? { category: activeCategory } : {}),
+            })
+          : await listVideos(params);
+        cacheResult = r;
         if (pg === 1) {
           setVideos(r.items);
         } else {
@@ -246,10 +239,6 @@ export default function Home() {
         if (r.items.length === 0) {
           setNoMore(true);
         }
-        // 写入缓存
-        setCachedAggregated(cacheParams, {
-          items: r.items,
-        });
       } catch {
         if (pg === 1) {
           setVideos([]);
@@ -261,6 +250,13 @@ export default function Home() {
         } else {
           setLoadingMore(false);
         }
+      }
+
+      // fire-and-forget：缓存写入不阻塞 UI 状态更新
+      if (cacheResult) {
+        setCachedAggregated(cacheParams, { items: cacheResult.items }).catch(
+          () => {}
+        );
       }
     },
     [timeFilter, activeCategory, wdFromUrl]

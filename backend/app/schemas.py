@@ -213,11 +213,20 @@ class SiteStat(BaseModel):
     without_detail: int
 
 
+class HistoryPoint(BaseModel):
+    """历史统计快照点"""
+    ts: str
+    total: int
+    with_detail: int
+
+
 class CrawlerStatsResponse(BaseModel):
     total: int
     by_site: list[SiteStat]
     with_detail: int
     last_updated_at: str | None = None
+    history: list[HistoryPoint] = Field(default_factory=list)
+    computed_at: str | None = None
 
 
 # ===== AC-026: 智能分类映射 Schema =====

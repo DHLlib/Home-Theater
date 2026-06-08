@@ -9,24 +9,34 @@ export class ApiError extends Error {
 async function request<T>(
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs?: number
 ): Promise<T> {
-  const opts: RequestInit = { method, headers: {} };
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+  const opts: RequestInit = { method, headers: {}, signal: controller.signal };
   if (body) {
     opts.headers = { "Content-Type": "application/json" };
     opts.body = JSON.stringify(body);
   }
-  const resp = await fetch(path, opts);
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({}));
-    const err = new ApiError(resp.status, data.detail || `${resp.status} error`);
-    toastError(err.detail);
-    throw err;
+  try {
+    const resp = await fetch(path, opts);
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      const err = new ApiError(resp.status, data.detail || `${resp.status} error`);
+      toastError(err.detail);
+      throw err;
+    }
+    return resp.json();
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return resp.json();
 }
 
-export const get = <T>(path: string) => request<T>("GET", path);
+export const get = <T>(path: string, timeoutMs?: number) => request<T>("GET", path, undefined, timeoutMs);
 export const post = <T>(path: string, body?: unknown) =>
   request<T>("POST", path, body);
 export const put = <T>(path: string, body?: unknown) =>

@@ -71,10 +71,18 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       setError(null);
 
+      const suffixLower = suffix.toLowerCase();
+      const urlLower = src.toLowerCase();
       const isM3u8 =
-        suffix === "m3u8" || suffix === "ckplayer" || suffix === "ffm3u8";
+        suffixLower === "m3u8" ||
+        suffixLower === "ckplayer" ||
+        suffixLower === "ffm3u8" ||
+        suffixLower.endsWith("m3u8") ||
+        suffixLower.endsWith("yun") ||
+        urlLower.endsWith(".m3u8") ||
+        urlLower.includes(".m3u8?");
       const isDirectVideo =
-        isM3u8 || suffix === "mp4" || suffix === "webm" || suffix === "";
+        isM3u8 || suffixLower === "mp4" || suffixLower === "webm" || suffix === "";
 
       if (!isDirectVideo) {
         const msg = `暂不支持播放该格式 (${suffix})`;
