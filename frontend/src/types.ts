@@ -191,11 +191,19 @@ export interface SiteStat {
   without_detail: number;
 }
 
+export interface HistoryPoint {
+  ts: string;
+  total: number;
+  with_detail: number;
+}
+
 export interface CrawlerStatsResponse {
   total: number;
   by_site: SiteStat[];
   with_detail: number;
   last_updated_at: string | null;
+  history: HistoryPoint[];
+  computed_at: string | null;
 }
 
 export interface BatchProbeItem {
