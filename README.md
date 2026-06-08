@@ -17,10 +17,14 @@
 - **站点管理**：采集站 CRUD、连通性探测、远程分类抓取
 - **分类映射**：将各站点的子分类映射到统一的扁平系统分类
 - **本地聚合数据库**：后台自动刮削资源站数据到 VideoCache，首页/搜索纯本地查询
+- **预聚合缓存**：双缓冲表（V1/V2）+ 原子版本切换，首页查询从 ~8s 降至 ~26ms
 - **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，状态持久化
+- **播放器格式兼容**：支持 M3U8/MP4/WebM，自动归一化 dytt/xlyun/155m3u8 等后缀
 - **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
 - **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
-- **性能优化**：下载批量 commit、前端请求去重/并发限制、全局 IntersectionObserver、静态文件缓存头
+- **性能优化**：
+  - 后端：下载批量 commit、预聚合双缓冲、SQLite WAL 模式、刮削并发控制
+  - 前端：IndexedDB 3 秒超时保护、API AbortController 超时、请求去重/并发限制
 
 ---
 
@@ -31,7 +35,7 @@
 | 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), aiosqlite |
 | 前端 | React 18, Vite, TypeScript, react-router-dom |
 | 播放器 | xgplayer v3 + xgplayer-hls.js |
-| 数据库 | SQLite（启动时自动建表） |
+| 数据库 | SQLite（WAL 模式，启动时自动建表） |
 | 部署 | uvicorn + FastAPI 静态托管前端构建产物 |
 
 ---
@@ -137,7 +141,7 @@ Home Theater/
 │   ├── app/
 │   │   ├── main.py           # FastAPI 入口、路由挂载、静态托管（含缓存头）、启动建表
 │   │   ├── constants.py      # 项目级常量（HTTP 超时、重试策略、下载/刮削/日志参数）
-│   │   ├── models.py         # ORM：Site / Favorite / PlayProgress / DownloadTask / VideoCache / AppConfig
+│   │   ├── models.py         # ORM：Site / Favorite / PlayProgress / DownloadTask / VideoCache / AggregatedVideoV1/V2 / AppConfig
 │   │   ├── schemas.py        # Pydantic 请求/响应模型
 │   │   ├── db.py             # async engine + session_factory + 列迁移
 │   │   ├── logging_config.py # 日志分类路由（api/source/crawler/download）
@@ -172,6 +176,7 @@ Home Theater/
 | `名称+年份` 聚合去重 | `backend/app/services/aggregator.py` |
 | 显式选源（无默认） | `frontend/src/components/SourcePicker.tsx` |
 | 下载根目录一次性配置 | `backend/app/api/settings_api.py` + `frontend/src/pages/Settings.tsx` |
+| 预聚合缓存（双缓冲） | `backend/app/services/crawler.py` `_refresh_aggregated_cache` |
 | 分类映射（扁平系统分类，互斥约束） | `frontend/src/components/CategorySettings.tsx` |
 | 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
 | 项目常量（禁止魔法数字） | `backend/app/constants.py` |
