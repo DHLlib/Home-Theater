@@ -16,8 +16,8 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy import delete, func, insert, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import (
@@ -30,7 +30,8 @@ from app.constants import (
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
 )
-from app.models import AppConfig, Site, VideoCache
+from app.models import AggregatedVideoV1, AggregatedVideoV2, AppConfig, Site, VideoCache
+from app.services.aggregator import normalize_title
 from app.services.source_client import SourceClient
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,8 @@ class Crawler:
         async with self._db_factory() as db:
             sites = await self._get_enabled_sites(db)
 
-        semaphore = asyncio.Semaphore(CRAWLER_SITE_CONCURRENCY)
+        # 全量刮削降低并发（SQLite 写入串行，过高并发只会排队）
+        semaphore = asyncio.Semaphore(2)
 
         async def _crawl_one(site: Site):
             if not self._running:
@@ -282,6 +284,7 @@ class Crawler:
             self._site_status[site.id] = "idle"
             await client.aclose()
             await self._update_stats_cache()
+            await self._refresh_aggregated_cache()
 
     # ------------------------------------------------------------------
     # 增量刮削（单站点）
@@ -420,6 +423,7 @@ class Crawler:
         finally:
             await client.aclose()
             await self._update_stats_cache()
+            await self._refresh_aggregated_cache()
 
     # ------------------------------------------------------------------
     # 内部工具
@@ -558,7 +562,7 @@ class Crawler:
     # ------------------------------------------------------------------
 
     async def _upsert_list_fields(self, db: AsyncSession, entry: dict):
-        stmt = insert(VideoCache).values(**entry)
+        stmt = sqlite_insert(VideoCache).values(**entry)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
@@ -576,7 +580,7 @@ class Crawler:
         await db.commit()
 
     async def _upsert_detail_fields(self, db: AsyncSession, entry: dict):
-        stmt = insert(VideoCache).values(**entry)
+        stmt = sqlite_insert(VideoCache).values(**entry)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
@@ -603,7 +607,7 @@ class Crawler:
     async def _batch_upsert_list_fields(self, db: AsyncSession, entries: list[dict]):
         if not entries:
             return
-        stmt = insert(VideoCache).values(entries)
+        stmt = sqlite_insert(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
@@ -620,11 +624,13 @@ class Crawler:
         await db.execute(stmt)
         await db.commit()
         await self._evict_if_overflow(db)
+        # 主动让出，避免刮削任务独占事件循环
+        await asyncio.sleep(0)
 
     async def _batch_upsert_detail_fields(self, db: AsyncSession, entries: list[dict]):
         if not entries:
             return
-        stmt = insert(VideoCache).values(entries)
+        stmt = sqlite_insert(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
@@ -644,6 +650,8 @@ class Crawler:
         )
         await db.execute(stmt)
         await db.commit()
+        # 主动让出，避免刮削任务独占事件循环
+        await asyncio.sleep(0)
         await self._evict_if_overflow(db)
 
     # ------------------------------------------------------------------
@@ -779,7 +787,7 @@ class Crawler:
             }
 
             # --- 保存当前 stats ---
-            stmt = insert(AppConfig).values(
+            stmt = sqlite_insert(AppConfig).values(
                 key=self.STATS_KEY,
                 value=json.dumps(stats),
                 updated_at=datetime.now(timezone.utc),
@@ -836,7 +844,7 @@ class Crawler:
         if len(history) > MAX_POINTS:
             history = history[-MAX_POINTS:]
 
-        stmt = insert(AppConfig).values(
+        stmt = sqlite_insert(AppConfig).values(
             key=HISTORY_KEY,
             value=json.dumps(history),
             updated_at=datetime.now(timezone.utc),
@@ -851,9 +859,202 @@ class Crawler:
         await db.execute(stmt)
         # commit 由调用方 _update_stats_cache 统一执行
 
+    # ------------------------------------------------------------------
+    # 预聚合缓存刷新（双缓冲）
+    # ------------------------------------------------------------------
+
+    async def _refresh_aggregated_cache(self):
+        """将 VideoCache 全表聚合后写入双缓冲表，切换活跃版本。
+
+        策略：
+        - 增量刮削完成后：>= 5 分钟间隔才刷新
+        - 全量刮削完成后：不检查间隔，立即刷新
+        - 读写分阶段：先只读聚合到内存，再开短事务写入，降低锁持有时间
+        """
+        MIN_INTERVAL_SECONDS = 5 * 60
+
+        # --- 阶段 1：只读事务，读取并聚合到内存 ---
+        async with self._db_factory() as db:
+            # 间隔控制
+            result = await db.execute(
+                select(AppConfig).where(AppConfig.key == "aggregated_cache_computed_at")
+            )
+            row = result.scalar_one_or_none()
+            if row and row.value:
+                try:
+                    last = datetime.fromisoformat(row.value)
+                    if (datetime.now(timezone.utc) - last).total_seconds() < MIN_INTERVAL_SECONDS:
+                        return
+                except ValueError:
+                    pass
+
+            # 确定活跃版本和目标表
+            version_result = await db.execute(
+                select(AppConfig.value).where(AppConfig.key == "aggregated_active_version")
+            )
+            version_row = version_result.scalar_one_or_none()
+            current_version = version_row if version_row else "v1"
+            target_version = "v2" if current_version == "v1" else "v1"
+            TargetModel = AggregatedVideoV2 if target_version == "v2" else AggregatedVideoV1
+
+            logger.info("刷新预聚合缓存: current=%s -> target=%s", current_version, target_version)
+            start = time.time()
+
+            # 分批读取 VideoCache 并聚合
+            total_result = await db.execute(select(func.count()).select_from(VideoCache))
+            total = total_result.scalar_one() or 0
+            batch_size = 10000
+            bucket: dict[tuple[str, int | None], dict] = {}
+            latest_update: dict[tuple[str, int | None], str] = {}
+            from collections import Counter
+            year_counter: dict[str, Counter] = {}
+
+            offset = 0
+            while offset < total:
+                result = await db.execute(
+                    select(VideoCache)
+                    .order_by(VideoCache.id)
+                    .limit(batch_size)
+                    .offset(offset)
+                )
+                records = result.scalars().all()
+                if not records:
+                    break
+                for r in records:
+                    norm = normalize_title(r.title)
+                    key = (norm, r.year)
+                    if key not in bucket:
+                        bucket[key] = {
+                            "title": r.title,
+                            "year": r.year,
+                            "poster_url": r.poster_url,
+                            "sources": [],
+                        }
+                        latest_update[key] = r.source_updated_at or ""
+                    else:
+                        if r.source_updated_at and r.source_updated_at > latest_update[key]:
+                            latest_update[key] = r.source_updated_at
+                        if not bucket[key]["poster_url"] and r.poster_url:
+                            bucket[key]["poster_url"] = r.poster_url
+                    source_ref = {
+                        "site_id": r.site_id,
+                        "original_id": r.original_id,
+                        "type": r.type_name,
+                        "remarks": r.remarks,
+                        "updated_at": r.source_updated_at,
+                    }
+                    bucket[key]["sources"].append(source_ref)
+                    if norm not in year_counter:
+                        year_counter[norm] = Counter()
+                    if r.year is not None:
+                        year_counter[norm][r.year] += 1
+                offset += batch_size
+
+        # 回填 year=None 的桶
+        null_keys = [k for k in bucket if k[1] is None]
+        merged = 0
+        for key in null_keys:
+            norm = key[0]
+            item = bucket.pop(key)
+            lu = latest_update.pop(key)
+            best_year = None
+            if norm in year_counter and year_counter[norm]:
+                best_year = year_counter[norm].most_common(1)[0][0]
+            if best_year is not None:
+                new_key = (norm, best_year)
+                if new_key not in bucket:
+                    bucket[new_key] = {
+                        "title": item["title"],
+                        "year": best_year,
+                        "poster_url": item["poster_url"],
+                        "sources": [],
+                    }
+                    latest_update[new_key] = lu
+                else:
+                    if lu > latest_update.get(new_key, ""):
+                        latest_update[new_key] = lu
+                    if not bucket[new_key]["poster_url"] and item["poster_url"]:
+                        bucket[new_key]["poster_url"] = item["poster_url"]
+                bucket[new_key]["sources"].extend(item["sources"])
+                merged += 1
+            else:
+                bucket[key] = item
+                latest_update[key] = lu
+
+        sorted_items = sorted(
+            bucket.values(),
+            key=lambda item: latest_update.get(
+                (normalize_title(item["title"]), item["year"]), ""
+            ),
+            reverse=True,
+        )
+
+        # --- 阶段 2：短写事务，清空+插入+更新版本 ---
+        now = datetime.now(timezone.utc)
+        insert_batch = []
+        BATCH_INSERT = 500
+        inserted = 0
+        insert_rows: list[dict] = []
+        for item in sorted_items:
+            key = (normalize_title(item["title"]), item["year"])
+            latest = latest_update.get(key, "")
+            insert_rows.append(
+                {
+                    "title": item["title"],
+                    "year": item["year"],
+                    "poster_url": item["poster_url"],
+                    "sources": item["sources"],
+                    "latest_updated_at": latest,
+                    "source_count": len(item["sources"]),
+                    "cached_at": now,
+                }
+            )
+
+        async with self._db_factory() as db:
+            await db.execute(delete(TargetModel))
+            for row in insert_rows:
+                insert_batch.append(row)
+                if len(insert_batch) >= BATCH_INSERT:
+                    await db.execute(insert(TargetModel).values(insert_batch))
+                    inserted += len(insert_batch)
+                    insert_batch = []
+            if insert_batch:
+                await db.execute(insert(TargetModel).values(insert_batch))
+                inserted += len(insert_batch)
+
+            stmt = sqlite_insert(AppConfig).values(
+                key="aggregated_active_version",
+                value=target_version,
+                updated_at=now,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": target_version, "updated_at": now},
+            )
+            await db.execute(stmt)
+
+            stmt = sqlite_insert(AppConfig).values(
+                key="aggregated_cache_computed_at",
+                value=now.isoformat(),
+                updated_at=now,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": now.isoformat(), "updated_at": now},
+            )
+            await db.execute(stmt)
+
+            await db.commit()
+
+        elapsed = time.time() - start
+        logger.info(
+            "预聚合缓存刷新完成: records=%d, aggregated=%d, target=%s, elapsed=%.2fs",
+            total, inserted, target_version, elapsed,
+        )
+
     async def _save_state(self, state: dict):
         async with self._db_factory() as db:
-            stmt = insert(AppConfig).values(
+            stmt = sqlite_insert(AppConfig).values(
                 key=self.STATE_KEY,
                 value=json.dumps(state),
                 updated_at=datetime.now(timezone.utc),

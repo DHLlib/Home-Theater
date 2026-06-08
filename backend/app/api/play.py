@@ -51,28 +51,33 @@ async def get_episodes(
         logger.error("play_parse_error site=%s original_id=%s error=%s", site.name, original_id, exc)
         raise HTTPException(status_code=502, detail=f"parse error: {exc}")
 
-    # 解析 feifan 分享页获取真实 m3u8 地址
-    feifan_indices = [
-        i for i, e in enumerate(episodes) if e.suffix == "feifan"
+    # 解析 feifan / dytt 分享页获取真实 m3u8 地址
+    share_suffixes = ("feifan", "dytt")
+    share_indices = [
+        i for i, e in enumerate(episodes) if e.suffix in share_suffixes
     ]
-    if feifan_indices:
-        logger.info("play_resolve_feifan site=%s count=%d", site.name, len(feifan_indices))
+    if share_indices:
+        logger.info("play_resolve_share site=%s count=%d", site.name, len(share_indices))
         resolved = await asyncio.gather(
-            *[resolve_feifan(episodes[i].url) for i in feifan_indices],
+            *[resolve_feifan(episodes[i].url) for i in share_indices],
             return_exceptions=True,
         )
-        for idx, real_url in zip(feifan_indices, resolved):
+        for idx, real_url in zip(share_indices, resolved):
             if isinstance(real_url, str) and real_url:
                 episodes[idx] = replace(
                     episodes[idx], url=real_url, suffix="ffm3u8"
                 )
-                logger.info("play_feifan_resolved site=%s ep=%s", site.name, episodes[idx].ep_name)
+                logger.info("play_share_resolved site=%s ep=%s", site.name, episodes[idx].ep_name)
             elif isinstance(real_url, Exception):
-                logger.warning("play_feifan_failed site=%s ep=%s error=%s", site.name, episodes[idx].ep_name, real_url)
+                logger.warning("play_share_failed site=%s ep=%s error=%s", site.name, episodes[idx].ep_name, real_url)
 
-    # 统一 360zy 后缀为 ffm3u8，便于前端识别为 m3u8 格式
+    # 后缀归一化：所有 M3U8/Yun 类统一为 ffm3u8
+    # 已知模式：xxxm3u8 / xxxyun / 360zy / ckplayer / mp4 / webm
     for i, e in enumerate(episodes):
-        if e.suffix == "360zy":
+        suffix_lower = e.suffix.lower()
+        if suffix_lower.endswith("m3u8") or suffix_lower.endswith("yun"):
+            episodes[i] = replace(e, suffix="ffm3u8")
+        elif suffix_lower == "360zy":
             episodes[i] = replace(e, suffix="ffm3u8")
 
     elapsed = time.monotonic() - start

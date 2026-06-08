@@ -37,7 +37,7 @@ export const listVideos = (params?: {
   if (params?.category) qs.set("category", params.category);
   if (params?.mode) qs.set("mode", params.mode);
   appendDeviceParam(qs);
-  return get<AggregatedListResponse>(`/api/videos?${qs}`);
+  return get<AggregatedListResponse>(`/api/videos?${qs}`, 15000);
 };
 
 export const searchVideos = (params: { wd: string; pg?: number; category?: string; mode?: string }) => {
@@ -47,7 +47,7 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
   if (params.category) qs.set("category", params.category);
   if (params.mode) qs.set("mode", params.mode);
   appendDeviceParam(qs);
-  return get<AggregatedListResponse>(`/api/videos/search?${qs}`);
+  return get<AggregatedListResponse>(`/api/videos/search?${qs}`, 15000);
 };
 
 const pendingDetails = new Map<string, Promise<DetailResponse>>();

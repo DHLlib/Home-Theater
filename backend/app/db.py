@@ -3,7 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 
-engine = create_async_engine(settings.db_url, echo=False)
+engine = create_async_engine(
+    settings.db_url,
+    echo=False,
+    connect_args={"timeout": 30.0},
+    pool_pre_ping=True,
+)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
@@ -16,6 +21,9 @@ async def init_db() -> None:
     from app.models import Base
 
     async with engine.begin() as conn:
+        # WAL 模式：允许读写并发，大幅降低锁冲突
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
+        await conn.execute(text("PRAGMA busy_timeout=30000"))
         await conn.run_sync(Base.metadata.create_all)
         # 自动补齐 SQLite 表中缺失的列
         await _ensure_columns(conn)

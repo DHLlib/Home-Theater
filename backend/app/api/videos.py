@@ -5,13 +5,20 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, desc, or_, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
 from app.db import get_db
-from app.models import Site, SystemCategory, VideoCache
+from app.models import (
+    AggregatedVideoV1,
+    AggregatedVideoV2,
+    AppConfig,
+    Site,
+    SystemCategory,
+    VideoCache,
+)
 from app.schemas import (
     AggregatedListResponse,
     AggregatedVideo,
@@ -178,11 +185,16 @@ async def _query_and_aggregate(
     result = await db.execute(query)
     records = result.scalars().all()
 
-    # 聚合去重
+    # 聚合去重（两阶段：先分组，再回填 year=None）
+    from collections import Counter
+
     bucket: dict[tuple[str, int | None], dict] = {}
     latest_update: dict[tuple[str, int | None], str] = {}
+    year_counter: dict[str, Counter] = {}
+
     for r in records:
-        key = (normalize_title(r.title), r.year)
+        norm = normalize_title(r.title)
+        key = (norm, r.year)
         if key not in bucket:
             bucket[key] = {
                 "title": r.title,
@@ -202,6 +214,40 @@ async def _query_and_aggregate(
             "updated_at": r.source_updated_at,
         }
         bucket[key]["sources"].append(source_ref)
+
+        if norm not in year_counter:
+            year_counter[norm] = Counter()
+        if r.year is not None:
+            year_counter[norm][r.year] += 1
+
+    # 回填 year=None 的桶
+    null_keys = [k for k in bucket if k[1] is None]
+    for key in null_keys:
+        norm = key[0]
+        item = bucket.pop(key)
+        lu = latest_update.pop(key)
+        best_year = None
+        if norm in year_counter and year_counter[norm]:
+            best_year = year_counter[norm].most_common(1)[0][0]
+        if best_year is not None:
+            new_key = (norm, best_year)
+            if new_key not in bucket:
+                bucket[new_key] = {
+                    "title": item["title"],
+                    "year": best_year,
+                    "poster_url": item["poster_url"],
+                    "sources": [],
+                }
+                latest_update[new_key] = lu
+            else:
+                if lu > latest_update.get(new_key, ""):
+                    latest_update[new_key] = lu
+                if not bucket[new_key]["poster_url"] and item["poster_url"]:
+                    bucket[new_key]["poster_url"] = item["poster_url"]
+            bucket[new_key]["sources"].extend(item["sources"])
+        else:
+            bucket[key] = item
+            latest_update[key] = lu
 
     # 按资源站最新更新时间倒序排列（与查询 ORDER BY 一致）
     aggregated = sorted(
@@ -242,6 +288,67 @@ async def _query_and_aggregate(
 
 
 # ------------------------------------------------------------------
+# 预聚合表双缓冲查询
+# ------------------------------------------------------------------
+
+_AGGREGATED_TABLES = {"v1": AggregatedVideoV1, "v2": AggregatedVideoV2}
+
+
+async def _get_active_aggregated_version(db: AsyncSession) -> str:
+    result = await db.execute(
+        select(AppConfig.value).where(AppConfig.key == "aggregated_active_version")
+    )
+    row = result.scalar_one_or_none()
+    return row if row in _AGGREGATED_TABLES else "v1"
+
+
+def _get_aggregated_model(version: str):
+    return _AGGREGATED_TABLES.get(version, AggregatedVideoV1)
+
+
+async def _query_aggregated_cache(
+    db: AsyncSession,
+    pg: int | None = 1,
+    per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
+) -> AggregatedListResponse | None:
+    """从预聚合缓存表读取，无阻塞。
+
+    若活跃表为空（首次启动未初始化），返回 None 让调用方 fallback。
+    """
+    version = await _get_active_aggregated_version(db)
+    Model = _get_aggregated_model(version)
+
+    # 快速检查表是否为空
+    count_result = await db.execute(select(func.count()).select_from(Model))
+    count = count_result.scalar_one()
+    if count == 0:
+        return None
+
+    page = pg or 1
+    offset = (page - 1) * per_page
+
+    result = await db.execute(
+        select(Model)
+        .order_by(desc(Model.latest_updated_at), desc(Model.id))
+        .limit(per_page)
+        .offset(offset)
+    )
+    rows = result.scalars().all()
+
+    items = []
+    for r in rows:
+        items.append(
+            AggregatedVideo(
+                title=r.title,
+                year=r.year,
+                poster_url=r.poster_url,
+                sources=[SourceRef(**s) for s in (r.sources or [])],
+            )
+        )
+    return AggregatedListResponse(items=items, failed_sources=[])
+
+
+# ------------------------------------------------------------------
 # 列表 API（改为本地查询）
 # ------------------------------------------------------------------
 
@@ -263,6 +370,19 @@ async def list_videos(
     is_mobile = _detect_mobile(request)
     per_page = _get_page_size(request, pg_size)
     logger.info("api_list_videos category=%s pg=%s mode=%s mobile=%s per_page=%s", category, pg, mode, is_mobile, per_page)
+
+    # 无分类 / 无 t / 聚合模式：优先走预聚合缓存表（O(1) 查询）
+    if not category and t is None and mode == "aggregated":
+        agg_response = await _query_aggregated_cache(db, pg, per_page)
+        if agg_response is not None:
+            # fields 字段过滤
+            raw_items = [item.model_dump() for item in agg_response.items]
+            filtered = _filter_fields(raw_items, fields)
+            agg_response.items = [AggregatedVideo(**item) for item in filtered]
+            elapsed = time.monotonic() - start
+            logger.info("api_list_videos_agg items=%d elapsed=%.3fs", len(agg_response.items), elapsed)
+            return agg_response
+        # 预聚合表为空（首次启动未初始化），fallback 到原路径
 
     result = await db.execute(
         select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)

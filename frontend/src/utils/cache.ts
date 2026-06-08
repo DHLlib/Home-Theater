@@ -69,17 +69,27 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("IndexedDB timeout")), ms)
+    ),
+  ]);
+}
+
 async function get<T>(storeName: string, key: string): Promise<T | null> {
   try {
-    const db = await openDb();
+    const db = await withTimeout(openDb(), 3000);
     const tx = db.transaction(storeName, "readonly");
     const store = tx.objectStore(storeName);
-    const entry: CacheEntry<T> | undefined = await new Promise(
-      (resolve, reject) => {
+    const entry: CacheEntry<T> | undefined = await withTimeout(
+      new Promise((resolve, reject) => {
         const req = store.get(key);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
-      }
+      }),
+      3000
     );
     if (!entry) return null;
     const ttl = getTTL(storeName);
@@ -92,14 +102,17 @@ async function get<T>(storeName: string, key: string): Promise<T | null> {
 
 async function set<T>(storeName: string, key: string, value: T): Promise<void> {
   try {
-    const db = await openDb();
+    const db = await withTimeout(openDb(), 3000);
     const tx = db.transaction(storeName, "readwrite");
     const store = tx.objectStore(storeName);
-    await new Promise<void>((resolve, reject) => {
-      const req = store.put({ value, ts: Date.now() }, key);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const req = store.put({ value, ts: Date.now() }, key);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      }),
+      3000
+    );
   } catch {
     // 静默失败，缓存非关键路径
   }
