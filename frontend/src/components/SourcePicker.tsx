@@ -59,12 +59,12 @@ export default function SourcePicker(props: SourcePickerProps) {
                 padding: "12px 14px",
                 margin: "4px 0",
                 border: isPicked
-                  ? "1px solid var(--accent)"
-                  : "1px solid var(--border)",
+                  ? "1px solid var(--primary)"
+                  : "1px solid var(--glass-border)",
                 background: isPicked
-                  ? "rgba(10,132,255,0.12)"
+                  ? "var(--primary-dim)"
                   : "transparent",
-                borderRadius: 6,
+                borderRadius: 4,
                 color: "inherit",
                 cursor: "pointer",
                 minHeight: 48,
@@ -135,12 +135,12 @@ export default function SourcePicker(props: SourcePickerProps) {
     >
       <div
         style={{
-          background: "var(--card)",
-          color: "var(--fg)",
+          background: "var(--bg-elevated)",
+          color: "var(--text-primary)",
           padding: 20,
-          borderRadius: 8,
+          borderRadius: 4,
           width: "min(420px, 92vw)",
-          border: "1px solid var(--border)",
+          border: "1px solid var(--glass-border)",
         }}
       >
         <h3 style={{ marginTop: 0 }}>{pickerTitle}</h3>

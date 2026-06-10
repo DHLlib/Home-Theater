@@ -23,16 +23,16 @@ export default function Progress() {
             tabIndex={0}
             aria-label={`继续播放 ${p.title} ${p.episode_name}`}
             style={{
-              padding: "14px 12px",
-              background: "var(--card)",
-              borderRadius: 8,
+              padding: "16px 0",
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
               cursor: "pointer",
-              border: "1px solid var(--border)",
-              marginBottom: 8,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
+              transition: "background var(--transition-fast)",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             onClick={() =>
               navigate(
                 `/player?site_id=${p.source_site_id}&original_id=${encodeURIComponent(

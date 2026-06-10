@@ -61,14 +61,7 @@ export default function CategoryBar({
       {/* 全部按钮 */}
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <button
-          className="btn"
-          style={{
-            background:
-              activeCategory === null ? "var(--primary)" : undefined,
-            color: activeCategory === null ? "var(--primary-fg)" : undefined,
-            borderColor:
-              activeCategory === null ? "var(--primary)" : undefined,
-          }}
+          className={`category-pill${activeCategory === null ? " active" : ""}`}
           onClick={() => onSelect(null)}
         >
           全部
@@ -102,24 +95,7 @@ export default function CategoryBar({
             {group.items.map((name) => (
               <button
                 key={name}
-                className="btn"
-                style={{
-                  padding: "4px 10px",
-                  fontSize: 13,
-                  minHeight: 28,
-                  background:
-                    activeCategory === name
-                      ? "var(--primary)"
-                      : undefined,
-                  color:
-                    activeCategory === name
-                      ? "var(--primary-fg)"
-                      : undefined,
-                  borderColor:
-                    activeCategory === name
-                      ? "var(--primary)"
-                      : undefined,
-                }}
+                className={`category-pill${activeCategory === name ? " active" : ""}`}
                 onClick={() => onSelect(name)}
               >
                 {name}

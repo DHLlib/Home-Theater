@@ -174,10 +174,10 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
 
 const inputStyle: React.CSSProperties = {
   padding: "8px 12px",
-  borderRadius: 6,
-  border: "1px solid var(--border)",
-  background: "var(--bg)",
-  color: "var(--fg)",
+  borderRadius: 4,
+  border: "1px solid var(--glass-border)",
+  background: "rgba(255,255,255,0.03)",
+  color: "var(--text-primary)",
   fontSize: 14,
   fontFamily: "inherit",
   outline: "none",
@@ -335,8 +335,8 @@ export default function Settings() {
     alignItems: "center",
     gap: 12,
     padding: "12px 14px",
-    background: "var(--muted)",
-    borderRadius: 8,
+    background: "rgba(255,255,255,0.03)",
+    borderRadius: 4,
     transition: "background-color 150ms ease, border-color 150ms ease",
   };
 
@@ -346,8 +346,8 @@ export default function Settings() {
       <div
         className="row settings-tab-bar"
         style={{
-          background: "var(--card)",
-          border: "1px solid var(--border)",
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--glass-border)",
           borderRadius: 10,
           padding: 6,
           gap: 4,
@@ -380,8 +380,8 @@ export default function Settings() {
       {activeTab === "sites" && (
         <section
           style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
             borderRadius: 10,
             padding: 20,
           }}
@@ -395,7 +395,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                textShadow: "0 0 12px var(--primary-glow)",
                 letterSpacing: 0.3,
               }}
             >
@@ -409,7 +409,7 @@ export default function Settings() {
                 className="empty"
                 style={{
                   padding: 32,
-                  background: "var(--muted)",
+                  background: "rgba(255,255,255,0.03)",
                   borderRadius: 8,
                   fontSize: 13,
                 }}
@@ -428,20 +428,20 @@ export default function Settings() {
                     ...rowBaseStyle,
                     border: s.enabled
                       ? "1px solid transparent"
-                      : "1px solid var(--border)",
+                      : "1px solid var(--glass-border)",
                     opacity: s.enabled ? 1 : 0.55,
                   }}
                   onMouseEnter={(e) => {
                     if (s.enabled && !isEditing) {
-                      e.currentTarget.style.backgroundColor = "var(--card-hover)";
-                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
+                      e.currentTarget.style.borderColor = "var(--glass-border)";
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "var(--muted)";
+                    e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
                     e.currentTarget.style.borderColor = s.enabled
                       ? "transparent"
-                      : "var(--border)";
+                      : "var(--glass-border)";
                   }}
                 >
                   {/* 状态指示 */}
@@ -496,7 +496,7 @@ export default function Settings() {
                                 fontSize: 11,
                                 padding: "1px 6px",
                                 borderRadius: 4,
-                                background: "var(--border)",
+                                background: "var(--glass-border)",
                                 color: "var(--text-secondary)",
                               }}
                             >
@@ -679,7 +679,7 @@ export default function Settings() {
                 style={{
                   ...rowBaseStyle,
                   border: "1px solid var(--primary)",
-                  background: "var(--card)",
+                  background: "var(--bg-elevated)",
                 }}
               >
                 <div
@@ -762,10 +762,10 @@ export default function Settings() {
             {showBatchPanel && (
               <div
                 style={{
-                  border: "1px solid var(--border)",
+                  border: "1px solid var(--glass-border)",
                   borderRadius: 8,
                   padding: 16,
-                  background: "var(--card)",
+                  background: "var(--bg-elevated)",
                   marginTop: 8,
                 }}
               >
@@ -813,7 +813,7 @@ export default function Settings() {
                         style={{
                           gap: 8,
                           padding: "6px 0",
-                          borderBottom: i < batchResults.length - 1 ? "1px solid var(--border)" : "none",
+                          borderBottom: i < batchResults.length - 1 ? "1px solid var(--glass-border)" : "none",
                           fontSize: 13,
                         }}
                       >
@@ -848,8 +848,8 @@ export default function Settings() {
       {activeTab === "categories" && (
         <section
           style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
             borderRadius: 10,
             padding: 20,
           }}
@@ -863,7 +863,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                textShadow: "0 0 12px var(--primary-glow)",
                 letterSpacing: 0.3,
               }}
             >
@@ -878,8 +878,8 @@ export default function Settings() {
       {activeTab === "download" && (
         <section
           style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
             borderRadius: 10,
             padding: 20,
           }}
@@ -893,7 +893,7 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                textShadow: "0 0 12px var(--primary-glow)",
                 letterSpacing: 0.3,
               }}
             >
@@ -911,9 +911,9 @@ export default function Settings() {
                   flex: 1,
                   padding: "8px 12px",
                   borderRadius: 6,
-                  border: "1px solid var(--border)",
+                  border: "1px solid var(--glass-border)",
                   background: "var(--bg)",
-                  color: "var(--fg)",
+                  color: "var(--text-primary)",
                   fontSize: 14,
                   fontFamily: "inherit",
                 }}
@@ -943,8 +943,8 @@ export default function Settings() {
       {activeTab === "logs" && (
         <section
           style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
             borderRadius: 10,
             padding: 20,
           }}
@@ -967,7 +967,7 @@ export default function Settings() {
                   margin: 0,
                   fontSize: 16,
                   fontWeight: 600,
-                  textShadow: "0 0 12px rgba(52,211,153,0.35)",
+                  textShadow: "0 0 12px var(--primary-glow)",
                   letterSpacing: 0.3,
                 }}
               >
@@ -1045,7 +1045,7 @@ export default function Settings() {
               className="empty"
               style={{
                 padding: 32,
-                background: "var(--muted)",
+                background: "rgba(255,255,255,0.03)",
                 borderRadius: 8,
                 fontSize: 13,
               }}
@@ -1064,7 +1064,7 @@ export default function Settings() {
                   fontSize: 12,
                   fontWeight: 600,
                   color: "var(--text-secondary)",
-                  borderBottom: "1px solid var(--border)",
+                  borderBottom: "1px solid var(--glass-border)",
                 }}
               >
                 <span style={{ width: 150, flexShrink: 0 }}>时间</span>
@@ -1087,7 +1087,7 @@ export default function Settings() {
                     padding: "8px 12px",
                     fontSize: 12,
                     background:
-                      idx % 2 === 0 ? "transparent" : "var(--muted)",
+                      idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.03)",
                     borderRadius: 4,
                   }}
                 >

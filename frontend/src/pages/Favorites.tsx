@@ -24,12 +24,12 @@ export default function Favorites() {
               display: "flex",
               gap: 12,
               alignItems: "center",
-              padding: "10px 12px",
-              background: "var(--card)",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              marginBottom: 8,
+              padding: "14px 0",
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              transition: "background var(--transition-fast)",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             onClick={() =>
               navigate("/detail", {
                 state: {
@@ -49,7 +49,7 @@ export default function Favorites() {
                 flexShrink: 0,
                 borderRadius: 4,
                 overflow: "hidden",
-                background: "var(--muted)",
+                background: "rgba(255,255,255,0.03)",
               }}
             >
               {f.poster_url ? (

@@ -104,7 +104,6 @@ export default function Downloads() {
               : t
           );
         }
-        // 新任务（从 create download 推过来的）
         if (ev.title && ev.file_path) {
           return [
             {
@@ -150,8 +149,8 @@ export default function Downloads() {
 
   return (
     <div className="col">
-      <h2>下载任务</h2>
-      <div className="downloads-list">
+      <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>下载任务</h2>
+      <div className="downloads-list" style={{ marginTop: 16 }}>
       {tasks.map((t) => {
         const totalSegments = t.total_segments ?? 0;
         const hasSegmentProgress = totalSegments > 0;
@@ -169,21 +168,19 @@ export default function Downloads() {
         return (
           <div key={t.id}>
             <div
-              className="row list-item-card"
+              className="row"
               style={{
                 justifyContent: "space-between",
-                padding: "14px 12px",
-                background: "var(--card)",
-                borderRadius: 8,
-                marginBottom: 8,
-                border: "1px solid var(--border)",
+                padding: "16px 0",
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                transition: "background var(--transition-fast)",
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500 }}>
+                <div style={{ fontWeight: 500, fontSize: 14, color: "var(--text-primary)" }}>
                   {t.title} · {t.episode_name}
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
                   <span style={{ color: statusColor[t.status] || "inherit" }}>
                     {statusText[t.status] || t.status}
                   </span>
@@ -195,29 +192,19 @@ export default function Downloads() {
                       }`}
                 </div>
                 {showProgress && (
-                  <div style={{ marginTop: 6 }}>
-                    <div
-                      style={{
-                        height: 6,
-                        background: "var(--border)",
-                        borderRadius: 3,
-                        overflow: "hidden",
-                      }}
-                    >
+                  <div style={{ marginTop: 8, maxWidth: 400 }}>
+                    <div className="progress-bar-track">
                       <div
-                        style={{
-                          width: `${progress}%`,
-                          height: "100%",
-                          background: "var(--primary)",
-                          transition: "width 0.3s ease",
-                        }}
+                        className={`progress-bar-fill${t.status === "paused" ? " paused" : ""}`}
+                        style={{ width: `${progress}%` }}
                       />
                     </div>
                     <div
                       style={{
                         fontSize: 11,
                         textAlign: "right",
-                        marginTop: 2,
+                        marginTop: 4,
+                        color: "var(--text-muted)",
                       }}
                     >
                       {progress}%
@@ -227,10 +214,9 @@ export default function Downloads() {
                 {t.status === "error" && (
                   <div
                     style={{
-                      marginTop: 6,
-                      padding: 8,
-                      background: "rgba(255,0,0,0.08)",
-                      border: "1px solid var(--danger)",
+                      marginTop: 8,
+                      padding: "8px 12px",
+                      background: "var(--danger-dim)",
                       borderRadius: 4,
                       fontSize: 12,
                       color: "var(--danger)",
@@ -249,12 +235,13 @@ export default function Downloads() {
                   </div>
                 )}
               </div>
-              <div className="row" style={{ marginLeft: 12, flexShrink: 0 }}>
+              <div className="row" style={{ marginLeft: 12, flexShrink: 0, gap: 6 }}>
                 {t.status === "downloading" && (
                   <button
                     className="btn"
                     aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
                     onClick={() => pauseDownload(t.id).then(refresh)}
+                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
                   >
                     暂停
                   </button>
@@ -264,6 +251,7 @@ export default function Downloads() {
                     className="btn"
                     aria-label={`继续下载 ${t.title} ${t.episode_name}`}
                     onClick={() => resumeDownload(t.id).then(refresh)}
+                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
                   >
                     继续
                   </button>
@@ -273,6 +261,7 @@ export default function Downloads() {
                     className="btn"
                     aria-label={`重试下载 ${t.title} ${t.episode_name}`}
                     onClick={() => resumeDownload(t.id).then(refresh)}
+                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
                   >
                     重试
                   </button>
@@ -284,6 +273,7 @@ export default function Downloads() {
                     setConfirmingId(t.id);
                     setDeleteFileMap((prev) => ({ ...prev, [t.id]: false }));
                   }}
+                  style={{ padding: "6px 12px", fontSize: 12, minHeight: 32, color: "var(--danger)" }}
                 >
                   删除
                 </button>
@@ -292,14 +282,15 @@ export default function Downloads() {
             {confirmingId === t.id && (
               <div
                 style={{
-                  padding: 12,
-                  background: "var(--card)",
-                  borderRadius: 6,
-                  border: "1px solid var(--border)",
+                  padding: 16,
+                  background: "var(--bg-elevated)",
+                  borderRadius: 4,
+                  border: "1px solid var(--glass-border)",
                   marginBottom: 12,
+                  marginTop: 4,
                 }}
               >
-                <div style={{ fontSize: 14, marginBottom: 8 }}>
+                <div style={{ fontSize: 14, marginBottom: 8, color: "var(--text-primary)" }}>
                   确定删除此下载任务？
                 </div>
                 <label
@@ -310,6 +301,7 @@ export default function Downloads() {
                     fontSize: 13,
                     marginBottom: 10,
                     cursor: "pointer",
+                    color: "var(--text-secondary)",
                   }}
                 >
                   <input
@@ -326,18 +318,16 @@ export default function Downloads() {
                 </label>
                 <div className="row" style={{ gap: 8 }}>
                   <button
-                    className="btn"
-                    style={{
-                      background: "var(--danger)",
-                      color: "#fff",
-                    }}
+                    className="btn btn-danger"
                     onClick={() => handleDelete(t.id)}
+                    style={{ padding: "6px 16px", fontSize: 12, minHeight: 32 }}
                   >
                     确定删除
                   </button>
                   <button
                     className="btn"
                     onClick={() => setConfirmingId(null)}
+                    style={{ padding: "6px 16px", fontSize: 12, minHeight: 32 }}
                   >
                     取消
                   </button>
@@ -348,7 +338,22 @@ export default function Downloads() {
         );
       })}
       {tasks.length === 0 && (
-        <div className="empty">暂无下载任务</div>
+        <div className="empty" style={{ padding: "80px 16px" }}>
+          <svg
+            className="breathing-icon"
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+            style={{ opacity: 0.2, marginBottom: 16 }}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 6v6l4 2" />
+          </svg>
+          <p style={{ color: "var(--text-muted)" }}>暂无下载任务</p>
+        </div>
       )}
       </div>
     </div>
