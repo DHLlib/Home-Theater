@@ -95,6 +95,18 @@ function SystemCategoryTree({
     onRefresh();
   };
 
+  const handleToggleEnabled = async (item: SystemCategoryTreeItem) => {
+    const next = !(item.enabled !== false);
+    await updateSystemCategory(item.id, { enabled: next });
+    onRefresh();
+  };
+
+  const disabledStyle = {
+    color: "var(--text-secondary)",
+    textDecoration: "line-through",
+    opacity: 0.6,
+  } as const;
+
   return (
     <div className="col" style={{ gap: 4 }}>
       {tree.map((parent) => {
@@ -165,7 +177,7 @@ function SystemCategoryTree({
                 </>
               ) : (
                 <>
-                  <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 600, ...(parent.enabled === false ? disabledStyle : {}) }}>
                     {parent.name}
                   </span>
                   <button
@@ -174,6 +186,13 @@ function SystemCategoryTree({
                     style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
                   >
                     编辑
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => handleToggleEnabled(parent)}
+                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+                  >
+                    {parent.enabled === false ? "启用" : "禁用"}
                   </button>
                   <button
                     className="btn"
@@ -272,7 +291,7 @@ function SystemCategoryTree({
                           style={{
                             flex: 1,
                             fontSize: 13,
-                            color: "var(--fg)",
+                            ...(child.enabled === false ? disabledStyle : { color: "var(--fg)" }),
                           }}
                         >
                           {child.name}
@@ -287,6 +306,17 @@ function SystemCategoryTree({
                           }}
                         >
                           编辑
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() => handleToggleEnabled(child)}
+                          style={{
+                            padding: "4px 10px",
+                            minHeight: 28,
+                            fontSize: 12,
+                          }}
+                        >
+                          {child.enabled === false ? "启用" : "禁用"}
                         </button>
                         <button
                           className="btn"
@@ -434,6 +464,7 @@ function SiteCategoryMappings({
   mappings,
   allSystemCategories,
   onMappingChange,
+  onToggleMappingEnabled,
   showAll,
 }: {
   siteName: string;
@@ -441,6 +472,7 @@ function SiteCategoryMappings({
   mappings: CategoryMapping[];
   allSystemCategories: string[];
   onMappingChange: (remoteId: string, systemName: string | null) => void;
+  onToggleMappingEnabled: (remoteId: string) => void;
   showAll: boolean;
 }) {
   const mappedIds = useMemo(() => {
@@ -461,7 +493,13 @@ function SiteCategoryMappings({
 
   const localMap = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const m of mappings) map[m.remote_id] = m.name;
+    for (const m of mappings) if (m.enabled !== false) map[m.remote_id] = m.name;
+    return map;
+  }, [mappings]);
+
+  const enabledMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const m of mappings) map[m.remote_id] = m.enabled !== false;
     return map;
   }, [mappings]);
 
@@ -504,7 +542,8 @@ function SiteCategoryMappings({
             {group.parent_name || "未分组"}
           </div>
           {group.categories.map((cat) => {
-            const isMapped = !!localMap[cat.remote_id];
+            const isMapped = cat.remote_id in localMap || mappings.some((m) => m.remote_id === cat.remote_id);
+            const isEnabled = enabledMap[cat.remote_id] !== false;
             return (
               <div
                 key={cat.remote_id}
@@ -514,12 +553,17 @@ function SiteCategoryMappings({
                   padding: "6px 8px",
                   borderRadius: 4,
                   alignItems: "center",
-                  background: isMapped
+                  background: isMapped && isEnabled
                     ? "rgba(52, 211, 153, 0.06)"
+                    : isMapped && !isEnabled
+                    ? "rgba(239, 68, 68, 0.04)"
                     : "transparent",
-                  border: isMapped
+                  border: isMapped && isEnabled
                     ? "1px solid rgba(52, 211, 153, 0.2)"
+                    : isMapped && !isEnabled
+                    ? "1px solid rgba(239, 68, 68, 0.2)"
                     : "1px solid transparent",
+                  opacity: isMapped && !isEnabled ? 0.7 : 1,
                 }}
               >
                 <span
@@ -529,11 +573,13 @@ function SiteCategoryMappings({
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    textDecoration: isMapped && !isEnabled ? "line-through" : "none",
+                    color: isMapped && !isEnabled ? "var(--text-secondary)" : "var(--fg)",
                   }}
                   title={cat.name}
                 >
                   {cat.name}
-                  {isMapped && (
+                  {isMapped && isEnabled && (
                     <span
                       style={{
                         fontSize: 10,
@@ -542,6 +588,17 @@ function SiteCategoryMappings({
                       }}
                     >
                       ✓
+                    </span>
+                  )}
+                  {isMapped && !isEnabled && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "var(--danger)",
+                        marginLeft: 4,
+                      }}
+                    >
+                      已禁用
                     </span>
                   )}
                 </span>
@@ -571,6 +628,16 @@ function SiteCategoryMappings({
                     </option>
                   ))}
                 </select>
+                {isMapped && (
+                  <button
+                    className="btn"
+                    onClick={() => onToggleMappingEnabled(cat.remote_id)}
+                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+                    title={isEnabled ? "禁用此映射" : "启用此映射"}
+                  >
+                    {isEnabled ? "禁用" : "启用"}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -690,10 +757,24 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
           } else {
             nextMappings = [
               ...state.mappings,
-              { remote_id: remoteId, name: systemName },
+              { remote_id: remoteId, name: systemName, enabled: true },
             ];
           }
         }
+        return { ...prev, [siteId]: { ...state, mappings: nextMappings } };
+      });
+    },
+    []
+  );
+
+  const handleToggleMappingEnabled = useCallback(
+    (siteId: number, remoteId: string) => {
+      setSiteStates((prev) => {
+        const state = prev[siteId];
+        if (!state) return prev;
+        const nextMappings = state.mappings.map((m) =>
+          m.remote_id === remoteId ? { ...m, enabled: m.enabled === false } : m
+        );
         return { ...prev, [siteId]: { ...state, mappings: nextMappings } };
       });
     },
@@ -733,16 +814,21 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
         const state = prev[activeSiteId];
         if (!state) return prev;
         const existingMap = new Map(
-          state.mappings.map((m) => [m.remote_id, m.name])
+          state.mappings.map((m) => [m.remote_id, m])
         );
         for (const m of autoMappings) {
           if (m.suggested_system_name) {
-            existingMap.set(m.remote_id, m.suggested_system_name);
+            const existing = existingMap.get(m.remote_id);
+            existingMap.set(m.remote_id, {
+              remote_id: m.remote_id,
+              name: m.suggested_system_name,
+              enabled: existing ? existing.enabled : true,
+            });
           }
         }
         const nextMappings: CategoryMapping[] = Array.from(
-          existingMap.entries()
-        ).map(([remote_id, name]) => ({ remote_id, name }));
+          existingMap.values()
+        );
         return {
           ...prev,
           [activeSiteId]: { ...state, mappings: nextMappings },
@@ -875,6 +961,9 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
                 allSystemCategories={allSystemCategories}
                 onMappingChange={(rid, sys) =>
                   handleMappingChange(activeSiteId!, rid, sys)
+                }
+                onToggleMappingEnabled={(rid) =>
+                  handleToggleMappingEnabled(activeSiteId!, rid)
                 }
                 showAll={showAll}
               />

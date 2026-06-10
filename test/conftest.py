@@ -6,20 +6,21 @@ _BACKEND_DIR = str(Path(__file__).parent.parent / "backend")
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-os.environ["DB_PATH"] = ":memory:"
+# 测试数据库 URL：默认连接本地 PostgreSQL 测试库，可通过环境变量覆盖
+test_db_url = os.environ.get(
+    "TEST_DB_URL", "postgresql+asyncpg://localhost:5432/home_theater_test"
+)
 
-# Import config first so settings pick up :memory:
+# Import config first so settings pick up the test DB URL
 from app.config import settings
 
-# Create a shared in-memory engine with StaticPool before any downstream imports
+# Create a shared async engine
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
 
 _test_engine = create_async_engine(
-    settings.db_url,
+    test_db_url,
     echo=False,
-    poolclass=StaticPool,
-    connect_args={"check_same_thread": False},
+    pool_pre_ping=True,
 )
 _test_async_session_factory = async_sessionmaker(_test_engine, expire_on_commit=False)
 

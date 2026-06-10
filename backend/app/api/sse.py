@@ -2,28 +2,39 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.services.event_bus import subscribe, unsubscribe
+from app.services.listen_manager import listen_manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sse", tags=["sse"])
 
 HEARTBEAT_INTERVAL = 30  # 秒
 
 
 async def _event_stream():
-    q = subscribe()
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+    def _handler(channel: str, data: dict) -> None:
+        try:
+            q.put_nowait(data)
+        except asyncio.QueueFull:
+            pass
+
+    listen_manager.add_handler(_handler)
     try:
         while True:
             try:
                 data = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_INTERVAL)
-                yield f"data: {data}\n\n"
+                yield f"data: {json.dumps(data)}\n\n"
             except asyncio.TimeoutError:
                 yield ":heartbeat\n\n"
     finally:
-        unsubscribe(q)
+        listen_manager.remove_handler(_handler)
 
 
 @router.get("")

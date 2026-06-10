@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 详情 / 播放 / 下载 / 搜索时仍保留来源信息，由用户在操作时**显式选择**从哪个源播放或下载
 - 单用户视角的播放进度记录、收藏；下载支持断点续传与暂停/继续
 
-仓库已按 `backend/` + `frontend/` 两目录拆分 MVP 骨架落地；`backend/data/app.db` 由 SQLAlchemy `Base.metadata.create_all` 启动时自动建表。
+仓库已按 `backend/` + `frontend/` 两目录拆分 MVP 骨架落地；`backend/data/app.db`（SQLite，默认）由 SQLAlchemy `Base.metadata.create_all` 启动时自动建表。PostgreSQL 下需手动执行 SQL 初始化脚本（`backend/app/sql/*.sql`）创建物化视图和触发器。
 
 ### v1.1 刮削架构（新增）
 
@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **首次启动**：后端自动检测 VideoCache 是否为空，若为空则在后台启动**全量刮削**（遍历所有站点的所有分类），预计 20-40 分钟
 - **日常更新**：每 5 分钟检测各站第一页，有新内容则自动触发**增量更新**（遇旧即停）
 - **数据存储**：所有 list 字段 + videolist 详情字段全部写入 `VideoCache` 表，封面只存 `poster_url` 外链
-- **首页/搜索**：纯本地 SQLite 查询，不再实时请求资源站
+- **首页/搜索**：本地数据库查询，不再实时请求资源站
 - **详情页**：优先读 VideoCache 缓存（7 天有效期），过期或缺失才实时 videolist
 
 刮削状态 API：`GET /api/videos/crawler/status`
@@ -28,23 +28,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### v1.2 预聚合缓存架构（新增）
 
-为解决首页大数据量聚合查询缓慢（~8s）问题，引入**预聚合双缓冲表**：
+为解决首页大数据量聚合查询缓慢（~8s）问题，引入预聚合缓存：
 
+**SQLite（默认）：预聚合双缓冲表**
 - **表结构**：`AggregatedVideoV1` / `AggregatedVideoV2` 两张结构相同的表，通过 `AppConfig key="aggregated_active_version"` 原子切换活跃版本
 - **刷新时机**：每次全量/增量刮削完成后触发 `_refresh_aggregated_cache()`，间隔控制 ≥5 分钟
 - **聚合逻辑**：两阶段——先按 `(normalize_title, year)` 分组，再对 `year=None` 的桶回填同名记录中出现最频繁的非 None year，解决同名视频因年份缺失未聚合的问题
 - **查询路由**：`GET /api/videos` 无 category 参数时直接读活跃预聚合表（O(1)），有 category 时走实时聚合
 - **性能**：首页查询从 ~8s 降至 ~26ms
 
-SQLite 配置：
-- `PRAGMA journal_mode=WAL`：启用 WAL，读写并发
-- `PRAGMA busy_timeout=30000`：锁等待 30 秒
-- 全量刮削站点并发从 6 降到 2，批量写入从 100 提升到 500，commit 后 `asyncio.sleep(0)` 主动让出
+**PostgreSQL：物化视图（MATERIALIZED VIEW）**
+- **视图**：`mv_aggregated_videos`，聚合逻辑直接在 SQL 中完成（与 SQLite 双缓冲逻辑等价）
+- **刷新**：`REFRESH MATERIALIZED VIEW CONCURRENTLY`，不阻塞读（需唯一索引）
+- **查询路由**：与 SQLite 一致，`GET /api/videos` 无 category 时读物化视图
+
+**数据库配置**
+- **SQLite**：`PRAGMA journal_mode=WAL` 启用 WAL 读写并发；`PRAGMA busy_timeout=30000` 锁等待 30 秒
+- **PostgreSQL**：连接池 `pool_size=5, max_overflow=10, pool_pre_ping=True`
+- **双路径切换**：`settings.is_postgres` 统一判断；所有 PostgreSQL 特性（tsvector、物化视图、LISTEN/NOTIFY、JSONB）均有 SQLite 降级路径
+- 全量刮削站点并发从 6 降到 2，批量写入 SQLite 500 条/PG 2000 条，commit 后 `asyncio.sleep(0)` 主动让出
 
 ## 技术栈（已定）
 
 - **后端**：FastAPI（Python，async）；HTTP 客户端使用 `httpx.AsyncClient` 并发拉取多源
-- **存储**：SQLite + SQLAlchemy（异步驱动 `aiosqlite`）；用户一次性配置的下载根目录持久化在配置表
+- **存储**：SQLite（默认，异步驱动 `aiosqlite`）/ PostgreSQL（可选，异步驱动 `asyncpg`）；`settings.is_postgres` 统一切换；用户一次性配置的下载根目录持久化在配置表
 - **前端**：React + Vite SPA，原生 CSS 变量主题系统（浅色/深色双主题）
 - **播放器**：ckplayer（与资源站返回的 `$ckplayer` 后缀对齐）
 - **部署**：纯 Python 脚本运行 —— `uvicorn` 起后端，前端 `vite build` 产物交由 FastAPI 静态文件路由托管；亦可通过 `start.ps1` / `stop.ps1` 一键启停
@@ -214,10 +221,11 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - **刮削模块**：`app/services/crawler.py` 负责全量/增量刮削；`app/services/scheduler.py` 负责定时调度。修改刮削逻辑时需同步更新状态持久化（AppConfig key="crawler_state"）。
 - **列表排序**：`app/api/videos.py` 的 list/search 查询必须带二级排序 `desc(VideoCache.id)`，否则 `cached_at` 相同时返回顺序不稳定。
 - **crawler 导入**：`app/api/videos.py` 中不能写 `from app.services.scheduler import crawler`（快照导入），必须用 `import app.services.scheduler as scheduler_module` 然后通过 `scheduler_module.crawler` 访问（模块引用）。
-- **SQLite 并发**：WAL 模式 + busy_timeout 是底线，但写入仍串行。刮削任务 commit 后必须 `await asyncio.sleep(0)` 让出，避免独占事件循环。预聚合缓存刷新必须读写分阶段，写事务保持亚秒级。
+- **数据库并发**：SQLite 下 WAL 模式 + busy_timeout 是底线，但写入仍串行，刮削任务 commit 后必须 `await asyncio.sleep(0)` 让出。PostgreSQL 下利用连接池真正读写并发，但预聚合缓存刷新仍需读写分阶段，写事务保持亚秒级。
 - **IndexedDB 超时**：`cache.ts` 中所有 IndexedDB 操作（`get`/`set`/`clearExpired`）已包裹 `withTimeout(..., 3000)`。前端 `Home.tsx` 的 `setCachedAggregated` 必须放在 `try` 块外 fire-and-forget，避免阻塞 `setLoading(false)`。
 - **播放器后缀检测**：VideoPlayer 使用 `suffix.toLowerCase().endsWith("m3u8") || suffix.toLowerCase().endsWith("yun")` 检测 M3U8 流。新增站点后缀如 `155m3u8`、`xlyun`、`dytt` 都通过此规则覆盖，不需要逐个硬编码。
-- **预聚合缓存**：`_refresh_aggregated_cache` 读取阶段使用只读事务，聚合到内存后关闭；写入阶段开启新事务执行清空+插入+版本切换。不要在同一个事务中既读全表又写目标表。
+- **预聚合缓存（SQLite）**：`_refresh_aggregated_cache` 读取阶段使用只读事务，聚合到内存后关闭；写入阶段开启新事务执行清空+插入+版本切换。不要在同一个事务中既读全表又写目标表。
+- **预聚合缓存（PostgreSQL）**：`refresh_aggregated_view()` 使用 `REFRESH MATERIALIZED VIEW CONCURRENTLY`（需唯一索引）；fallback 到普通 `REFRESH MATERIALIZED VIEW`。不要在同一个事务中既读 video_cache 全表又写 mv_aggregated_videos。
 
 ## 排错优先顺序
 

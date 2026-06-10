@@ -8,7 +8,7 @@ import {
   batchProbe,
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
-import { clearVideoCache, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
+import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import CategorySettings from "../components/category-settings/CategorySettings";
 import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult } from "../types";
 
@@ -163,13 +163,12 @@ function TrashIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-type TabKey = "sites" | "categories" | "download" | "cache" | "logs";
+type TabKey = "sites" | "categories" | "download" | "logs";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载根目录", icon: <FolderIcon size={14} /> },
-  { key: "cache", label: "缓存管理", icon: <TrashIcon size={14} /> },
   { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
 ];
 
@@ -192,13 +191,13 @@ export default function Settings() {
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
   >({});
-  const [clearing, setClearing] = useState(false);
-  const [clearedCount, setClearedCount] = useState<number | null>(null);
   const [crawlerLogs, setCrawlerLogs] = useState<CrawlerLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{ deleted: number; checked: number } | null>(null);
 
   /* ---- inline edit states ---- */
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -236,16 +235,16 @@ export default function Settings() {
     }
   }, [activeTab]);
 
-  const handleClearCache = () => {
-    if (!confirm("确定要清除所有视频缓存吗？此操作不可恢复。")) return;
-    setClearing(true);
-    clearVideoCache()
+  const handleCleanupExpired = () => {
+    if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在，每个站点最多检查 2000 条，可能需要一些时间。")) return;
+    setCleaningUp(true);
+    cleanupExpired()
       .then((res) => {
-        setClearedCount(res.deleted);
-        setTimeout(() => setClearedCount(null), 3000);
+        setCleanupResult({ deleted: res.deleted, checked: res.checked });
+        setTimeout(() => setCleanupResult(null), 5000);
       })
-      .catch(() => alert("清除缓存失败"))
-      .finally(() => setClearing(false));
+      .catch(() => alert("清除失效资源失败"))
+      .finally(() => setCleaningUp(false));
   };
 
   /* ---- add site (inline) ---- */
@@ -940,69 +939,6 @@ export default function Settings() {
         </section>
       )}
 
-      {/* 缓存管理 */}
-      {activeTab === "cache" && (
-        <section
-          style={{
-            background: "var(--card)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            padding: 20,
-          }}
-        >
-          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-            <span style={{ color: "var(--primary)" }}>
-              <TrashIcon size={16} />
-            </span>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 16,
-                fontWeight: 600,
-                textShadow: "0 0 12px rgba(52,211,153,0.35)",
-                letterSpacing: 0.3,
-              }}
-            >
-              缓存管理
-            </h3>
-          </div>
-          <div className="col" style={{ gap: 12 }}>
-            <div style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.6 }}>
-              当采集站更换域名或大量资源失效时，可清除本地视频元数据缓存。
-              <br />
-              清除后访问详情页会重新从源站拉取最新数据。
-            </div>
-            <button
-              className="btn"
-              disabled={clearing}
-              onClick={handleClearCache}
-              style={{
-                alignSelf: "flex-start",
-                gap: 6,
-                color: "var(--danger)",
-                borderColor: "var(--danger)",
-              }}
-            >
-              <TrashIcon size={14} />
-              {clearing ? "清除中..." : "清除失效资源"}
-            </button>
-            {clearedCount !== null && (
-              <div
-                className="row"
-                style={{
-                  gap: 6,
-                  fontSize: 13,
-                  color: "var(--success)",
-                }}
-              >
-                <CheckIcon size={12} />
-                已删除 {clearedCount} 条缓存数据
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
       {/* 刮削日志 */}
       {activeTab === "logs" && (
         <section
@@ -1077,6 +1013,20 @@ export default function Settings() {
               <ActivityIcon size={14} />
               {triggeringFull ? "启动中..." : "重新全量刮削"}
             </button>
+            <button
+              className="btn"
+              disabled={cleaningUp}
+              onClick={handleCleanupExpired}
+              style={{ gap: 6, color: "var(--danger)", borderColor: "var(--danger)" }}
+            >
+              <TrashIcon size={14} />
+              {cleaningUp ? "清除中..." : "清除失效资源"}
+            </button>
+            {cleanupResult && (
+              <span style={{ fontSize: 13, color: "var(--success)" }}>
+                已检查 {cleanupResult.checked} 条，删除 {cleanupResult.deleted} 条失效资源
+              </span>
+            )}
           </div>
 
           {logsLoading ? (

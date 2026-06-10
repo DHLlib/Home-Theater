@@ -5,7 +5,12 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable
+
+from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_title(title: str) -> str:
@@ -52,3 +57,34 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
                     existing["poster_url"] = item.get("poster_url")
                 existing["sources"].append(source_ref)
     return list(bucket.values())
+
+
+# ------------------------------------------------------------------
+# 物化视图刷新
+# ------------------------------------------------------------------
+
+async def refresh_aggregated_view(db) -> bool:
+    """刷新物化视图 mv_aggregated_videos。
+
+    调用方需自行处理间隔控制（最小 60 秒）。
+    """
+    try:
+        # 禁用 mergejoin 避免 PostgreSQL 优化器 bug（"mergejoin input data is out of order"）
+        await db.execute(text("SET LOCAL enable_mergejoin = off"))
+        # CONCURRENTLY 要求物化视图上有唯一索引
+        await db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_aggregated_videos"))
+        await db.commit()
+        logger.info("物化视图 mv_aggregated_videos 刷新完成")
+        return True
+    except Exception as exc:
+        logger.warning("物化视图刷新失败: %s", exc)
+        # 尝试非并发刷新（首次创建索引前fallback）
+        try:
+            await db.execute(text("SET LOCAL enable_mergejoin = off"))
+            await db.execute(text("REFRESH MATERIALIZED VIEW mv_aggregated_videos"))
+            await db.commit()
+            logger.info("物化视图 mv_aggregated_videos 非并发刷新完成")
+            return True
+        except Exception as exc2:
+            logger.error("物化视图刷新彻底失败: %s", exc2)
+            return False

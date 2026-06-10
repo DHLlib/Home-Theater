@@ -96,6 +96,11 @@ export function getDetail(req: DetailRequest): Promise<DetailResponse> {
 
 export const clearVideoCache = () => del<{ deleted: number }>("/api/videos/cache");
 
+export const cleanupExpired = (siteId?: number) =>
+  post<{ deleted: number; checked: number; by_site: { site_id: number; site_name: string; checked: number; deleted: number }[] }>(
+    `/api/videos/cleanup-expired${siteId != null ? `?site_id=${siteId}` : ""}`
+  );
+
 export const getCrawlerStatus = () => get<{ running: boolean; site_status: Record<string, string> }>("/api/videos/crawler/status");
 
 export const triggerIncremental = (siteId: number) =>

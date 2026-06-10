@@ -132,6 +132,7 @@ export interface ProbeResult {
 export interface CategoryMapping {
   remote_id: string;
   name: string;
+  enabled?: boolean;
 }
 
 export interface CategoryMappingWithPid {
@@ -312,5 +313,6 @@ export interface SystemCategoryTreeItem {
   parent_id: number | null;
   name: string;
   sort: number;
+  enabled?: boolean;
   children: SystemCategoryTreeItem[];
 }

@@ -89,13 +89,14 @@ acceptance_criteria:
 - id: AC-003
   title: 首页视频聚合列表
   description: 从本地 VideoCache 查询并按 normalize_title+year 聚合去重展示；数据由后台 Crawler 定期刮削写入缓存，非实时跨源拉取
-  status: completed
-  stage: tdd
+  status: superseded
+  stage: completed
   source: backend/app/api/videos.py, backend/app/services/aggregator.py
   owner: backend
   tests:
   - test/step_defs/test_e2e_video_lifecycle.py
-  blockedBy: []
+  blockedBy:
+  - AC-031
   impl_files:
   - backend/app/api/videos.py
   - backend/app/services/aggregator.py
@@ -104,29 +105,29 @@ acceptance_criteria:
   atdd:
     status: completed
   architect:
-    status: completed
-  notes: '[DESC-UPDATED] 架构决策：接受缓存优先架构。failed_sources 字段在 AggregatedListResponse 中标记为
-    deprecated，TDD 阶段由 backend/frontend agent 清理移除。'
+    status: pending
+  notes: '[POSTGRES-MIGRATION] 预聚合方案被 AC-031 替换，回退到 architect 重新设计。'
   tdd:
-    status: completed
+    status: pending
   bdd:
-    status: completed
+    status: pending
   review:
-    status: completed
+    status: pending
   qa:
-    status: completed
+    status: pending
   assembly:
-    status: completed
+    status: pending
 - id: AC-004
   title: 视频搜索
   description: 基于本地 VideoCache 的 LIKE 查询并按 normalize_title+year 聚合展示；非实时跨源并发搜索
-  status: completed
-  stage: tdd
+  status: superseded
+  stage: completed
   source: backend/app/api/videos.py
   owner: backend
   tests:
   - test/step_defs/test_e2e_video_lifecycle.py
-  blockedBy: []
+  blockedBy:
+  - AC-030
   impl_files:
   - backend/app/api/videos.py
   - backend/app/services/aggregator.py
@@ -134,18 +135,18 @@ acceptance_criteria:
   atdd:
     status: completed
   architect:
-    status: completed
-  notes: '[DESC-UPDATED] 同 AC-003，接受缓存优先架构，failed_sources deprecated。'
+    status: pending
+  notes: '[POSTGRES-MIGRATION] 搜索方案被 AC-030 替换，回退到 architect 重新设计。'
   tdd:
-    status: completed
+    status: pending
   bdd:
-    status: completed
+    status: pending
   review:
-    status: completed
+    status: pending
   qa:
-    status: completed
+    status: pending
   assembly:
-    status: completed
+    status: pending
 - id: AC-005
   title: 视频详情
   description: 根据 sources 列表从各源拉取详情，优先查 VideoCache，支持 feifan/360zy 后缀解析
@@ -466,13 +467,14 @@ acceptance_criteria:
 - id: AC-016
   title: 下载进度实时推送（SSE）
   description: 使用 SSE 替代轮询，实时推送下载进度、状态变化、站点健康事件
-  status: completed
-  stage: tdd
+  status: superseded
+  stage: completed
   source: backend/app/api/sse.py, backend/app/services/event_bus.py, frontend/src/pages/Downloads.tsx
   owner: frontend+backend
   tests:
   - test/step_defs/test_e2e_video_lifecycle.py
-  blockedBy: []
+  blockedBy:
+  - AC-032
   impl_files:
   - backend/app/api/sse.py
   - backend/app/services/event_bus.py
@@ -480,18 +482,18 @@ acceptance_criteria:
   atdd:
     status: completed
   architect:
-    status: completed
-  notes: ''
+    status: pending
+  notes: '[POSTGRES-MIGRATION] 推送方案被 AC-032 替换，回退到 architect 重新设计。'
   tdd:
-    status: completed
+    status: pending
   bdd:
-    status: completed
+    status: pending
   review:
-    status: completed
+    status: pending
   qa:
-    status: completed
+    status: pending
   assembly:
-    status: completed
+    status: pending
 - id: AC-017
   title: 局域网部署与静态托管
   description: FastAPI 绑定 0.0.0.0，CORS 支持局域网，vite build 产物静态托管，缓存头优化
@@ -883,6 +885,226 @@ acceptance_criteria:
     status: completed
   qa:
     status: completed
+  assembly:
+    status: pending
+- id: REFACTOR-DB-001
+  title: 数据库引擎迁移（SQLite → PostgreSQL）
+  description: 驱动替换、连接配置迁移、移除 SQLite 专用代码、依赖更新。所有后端 AC 的集成测试基础。
+  status: in_progress
+  stage: qa
+  source: backend/app/db.py, backend/app/config.py, backend/pyproject.toml
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/pyproject.toml
+  - backend/app/config.py
+  - backend/app/db.py
+  - backend/app/models.py
+  - backend/app/main.py
+  - backend/app/api/videos.py
+  - backend/app/services/crawler.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:30:00Z'
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T00:40:00Z'
+  baseline_snapshot:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  baseline_compare:
+    status: completed
+    completed_at: '2026-06-09T00:42:00Z'
+    result: PASS
+  notes: '[MIGRATION] Review 通过，阻塞解除。'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T00:50:00Z'
+    result: PASS
+  qa:
+    status: completed
+    completed_at: '2026-06-09T12:00:00Z'
+  assembly:
+    status: completed
+    completed_at: '2026-06-09T12:00:00Z'
+- id: AC-030
+  title: 全文搜索优化（PostgreSQL tsvector）
+  description: 利用 tsvector + GIN 索引替换现有 LIKE 搜索，搜索性能提升 10x+
+  status: in_progress
+  stage: qa
+  source: backend/app/api/videos.py, backend/app/models.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/models.py
+  - backend/app/api/videos.py
+  - backend/app/services/aggregator.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  notes: '[REPLACES-AC004] 替换 AC-004 的 LIKE 查询方案。'
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T00:50:00Z'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T12:00:00Z'
+    result: PASS
+  qa:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+  assembly:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+- id: AC-031
+  title: 物化视图预聚合（PostgreSQL MATERIALIZED VIEW）
+  description: 利用 MATERIALIZED VIEW 替换双缓冲表，聚合逻辑移到 SQL，REFRESH CONCURRENTLY 不阻塞读
+  status: in_progress
+  stage: qa
+  source: backend/app/services/aggregator.py, backend/app/api/videos.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/models.py
+  - backend/app/services/aggregator.py
+  - backend/app/api/videos.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  notes: '[REPLACES-AC003] 替换 AC-003 的预聚合双缓冲方案。'
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T00:50:00Z'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T12:00:00Z'
+    result: PASS
+  qa:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+  assembly:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+- id: AC-032
+  title: LISTEN/NOTIFY 事件推送
+  description: 利用 PostgreSQL LISTEN/NOTIFY 替代 SSE 轮询/event_bus 内存推送
+  status: in_progress
+  stage: qa
+  source: backend/app/api/sse.py, backend/app/services/event_bus.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/api/sse.py
+  - backend/app/services/event_bus.py
+  - backend/app/services/downloader.py
+  - backend/app/services/health.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  notes: '[REPLACES-AC016] 优化 AC-016 SSE 推送方案。'
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T00:50:00Z'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T12:15:00Z'
+    result: PASS
+  qa:
+    status: completed
+    completed_at: '2026-06-09T12:15:00Z'
+  assembly:
+    status: completed
+    completed_at: '2026-06-09T12:15:00Z'
+- id: AC-033
+  title: JSONB 查询优化
+  description: JSON 字段升级为 JSONB，利用原生操作符 @>、->> 优化查询
+  status: in_progress
+  stage: qa
+  source: backend/app/models.py, backend/app/services/resolver.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/models.py
+  - backend/app/api/videos.py
+  - backend/app/services/resolver.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  notes: 'JSONB 自动映射已在 REFACTOR-DB-001 中完成（type_annotation_map），剩余工作为查询优化。'
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T12:15:00Z'
+    result: PASS
+  qa:
+    status: completed
+    completed_at: '2026-06-09T12:20:00Z'
+  assembly:
+    status: completed
+    completed_at: '2026-06-09T12:20:00Z'
+- id: AC-034
+  title: 批量导入优化（PostgreSQL COPY）
+  description: 利用 COPY FROM 或高效 executemany 替代逐条 INSERT，提升全量刮削写入性能
+  status: in_progress
+  stage: qa
+  source: backend/app/services/crawler.py
+  owner: backend
+  tests: []
+  blockedBy: []
+  impl_files:
+  - backend/app/services/crawler.py
+  - backend/app/db.py
+  atdd:
+    status: completed
+    completed_at: '2026-06-09T00:20:00Z'
+  architect:
+    status: completed
+    completed_at: '2026-06-09T00:35:00Z'
+  notes: ''
+  tdd:
+    status: completed
+    completed_at: '2026-06-09T12:10:00Z'
+  bdd:
+    status: pending
+  review:
+    status: completed
+    completed_at: '2026-06-09T12:15:00Z'
+    result: PASS
+  qa:
+    status: in_progress
+    started_at: '2026-06-09T12:15:00Z'
   assembly:
     status: pending
 sprints:

@@ -31,6 +31,7 @@ async def list_system_categories(db: AsyncSession = Depends(get_db)):
                 parent_id=r.parent_id,
                 name=r.name,
                 sort=r.sort,
+                enabled=r.enabled,
                 children=build_tree(r.id),
             ))
         return items
@@ -60,7 +61,7 @@ async def create_system_category(
     await db.commit()
     await db.refresh(cat)
     logger.info("system_category_created id=%d name=%s parent_id=%s", cat.id, cat.name, cat.parent_id)
-    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, created_at=str(cat.created_at))
+    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, enabled=cat.enabled, created_at=str(cat.created_at))
 
 
 @router.patch("/{cat_id}")
@@ -97,7 +98,7 @@ async def update_system_category(
 
     await db.commit()
     await db.refresh(cat)
-    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, created_at=str(cat.created_at))
+    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, enabled=cat.enabled, created_at=str(cat.created_at))
 
 
 @router.delete("/{cat_id}")

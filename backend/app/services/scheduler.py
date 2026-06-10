@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.db import async_session_factory
+from app.models import _utcnow
 from app.models import Site
 from app.services.crawler import Crawler
-from app.services.event_bus import Event, publish
 from app.services.health import probe
+from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
 PROBE_INTERVAL = 600  # 每 10 分钟探测一次
@@ -130,7 +131,8 @@ async def _on_probe_success(site_id: int, site_name: str) -> None:
             site.auto_disabled_at = None
             await session.commit()
             _recovery_counts.pop(site_id, None)
-            publish(
+            await notify_sender.send(
+                "health_events",
                 Event(
                     "site_health",
                     {"site_id": site_id, "site_name": site_name, "enabled": True},
@@ -157,9 +159,10 @@ async def _on_probe_failure(site_id: int, site_name: str, error: str) -> None:
             site = await session.get(Site, site_id)
             if site and site.enabled:
                 site.enabled = False
-                site.auto_disabled_at = datetime.now(timezone.utc)
+                site.auto_disabled_at = _utcnow()
                 await session.commit()
-                publish(
+                await notify_sender.send(
+                    "health_events",
                     Event(
                         "site_health",
                         {

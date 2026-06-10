@@ -17,13 +17,13 @@
 - **站点管理**：采集站 CRUD、连通性探测、远程分类抓取
 - **分类映射**：将各站点的子分类映射到统一的扁平系统分类
 - **本地聚合数据库**：后台自动刮削资源站数据到 VideoCache，首页/搜索纯本地查询
-- **预聚合缓存**：双缓冲表（V1/V2）+ 原子版本切换，首页查询从 ~8s 降至 ~26ms
+- **预聚合缓存**：PostgreSQL 物化视图（MATERIALIZED VIEW），首页查询从 ~8s 降至 ~26ms
 - **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，状态持久化
 - **播放器格式兼容**：支持 M3U8/MP4/WebM，自动归一化 dytt/xlyun/155m3u8 等后缀
 - **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
 - **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
 - **性能优化**：
-  - 后端：下载批量 commit、预聚合双缓冲、SQLite WAL 模式、刮削并发控制
+  - 后端：下载批量 commit、物化视图预聚合、PostgreSQL 连接池、刮削并发控制
   - 前端：IndexedDB 3 秒超时保护、API AbortController 超时、请求去重/并发限制
 
 ---
@@ -32,11 +32,11 @@
 
 | 层级 | 技术 |
 |------|------|
-| 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), aiosqlite |
+| 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), asyncpg |
 | 前端 | React 18, Vite, TypeScript, react-router-dom |
 | 播放器 | xgplayer v3 + xgplayer-hls.js |
-| 数据库 | SQLite（WAL 模式，启动时自动建表） |
-| 部署 | uvicorn + FastAPI 静态托管前端构建产物 |
+| 数据库 | PostgreSQL 16+ |
+| 部署 | uvicorn + FastAPI 静态托管前端构建产物 / Docker |
 
 ---
 
@@ -46,8 +46,91 @@
 
 - Python 3.11+（推荐 3.13）
 - Node.js 18+ 及 npm
+- PostgreSQL 16+（见下方安装教程）
 
-### 1. 安装依赖
+### 1. 安装 PostgreSQL
+
+**Windows（PowerShell）**
+
+方式一 — 官网安装包（推荐）：
+1. 访问 https://www.postgresql.org/download/windows/
+2. 下载 PostgreSQL 16+ 安装包
+3. 安装时记住密码，端口保持默认 `5432`
+
+方式二 — Chocolatey：
+```powershell
+choco install postgresql
+```
+
+方式三 — Scoop：
+```powershell
+scoop install postgresql
+```
+
+**方式 A — 命令行（psql）**：
+```powershell
+psql -U postgres
+```
+```sql
+CREATE DATABASE home_theater;
+CREATE USER home_theater WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;
+\q
+```
+
+**方式 B — pgAdmin 4（图形化，推荐新手）**：
+
+pgAdmin 4 安装 PostgreSQL 时默认已附带，在开始菜单搜索打开即可。
+
+1. **连接服务器**
+   - 左侧展开 `Servers` → 双击 `PostgreSQL 16`
+   - 输入安装时设置的密码
+   - 如未显示服务器，右键 `Servers` → `Register` → `Server`
+     - General 标签：Name 填 `localhost`
+     - Connection 标签：Host `localhost`，Port `5432`，Username `postgres`，Password 填安装密码，勾选 Save password
+
+2. **创建数据库**
+   - 展开 `Servers` → `localhost` → `Databases`
+   - 右键 `Databases` → `Create` → `Database...`
+   - Database 填 `home_theater`
+   - Owner 选择 `postgres`
+   - 点击 Save
+
+3. **创建用户（可选）**
+   - 展开 `Servers` → `localhost` → `Login/Group Roles`
+   - 右键 `Login/Group Roles` → `Create` → `Login/Group Role...`
+   - General 标签：Name 填 `home_theater`
+   - Definition 标签：Password 填你的密码
+   - Privileges 标签：勾选 `Can login?`
+   - 点击 Save
+
+4. **授权**
+   - 右键 `home_theater` 数据库 → `Query Tool...`
+   - 在右侧 SQL 编辑器粘贴：
+     ```sql
+     GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;
+     ```
+   - 按 F5 或点击上方闪电图标执行
+
+> 个人使用可跳过创建独立用户，直接用 `postgres` 用户连接。此时 `.env` 中用户名写 `postgres` 即可。
+
+### 2. 配置环境变量
+
+复制示例配置文件并修改数据库密码：
+```powershell
+cd backend
+copy .env.example .env
+```
+
+编辑 `.env`：
+```env
+DATABASE_URL=postgresql+asyncpg://home_theater:your_password@localhost:5432/home_theater
+PORT=8000
+LOG_LEVEL=INFO
+DEFAULT_DOWNLOAD_ROOT=D:\Downloads
+```
+
+### 3. 安装依赖
 
 **后端**：
 ```bash
@@ -61,75 +144,70 @@ cd frontend
 npm install
 ```
 
-### 2. 开发模式（前后端分别启动）
+### 4. 一键启动（Windows）
 
-**步骤 1：启动后端**（新开一个终端）
-```bash
-cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+```powershell
+# 生产模式（单端口托管前后端）
+.\start.ps1
+
+# 开发模式（后端 8000 + 前端 5173 热更新）
+.\start.ps1 -Dev
+
+# 停止
+.\stop.ps1
 ```
 
-- 后端启动后会自动创建 `backend/data/app.db`（SQLite）
-- API 地址：`http://localhost:8181`
-- `--reload` 修改代码后自动重启，开发时开启
+`start.ps1` 会自动检测 PostgreSQL 连通性，未安装时会输出安装教程。
 
-**步骤 2：启动前端**（再新开一个终端）
+### 5. 手动启动（跨平台）
+
+**开发模式（前后端分别启动）**
+
+后端（终端 1）：
+```bash
+cd backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+前端（终端 2）：
 ```bash
 cd frontend
 npm run dev
 ```
 
-- 前端地址：`http://localhost:5173`
-- `vite.config.ts` 中已配置代理：`/api` → `http://localhost:8181`
-- 修改前端代码后浏览器自动热更新
+浏览器访问：`http://localhost:5173`
 
-**步骤 3：浏览器访问**
-```
-http://localhost:5173
-```
+**生产模式（单端口）**
 
-### 3. 生产模式（单端口）
-
-生产环境不需要启动前端开发服务器，前端构建为静态文件后由 FastAPI 托管。
-
-**步骤 1：构建前端**
 ```bash
-cd frontend
-npm run build
+cd frontend && npm run build
+cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-构建产物位于 `frontend/dist/`，FastAPI 启动后会自动检测并托管。
+浏览器访问：`http://<本机IP>:8000`（局域网可用）或 `http://localhost.com:8000`（本机）
 
-**步骤 2：启动后端（不带 --reload）**
+### 6. Docker 部署
+
 ```bash
-cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8181
+# 一键启动（含 PostgreSQL + 应用）
+docker compose up --build -d
+
+# 查看日志
+docker compose logs -f app
+
+# 停止
+docker compose down
 ```
 
-**步骤 3：浏览器访问**
+数据通过 Docker volume 持久化，重启不丢失。
 
-方式 A — 本机 IP（局域网内其他设备也可用）：
-```
-http://<本机IP>:8181
-```
+---
 
-方式 B — `localhost.com`（仅限本机，不用记 IP）：
-```
-http://localhost.com:8181
-```
+## 局域网部署注意事项
 
-`localhost.com` 已解析到 `127.0.0.1`，直接访问即可。如果断网时无法解析，在 `C:\Windows\System32\drivers\etc\hosts` 添加一行：
-```
-127.0.0.1  localhost.com
-```
-
-`0.0.0.0` 表示监听所有接口，包括 127.0.0.1 和局域网 IP。
-
-### 4. 局域网部署注意事项
-
-- 确保防火墙允许 8181 端口入站（Windows：设置 → 系统 → 远程桌面 → 高级设置 → 入站规则）
-- 如果端口被占用，换一个端口：`--port 8080`
-- 终止占用端口的进程（Windows）：`taskkill /F /PID <PID>`
+- 确保防火墙允许 `8000` 端口入站（Windows：设置 → 系统 → 远程桌面 → 高级设置 → 入站规则）
+- 如果端口被占用，修改 `.env` 中的 `PORT` 后重新启动
+- `localhost.com` 已解析到 `127.0.0.1`，本机可直接访问。断网时若无法解析，在 `C:\Windows\System32\drivers\etc\hosts` 添加：`127.0.0.1 localhost.com`
 
 ---
 
@@ -141,13 +219,14 @@ Home Theater/
 │   ├── app/
 │   │   ├── main.py           # FastAPI 入口、路由挂载、静态托管（含缓存头）、启动建表
 │   │   ├── constants.py      # 项目级常量（HTTP 超时、重试策略、下载/刮削/日志参数）
-│   │   ├── models.py         # ORM：Site / Favorite / PlayProgress / DownloadTask / VideoCache / AggregatedVideoV1/V2 / AppConfig
+│   │   ├── models.py         # ORM：Site / Favorite / PlayProgress / DownloadTask / VideoCache / mv_aggregated_videos / AppConfig
 │   │   ├── schemas.py        # Pydantic 请求/响应模型
-│   │   ├── db.py             # async engine + session_factory + 列迁移
+│   │   ├── db.py             # async engine + session_factory
+│   │   ├── config.py         # 配置读取（Pydantic Settings，从 .env 加载）
 │   │   ├── logging_config.py # 日志分类路由（api/source/crawler/download）
 │   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings / sse
 │   │   └── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver
-│   ├── data/                 # SQLite 文件（运行时生成）
+│   ├── .env.example          # 环境变量示例
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
@@ -157,6 +236,10 @@ Home Theater/
 │   │   ├── utils/            # cache（IndexedDB）/ toast
 │   │   └── types.ts          # TypeScript 类型
 │   └── vite.config.ts
+├── docker-compose.yml        # Docker 一键部署
+├── Dockerfile                # 多阶段构建（前端 + 后端）
+├── start.ps1                 # Windows 一键启动
+├── stop.ps1                  # Windows 一键停止
 ├── docs/
 │   ├── lessons-learned.md    # 排错/踩坑记录
 │   └── superpowers/          # 设计规格与实施计划
@@ -176,7 +259,7 @@ Home Theater/
 | `名称+年份` 聚合去重 | `backend/app/services/aggregator.py` |
 | 显式选源（无默认） | `frontend/src/components/SourcePicker.tsx` |
 | 下载根目录一次性配置 | `backend/app/api/settings_api.py` + `frontend/src/pages/Settings.tsx` |
-| 预聚合缓存（双缓冲） | `backend/app/services/crawler.py` `_refresh_aggregated_cache` |
+| 预聚合缓存（物化视图） | `backend/app/services/aggregator.py` `refresh_aggregated_view` |
 | 分类映射（扁平系统分类，互斥约束） | `frontend/src/components/CategorySettings.tsx` |
 | 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
 | 项目常量（禁止魔法数字） | `backend/app/constants.py` |
@@ -187,10 +270,14 @@ Home Theater/
 
 | 命令 | 说明 |
 |------|------|
-| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload` | 后端开发 |
-| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181` | 后端生产 |
+| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` | 后端开发 |
+| `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000` | 后端生产 |
 | `cd frontend && npm run dev` | 前端开发 |
 | `cd frontend && npm run build` | 前端构建（产物由 FastAPI 托管） |
+| `.\start.ps1` | Windows 一键启动（生产模式） |
+| `.\start.ps1 -Dev` | Windows 一键启动（开发模式） |
+| `.\stop.ps1` | Windows 一键停止 |
+| `docker compose up --build -d` | Docker 部署 |
 | `taskkill //F //IM python.exe` | 终止所有 Python 进程（Windows） |
 
 ---

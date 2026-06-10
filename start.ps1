@@ -1,4 +1,4 @@
-# Home Theater Start Script
+﻿# Home Theater Start Script
 # Usage: .\start.ps1          → Production mode (backend only, serves static frontend)
 # Usage: .\start.ps1 -Dev     → Development mode (backend + frontend dev server)
 
@@ -19,6 +19,77 @@ function Test-Command($cmd) {
     return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
+# 从 .env 读取 key=value
+function Get-EnvValue($key, $defaultValue) {
+    $envFile = Join-Path $backendDir ".env"
+    if (-not (Test-Path $envFile)) { return $defaultValue }
+    foreach ($line in Get-Content $envFile -Encoding UTF8) {
+        if ($line -match "^\s*$key\s*=\s*(.*?)\s*$") {
+            return $matches[1]
+        }
+    }
+    return $defaultValue
+}
+
+$PORT = [int](Get-EnvValue "PORT" "8000")
+
+# ── PostgreSQL 连接检查 ─────────────────────────────────────────
+function Test-PostgresConnection() {
+    $dbUrl = Get-EnvValue "DATABASE_URL" ""
+    if ($dbUrl -eq "") { return $false }
+
+    # 解析 host:port，支持 IPv6、域名、无端口等多种格式
+    $pgHost = "localhost"
+    $pgPort = 5432
+    if ($dbUrl -match "@([^:/]+)(?::(\d+))?/") {
+        $pgHost = $matches[1]
+        if ($matches[2]) { $pgPort = [int]$matches[2] }
+    }
+
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect($pgHost, $pgPort)
+        $tcp.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Show-PostgresInstallGuide() {
+    Write-Host ""
+    Write-Host "╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+    Write-Host "║  PostgreSQL 未检测到，请先安装并配置数据库                     ║" -ForegroundColor Red
+    Write-Host "╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "【方案一】官网安装包（推荐）" -ForegroundColor Cyan
+    Write-Host "  1. 访问 https://www.postgresql.org/download/windows/" -ForegroundColor White
+    Write-Host "  2. 下载 PostgreSQL 16+ Windows 安装包" -ForegroundColor White
+    Write-Host "  3. 安装时记住密码，端口保持默认 5432" -ForegroundColor White
+    Write-Host "  4. 安装完成后打开 pgAdmin 4 或 psql" -ForegroundColor White
+    Write-Host ""
+    Write-Host "【方案二】Chocolatey（命令行）" -ForegroundColor Cyan
+    Write-Host "  choco install postgresql" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "【方案三】Scoop（命令行）" -ForegroundColor Cyan
+    Write-Host "  scoop install postgresql" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
+    Write-Host "【安装后创建数据库】" -ForegroundColor Cyan
+    Write-Host "  打开 PowerShell 或 cmd，执行：" -ForegroundColor White
+    Write-Host "  psql -U postgres" -ForegroundColor Yellow
+    Write-Host "  CREATE DATABASE home_theater;" -ForegroundColor Yellow
+    Write-Host "  CREATE USER home_theater WITH PASSWORD 'your_password';" -ForegroundColor Yellow
+    Write-Host "  GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;" -ForegroundColor Yellow
+    Write-Host "  \q" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "【然后修改 .env】" -ForegroundColor Cyan
+    Write-Host "  编辑 backend/.env，将 DATABASE_URL 中的密码改为实际密码：" -ForegroundColor White
+    Write-Host "  DATABASE_URL=postgresql+asyncpg://home_theater:your_password@localhost:5432/home_theater" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Gray
+}
+
 # ── Environment checks ──────────────────────────────────────────
 if (-not (Test-Command "python")) {
     Write-Host "[ERROR] python not found in PATH" -ForegroundColor Red
@@ -35,25 +106,29 @@ if (-not (Test-Command "npm")) {
     exit 1
 }
 
-# ── Ensure data dirs exist ──────────────────────────────────────
-$dataDir = Join-Path $backendDir "data"
-if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir | Out-Null }
+# ── PostgreSQL check ────────────────────────────────────────────
+if (-not (Test-PostgresConnection)) {
+    Show-PostgresInstallGuide
+    exit 1
+}
 
+Write-Host "[OK] PostgreSQL connection verified" -ForegroundColor Green
+
+# ── Ensure logs dir exists ──────────────────────────────────────
 $logsDir = Join-Path $backendDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir | Out-Null }
 
 # ── Check if already running ────────────────────────────────────
 $alreadyRunning = $false
 
-# 1. 检查 .pid 文件：验证进程存在 + 是 python + health 接口可用
 if (Test-Path $pidFile) {
     $oldPid = Get-Content $pidFile
     try {
         $proc = Get-Process -Id $oldPid -ErrorAction Stop
         if ($proc.ProcessName -eq "python") {
             try {
-                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8181/api/health" -TimeoutSec 3 -ErrorAction Stop
-                Write-Host "[INFO] Already running (PID: $oldPid)" -ForegroundColor Cyan
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/api/health" -TimeoutSec 3 -ErrorAction Stop
+                Write-Host "[INFO] Already running (PID: $oldPid, port: $PORT)" -ForegroundColor Cyan
                 $alreadyRunning = $true
             } catch {
                 Write-Host "[WARN] Stale process detected (PID: $oldPid), terminating..." -ForegroundColor Yellow
@@ -70,18 +145,17 @@ if (Test-Path $pidFile) {
     }
 }
 
-# 2. 兜底：直接访问 health 接口（.pid 丢失或指向错误进程时）
 if (-not $alreadyRunning) {
     try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8181/api/health" -TimeoutSec 2 -ErrorAction Stop
-        Write-Host "[INFO] Service already running on port 8181 (.pid file missing or stale)" -ForegroundColor Cyan
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/api/health" -TimeoutSec 2 -ErrorAction Stop
+        Write-Host "[INFO] Service already running on port $PORT (.pid file missing or stale)" -ForegroundColor Cyan
         $alreadyRunning = $true
     } catch {}
 }
 
 if ($alreadyRunning) {
     Write-Host "[INFO] URLs:"
-    Write-Host "  http://localhost:8181  (or http://<lan-ip>:8181)" -ForegroundColor Green
+    Write-Host "  http://localhost:$PORT  (or http://<lan-ip>:$PORT)" -ForegroundColor Green
     exit 0
 }
 
@@ -97,9 +171,9 @@ if (-not $Dev) {
 }
 
 # ── Start backend ───────────────────────────────────────────────
-Write-Host "[INFO] Starting Home Theater$(if ($Dev) { ' [DEV MODE]' })..." -ForegroundColor Cyan
+Write-Host "[INFO] Starting Home Theater$(if ($Dev) { ' [DEV MODE]' }) on port $PORT..." -ForegroundColor Cyan
 
-$backendArgs = @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8181")
+$backendArgs = @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT")
 if ($Dev) {
     $backendArgs += "--reload"
 }
@@ -123,21 +197,21 @@ if ($Dev) {
 Start-Sleep -Seconds 3
 
 try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8181/api/health" -TimeoutSec 5 -ErrorAction Stop
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/api/health" -TimeoutSec 5 -ErrorAction Stop
     Write-Host "[OK] Backend started, PID: $($procBackend.Id)" -ForegroundColor Green
     if ($Dev) {
         Write-Host "[OK] Frontend dev server started, PID: $($procFrontend.Id)" -ForegroundColor Green
     }
     Write-Host ""
     Write-Host "URLs:"
-    Write-Host "  Backend API : http://localhost:8181/api/health" -ForegroundColor Green
+    Write-Host "  Backend API : http://localhost:$PORT/api/health" -ForegroundColor Green
     if ($Dev) {
         Write-Host "  Frontend Dev: http://localhost:5173" -ForegroundColor Green
     } else {
-        Write-Host "  Web App     : http://localhost:8181" -ForegroundColor Green
+        Write-Host "  Web App     : http://localhost:$PORT" -ForegroundColor Green
     }
     Write-Host ""
     Write-Host "Stop: .\stop.ps1" -ForegroundColor Gray
 } catch {
-    Write-Host "[WARN] Backend starting, please visit http://127.0.0.1:8181 later" -ForegroundColor Yellow
+    Write-Host "[WARN] Backend starting, please visit http://127.0.0.1:$PORT later" -ForegroundColor Yellow
 }

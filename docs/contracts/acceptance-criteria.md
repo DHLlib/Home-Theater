@@ -307,3 +307,89 @@
 
 - AC-019 已过时：刮削看板从「设置 → 刮削日志」迁移到独立的「看板」页面
 - AC-020 已过时：站点「增量」按钮从「设置 → 刮削日志」迁移到「设置 → 站点管理」
+
+---
+
+## REFACTOR-DB-001 数据库引擎迁移（SQLite → PostgreSQL）
+
+**Given** 系统当前使用 SQLite 作为数据库
+**When** 启动后端服务时
+**Then** 系统连接到 PostgreSQL 数据库，所有表自动创建，驱动使用 asyncpg
+
+**Given** 后端需要执行数据库操作
+**When** 任何 API 或服务层发起查询
+**Then** 通过 SQLAlchemy async ORM 操作 PostgreSQL，行为与 SQLite 一致
+
+**Given** 开发者查看项目依赖
+**When** 检查 pyproject.toml 时
+**Then** `aiosqlite` 已移除，`asyncpg` 已添加
+
+---
+
+## AC-030 全文搜索优化（PostgreSQL tsvector）
+
+**Given** 用户在搜索框输入关键词
+**When** 系统执行搜索时
+**Then** 使用 PostgreSQL tsvector + GIN 索引进行全文搜索，替代原有的 LIKE 模糊查询
+
+**Given** 系统已刮削视频数据到 VideoCache
+**When** 构建搜索索引时
+**Then** 自动为 title、actors、director 等字段生成 tsvector，并创建 GIN 索引
+
+**性能约束**：全文搜索查询响应时间 < 50ms（原 LIKE 查询 ~200ms）
+
+---
+
+## AC-031 物化视图预聚合（PostgreSQL MATERIALIZED VIEW）
+
+**Given** 后台已刮削多个站点的视频数据到 VideoCache
+**When** 用户打开首页时
+**Then** 系统从 MATERIALIZED VIEW 读取预聚合结果，无需 Python 端实时聚合
+
+**Given** 刮削器完成增量/全量更新
+**When** 触发预聚合刷新时
+**Then** 执行 `REFRESH MATERIALIZED VIEW CONCURRENTLY`，不阻塞并发读取
+
+**Given** 聚合逻辑需要按 normalize_title + year 分组
+**When** 物化视图定义中包含聚合 SQL 时
+**Then** 年份回填逻辑在 SQL 层完成（同名记录中最频繁的非 None year）
+
+**性能约束**：首页查询 < 20ms（原双缓冲方案 ~26ms，物化视图进一步优化）
+
+---
+
+## AC-032 LISTEN/NOTIFY 事件推送
+
+**Given** 下载任务状态发生变化
+**When** 下载 worker 更新任务状态时
+**Then** 通过 PostgreSQL LISTEN/NOTIFY 向数据库通道发送事件
+
+**Given** 前端已建立 SSE 连接
+**When** 后端收到 NOTIFY 事件时
+**Then** SSE 端点将事件实时推送给前端，无需轮询或内存 event_bus
+
+**Given** 站点健康状态发生变化
+**When** 健康探测器检测到状态变更时
+**Then** 同样通过 LISTEN/NOTIFY 推送健康事件
+
+---
+
+## AC-033 JSONB 查询优化
+
+**Given** VideoCache 和 AggregatedVideo 存储 JSON 数据
+**When** 系统查询包含 JSON 字段的条件时
+**Then** 使用 PostgreSQL JSONB 原生操作符（如 `@>`、`->>`）在数据库层过滤
+
+**Given** 详情页需要解析 sources 字段
+**When** 查询某视频的所有来源时
+**Then** 利用 JSONB 索引快速定位，无需在 Python 端遍历解析
+
+---
+
+## AC-034 批量导入优化（PostgreSQL COPY）
+
+**Given** 刮削器正在执行全量刮削
+**When** 写入 VideoCache 时
+**Then** 使用 PostgreSQL COPY FROM 或高效 executemany 批量插入，替代逐条 INSERT
+
+**性能约束**：批量写入吞吐量提升 5x+（原逐条 INSERT 受 SQLite 串行写入限制）

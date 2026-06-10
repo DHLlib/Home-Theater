@@ -31,10 +31,13 @@ export default function CategoryBar({
   }, [sites]);
 
   // 构建分组：父分类 -> 该父下可用的子分类列表
+  // 过滤掉 enabled=false 的分类；父分类被禁用时其下所有子类不展示
   const groups = useMemo(() => {
     const result: { label: string; items: string[] }[] = [];
     for (const parent of systemTree) {
+      if (parent.enabled === false) continue;
       const visibleChildren = parent.children
+        .filter((c) => c.enabled !== false)
         .map((c) => c.name)
         .filter((name) => availableCategories.has(name));
       if (visibleChildren.length > 0) {

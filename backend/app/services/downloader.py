@@ -32,7 +32,7 @@ from app.constants import (
 )
 from app.db import async_session_factory
 from app.models import DownloadTask, Site
-from app.services.event_bus import Event, publish
+from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ async def start(task_id: int) -> None:
         if task:
             task.status = "downloading"
             await session.commit()
-    publish(Event("download_status", {"task_id": task_id, "status": "downloading"}))
+    await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "downloading"}))
     logger.info("任务已标记为 downloading task_id=%s", task_id)
 
 
@@ -61,7 +61,7 @@ async def pause(task_id: int) -> None:
         if task:
             task.status = "paused"
             await session.commit()
-    publish(Event("download_status", {"task_id": task_id, "status": "paused"}))
+    await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "paused"}))
     logger.info("任务已暂停 task_id=%s", task_id)
 
 
@@ -72,7 +72,7 @@ async def resume(task_id: int) -> None:
         if task and task.status == "paused":
             task.status = "queued"
             await session.commit()
-    publish(Event("download_status", {"task_id": task_id, "status": "queued"}))
+    await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "queued"}))
     logger.info("任务已恢复 task_id=%s", task_id)
 
 
@@ -219,7 +219,7 @@ async def _run_direct_download(
                 # 完成
                 task.status = "done"
                 await session.commit()
-                publish(Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
+                await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
                 logger.info("下载完成 task_id=%s path=%s", task_id, task.file_path)
     except httpx.TimeoutException as exc:
         error_msg = await _classify_network_error(str(exc))
@@ -331,7 +331,7 @@ async def _run_m3u8_download(
                         await session.commit()
                         _last_commit = now
                         _commit_counter = 0
-                        publish(Event("download_progress", {
+                        await notify_sender.send("download_events", Event("download_progress", {
                             "task_id": task_id,
                             "downloaded_bytes": task.downloaded_bytes,
                             "total_bytes": task.total_bytes,
@@ -426,7 +426,7 @@ async def _run_m3u8_download(
             task.file_path = str(final_path)
             task.status = "done"
             await session.commit()
-            publish(Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
+            await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
             logger.info("m3u8 下载完成 task_id=%s path=%s", task_id, final_path)
 
     except httpx.TimeoutException as exc:
@@ -616,5 +616,5 @@ async def _set_error(task_id: int, error_msg: str) -> None:
             task.status = "error"
             task.error = error_msg
             await session.commit()
-    publish(Event("download_status", {"task_id": task_id, "status": "error", "error": error_msg}))
+    await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "error", "error": error_msg}))
     logger.error("任务出错 task_id=%s error=%s", task_id, error_msg)

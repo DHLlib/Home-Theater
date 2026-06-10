@@ -10,7 +10,7 @@ from app.db import get_db
 from app.models import AppConfig, DownloadTask
 from app.schemas import DownloadTaskCreate
 from app.services.downloader import pause as dl_pause, resume as dl_resume
-from app.services.event_bus import Event, publish
+from app.services.notify_sender import Event, notify_sender
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def create_download(req: DownloadTaskCreate, db: AsyncSession = Depends(ge
     await db.commit()
     await db.refresh(task)
     logger.info("download_created task_id=%d title=%s episode=%s", task.id, req.title, req.episode_name)
-    publish(Event("download_status", {
+    await notify_sender.send("download_events", Event("download_status", {
         "task_id": task.id,
         "status": task.status,
         "title": task.title,
@@ -116,5 +116,5 @@ async def delete_download(
     await db.delete(task)
     await db.commit()
     logger.info("download_deleted task_id=%d file_deleted=%s", task_id, file_deleted)
-    publish(Event("download_status", {"task_id": task_id, "status": "deleted"}))
+    await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "deleted"}))
     return {"ok": True, "file_deleted": file_deleted, "file_error": file_error}

@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.venv
+venv
+
+# Node
+node_modules
+frontend/node_modules
+
+# IDE
+.vscode
+.idea
+
+# Logs (build 时不需要，运行时挂载)
+backend/logs
+logs
+
+# PostgreSQL 数据通过 Docker volume 持久化，不需要打包
+backend/data
+data
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+docs
+*.md
+
+# PID files
+*.pid

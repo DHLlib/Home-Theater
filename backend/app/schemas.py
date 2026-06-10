@@ -15,6 +15,7 @@ class SourceRef(BaseModel):
     site_name: str | None = None
     original_id: str
     type: str | None = None
+    type_id: int | None = None
     category: str | None = None
     remarks: str | None = None
     updated_at: str | None = None
@@ -25,6 +26,7 @@ class AggregatedVideo(BaseModel):
     year: int | None = None
     poster_url: str | None = None
     sources: list[SourceRef]
+    source_count: int = 1
 
 
 class AggregatedListResponse(BaseModel):
@@ -138,6 +140,7 @@ class ProbeResult(BaseModel):
 class CategoryMapping(BaseModel):
     remote_id: str
     name: str
+    enabled: bool = True
 
 
 class SiteCategoriesOut(BaseModel):
@@ -347,6 +350,7 @@ class SystemCategoryUpdate(BaseModel):
     name: str | None = None
     parent_id: int | None = None
     sort: int | None = None
+    enabled: bool | None = None
 
 
 class SystemCategoryOut(BaseModel):
@@ -354,6 +358,7 @@ class SystemCategoryOut(BaseModel):
     parent_id: int | None = None
     name: str
     sort: int
+    enabled: bool = True
     created_at: str | None = None
 
 
@@ -362,4 +367,5 @@ class SystemCategoryTreeItem(BaseModel):
     parent_id: int | None = None
     name: str
     sort: int
+    enabled: bool = True
     children: list[SystemCategoryTreeItem] = Field(default_factory=list)

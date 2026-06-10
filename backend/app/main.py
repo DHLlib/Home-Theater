@@ -9,10 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
-from app.db import init_db
+from app.db import engine, init_db
 from app.logging_config import setup_logging
 from app.services.downloader import download_worker
 from app.services.scheduler import init_scheduler
+from app.services.listen_manager import listen_manager
 
 
 DEFAULT_SYSTEM_CATEGORIES = [
@@ -63,6 +64,13 @@ DEFAULT_SYSTEM_CATEGORIES = [
 ]
 
 
+async def check_db_connection() -> None:
+    """启动前检查数据库连通性，graceful 启动。"""
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT 1"))
+
+
 async def _init_default_categories():
     """首次启动时自动创建默认系统分类。"""
     from sqlalchemy import select
@@ -86,8 +94,10 @@ async def _init_default_categories():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    await check_db_connection()
     await init_db()
     await _init_default_categories()
+    await listen_manager.start()
     worker_task = asyncio.create_task(download_worker())
     scheduler_task = await init_scheduler()
     yield
@@ -101,6 +111,7 @@ async def lifespan(app: FastAPI):
         await scheduler_task
     except asyncio.CancelledError:
         pass
+    await listen_manager.stop()
 
 
 class CacheControlStaticFiles(StaticFiles):

@@ -8,6 +8,8 @@ from app.db import get_db
 from app.models import Site, SystemCategory
 import asyncio
 
+import app.services.scheduler as scheduler_module
+
 from app.constants import BATCH_PROBE_LIMIT, BATCH_PROBE_CONCURRENCY
 from app.schemas import (
     CategoryMapping, CategoryMappingWithPid, CategoryGroup, SiteCategoriesOut,
@@ -43,6 +45,12 @@ async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
     if db_site.enabled:
         await _auto_match_and_save(db_site, db)
 
+    # 新站点启用时，后台触发全量刮削即时补全
+    if db_site.enabled and scheduler_module.crawler:
+        asyncio.create_task(
+            scheduler_module.crawler.trigger_full_crawl(db_site.id)
+        )
+
     return db_site
 
 
@@ -51,10 +59,19 @@ async def update_site(site_id: int, patch: SitePatch, db: AsyncSession = Depends
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
+
+    was_enabled = db_site.enabled
     for key, value in patch.model_dump(exclude_unset=True).items():
         setattr(db_site, key, value)
     await db.commit()
     await db.refresh(db_site)
+
+    # 站点从禁用变为启用时，后台触发全量刮削即时补全
+    if db_site.enabled and not was_enabled and scheduler_module.crawler:
+        asyncio.create_task(
+            scheduler_module.crawler.trigger_full_crawl(db_site.id)
+        )
+
     return db_site
 
 

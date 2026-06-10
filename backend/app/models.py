@@ -2,15 +2,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    type_annotation_map = {
+        dict: JSON,
+        list: JSON,
+    }
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class SystemCategory(Base):
@@ -26,6 +30,7 @@ class SystemCategory(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
@@ -129,16 +134,16 @@ class VideoCache(Base):
     play_url_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    # 刮削相关字段
     type_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     type_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     play_from: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     has_detail: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    search_vector: Mapped[Optional[TSVECTOR]] = mapped_column(TSVECTOR, nullable=True)
 
 
 class AggregatedVideoV1(Base):
-    """预聚合视频缓存表 v1（双缓冲方案）"""
+    """预聚合视频缓存表 v1（PostgreSQL 下不再使用，保留模型兼容历史数据）。"""
 
     __tablename__ = "aggregated_videos_v1"
     __table_args__ = (Index("ix_agg_v1_updated", "latest_updated_at"),)
@@ -154,7 +159,7 @@ class AggregatedVideoV1(Base):
 
 
 class AggregatedVideoV2(Base):
-    """预聚合视频缓存表 v2（双缓冲方案）"""
+    """预聚合视频缓存表 v2（PostgreSQL 下不再使用，保留模型兼容历史数据）。"""
 
     __tablename__ = "aggregated_videos_v2"
     __table_args__ = (Index("ix_agg_v2_updated", "latest_updated_at"),)
@@ -167,6 +172,24 @@ class AggregatedVideoV2(Base):
     latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class AggregatedVideo(Base):
+    """物化视图映射（只读）。
+
+    对应物化视图 mv_aggregated_videos，由 SQL 脚本创建和维护。
+    """
+
+    __tablename__ = "mv_aggregated_videos"
+    __table_args__ = {"info": {"is_view": True}}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class AppConfig(Base):

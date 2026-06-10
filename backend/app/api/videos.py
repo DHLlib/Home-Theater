@@ -5,15 +5,16 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, desc, func, or_, select
-from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy import delete, desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
 from app.db import get_db
+from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.models import (
-    AggregatedVideoV1,
-    AggregatedVideoV2,
+    _utcnow,
+
+    AggregatedVideo as AggregatedVideoModel,
     AppConfig,
     Site,
     SystemCategory,
@@ -39,6 +40,100 @@ from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# 分类禁用过滤：全局缓存（物化视图查询用）
+# ------------------------------------------------------------------
+
+_category_filter_cache: tuple[dict, dict, dict] | None = None
+_category_filter_cache_ts: float = 0.0
+_CATEGORY_FILTER_CACHE_TTL = 60  # 秒
+
+
+async def _load_category_filter_maps(db: AsyncSession) -> tuple[dict, dict, dict]:
+    """加载系统分类和站点分类映射数据用于首页"全部"过滤。
+
+    返回 (system_by_name, system_by_id, site_mappings)。
+    结果缓存 60 秒，避免每次分页查询都查 DB。
+    """
+    global _category_filter_cache, _category_filter_cache_ts
+    now = time.monotonic()
+    if _category_filter_cache is not None and (now - _category_filter_cache_ts) < _CATEGORY_FILTER_CACHE_TTL:
+        return _category_filter_cache
+
+    # 系统分类
+    result = await db.execute(select(SystemCategory))
+    system_by_name: dict[str, dict] = {}
+    system_by_id: dict[int, dict] = {}
+    for c in result.scalars().all():
+        info = {"id": c.id, "enabled": c.enabled, "parent_id": c.parent_id}
+        system_by_name[c.name] = info
+        system_by_id[c.id] = info
+
+    # 站点分类映射
+    result = await db.execute(select(Site))
+    site_mappings: dict[int, dict[str, dict]] = {}
+    for s in result.scalars().all():
+        site_mappings[s.id] = {}
+        for c in (s.categories or []):
+            rid = c.get("remote_id")
+            if rid is not None:
+                site_mappings[s.id][str(rid)] = {
+                    "enabled": c.get("enabled", True),
+                    "system_name": c.get("name", ""),
+                }
+
+    _category_filter_cache = (system_by_name, system_by_id, site_mappings)
+    _category_filter_cache_ts = now
+    return _category_filter_cache
+
+
+def _video_has_enabled_source(
+    sources: list[SourceRef],
+    system_by_name: dict[str, dict],
+    system_by_id: dict[int, dict],
+    site_mappings: dict[int, dict[str, dict]],
+) -> bool:
+    """检查聚合视频是否至少有一个 source 映射到启用的分类。
+
+    规则（保守策略——无法判断时保留）：
+    1. source.type_id 为 None → 保留
+    2. 该站点无此 remote_id 的映射 → 保留
+    3. 映射 enabled=False → 过滤掉此 source
+    4. 映射指向的系统分类不存在 → 保留
+    5. 系统分类 enabled=False → 过滤掉此 source
+    6. 系统分类的父分类 enabled=False → 过滤掉此 source
+    7. 至少一个 source 保留 → 视频保留
+    """
+    for s in sources:
+        type_id = getattr(s, "type_id", None)
+        if type_id is None:
+            return True
+
+        mappings = site_mappings.get(s.site_id, {})
+        mapping = mappings.get(str(type_id))
+        if mapping is None:
+            return True
+
+        if mapping.get("enabled") is False:
+            continue
+
+        sys_cat = system_by_name.get(mapping.get("system_name", ""))
+        if sys_cat is None:
+            return True
+
+        if sys_cat.get("enabled") is False:
+            continue
+
+        parent_id = sys_cat.get("parent_id")
+        if parent_id is not None:
+            parent = system_by_id.get(parent_id)
+            if parent is not None and parent.get("enabled") is False:
+                continue
+
+        return True
+
+    return False
 
 # ------------------------------------------------------------------
 # 字段过滤 + 移动端检测 + 分页（AC-023）
@@ -91,11 +186,16 @@ def _get_page_size(request: Request, pg_size: int | None) -> int:
 # ------------------------------------------------------------------
 
 def _resolve_remote_categories(site: Site, category: str | None) -> list[str | int]:
-    """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。"""
+    """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。
+
+    跳过 enabled=False 的映射条目。
+    """
     if not category:
         return []
     results = []
     for c in (site.categories or []):
+        if c.get("enabled") is False:
+            continue
         if c.get("name") == category:
             rid = c.get("remote_id")
             if rid is not None:
@@ -170,7 +270,9 @@ async def _query_and_aggregate(
 
     query = select(VideoCache).where(or_(*conditions))
     if wd:
-        query = query.where(VideoCache.title.contains(wd.strip()))
+        keyword = wd.strip()
+        # ILIKE 搜索：中文友好，无需 tsvector（避免 180 万条数据回填超时）
+        query = query.where(VideoCache.title.ilike(f"%{keyword}%"))
     # 按资源站实际更新时间排序（而非缓存写入时间），避免详情回源或
     # 增量刷新导致首页顺序抖动。null 值自然排到最后。
     query = query.order_by(desc(VideoCache.source_updated_at), desc(VideoCache.id))
@@ -291,61 +393,95 @@ async def _query_and_aggregate(
 # 预聚合表双缓冲查询
 # ------------------------------------------------------------------
 
-_AGGREGATED_TABLES = {"v1": AggregatedVideoV1, "v2": AggregatedVideoV2}
-
-
-async def _get_active_aggregated_version(db: AsyncSession) -> str:
-    result = await db.execute(
-        select(AppConfig.value).where(AppConfig.key == "aggregated_active_version")
-    )
-    row = result.scalar_one_or_none()
-    return row if row in _AGGREGATED_TABLES else "v1"
-
-
-def _get_aggregated_model(version: str):
-    return _AGGREGATED_TABLES.get(version, AggregatedVideoV1)
-
-
 async def _query_aggregated_cache(
     db: AsyncSession,
     pg: int | None = 1,
     per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
+    site_id: int | None = None,
 ) -> AggregatedListResponse | None:
-    """从预聚合缓存表读取，无阻塞。
+    """从物化视图 mv_aggregated_videos 读取预聚合缓存。
 
-    若活跃表为空（首次启动未初始化），返回 None 让调用方 fallback。
+    若物化视图为空（首次启动未初始化），返回 None 让调用方 fallback。
     """
-    version = await _get_active_aggregated_version(db)
-    Model = _get_aggregated_model(version)
+    try:
+        # 加载分类禁用映射（缓存 60 秒）
+        system_by_name, system_by_id, site_mappings = await _load_category_filter_maps(db)
 
-    # 快速检查表是否为空
-    count_result = await db.execute(select(func.count()).select_from(Model))
-    count = count_result.scalar_one()
-    if count == 0:
+        count_query = select(func.count()).select_from(AggregatedVideoModel)
+        query = select(AggregatedVideoModel)
+
+        # JSONB 按 site_id 过滤（参数化绑定，防注入）
+        if site_id is not None:
+            from sqlalchemy.dialects.postgresql import JSONB
+
+            jsonb_filter = bindparam(
+                "site_id_filter",
+                value=[{"site_id": site_id}],
+                type_=JSONB,
+            )
+            count_query = count_query.where(
+                AggregatedVideoModel.sources.op("@>")(jsonb_filter)
+            )
+            query = query.where(
+                AggregatedVideoModel.sources.op("@>")(jsonb_filter)
+            )
+
+        count_result = await db.execute(count_query)
+        count = count_result.scalar_one()
+        if count == 0:
+            return None
+
+        page = pg or 1
+        offset = (page - 1) * per_page
+
+        # 多取 5 倍数据以补偿分类过滤导致的缩减
+        result = await db.execute(
+            query.order_by(
+                desc(AggregatedVideoModel.latest_updated_at),
+                desc(AggregatedVideoModel.id),
+            )
+            .limit(per_page * 5)
+            .offset(offset)
+        )
+        rows = result.scalars().all()
+
+        items = []
+        for r in rows:
+            sources = [SourceRef(**s) for s in (r.sources or [])]
+            # 双重保险：数据库端过滤后再 Python 端确认
+            sources = _filter_sources_by_site_id(sources, site_id)
+
+            # AC-031: 分类禁用过滤——所有 source 都被禁用时整体过滤
+            if not _video_has_enabled_source(sources, system_by_name, system_by_id, site_mappings):
+                continue
+
+            items.append(
+                AggregatedVideo(
+                    title=r.title,
+                    year=r.year,
+                    poster_url=r.poster_url,
+                    sources=sources,
+                    source_count=r.source_count,
+                )
+            )
+            if len(items) >= per_page:
+                break
+
+        return AggregatedListResponse(items=items, failed_sources=[])
+    except Exception:
+        # 物化视图不存在时 fallback
         return None
 
-    page = pg or 1
-    offset = (page - 1) * per_page
 
-    result = await db.execute(
-        select(Model)
-        .order_by(desc(Model.latest_updated_at), desc(Model.id))
-        .limit(per_page)
-        .offset(offset)
-    )
-    rows = result.scalars().all()
+# ------------------------------------------------------------------
+# JSONB sources 按 site_id 过滤
+# ------------------------------------------------------------------
 
-    items = []
-    for r in rows:
-        items.append(
-            AggregatedVideo(
-                title=r.title,
-                year=r.year,
-                poster_url=r.poster_url,
-                sources=[SourceRef(**s) for s in (r.sources or [])],
-            )
-        )
-    return AggregatedListResponse(items=items, failed_sources=[])
+def _filter_sources_by_site_id(sources: list[SourceRef], site_id: int | None) -> list[SourceRef]:
+    """Python 端按 site_id 过滤 sources（双重保险）。"""
+    if site_id is None:
+        return sources
+    return [s for s in sources if s.site_id == site_id]
 
 
 # ------------------------------------------------------------------
@@ -363,6 +499,7 @@ async def list_videos(
     mode: str = "aggregated",
     fields: str | None = None,
     pg_size: int | None = None,
+    site_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """从本地 VideoCache 查询并按分类聚合去重。"""
@@ -373,7 +510,7 @@ async def list_videos(
 
     # 无分类 / 无 t / 聚合模式：优先走预聚合缓存表（O(1) 查询）
     if not category and t is None and mode == "aggregated":
-        agg_response = await _query_aggregated_cache(db, pg, per_page)
+        agg_response = await _query_aggregated_cache(db, pg, per_page, site_id)
         if agg_response is not None:
             # fields 字段过滤
             raw_items = [item.model_dump() for item in agg_response.items]
@@ -489,7 +626,11 @@ async def search_videos(
 # ------------------------------------------------------------------
 
 @router.post("/detail")
-async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
+async def video_detail(
+    req: DetailRequest,
+    db: AsyncSession = Depends(get_db),
+    site_id: int | None = None,
+):
     start = time.monotonic()
 
     # 回退：sources 为空时按 title+year 查 VideoCache 补全
@@ -498,11 +639,17 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
         cache_q = select(VideoCache).where(VideoCache.title == req.title)
         if req.year is not None:
             cache_q = cache_q.where(VideoCache.year == req.year)
+        # AC-033: 如有 site_id 过滤需求，在查询层面过滤
+        if site_id is not None:
+            cache_q = cache_q.where(VideoCache.site_id == site_id)
         cache_result = await db.execute(cache_q)
         sources = [
             SourceRef(site_id=r.site_id, original_id=r.original_id)
             for r in cache_result.scalars().all()
         ]
+
+    # AC-033: 对传入的 sources 也支持按 site_id 过滤
+    sources = _filter_sources_by_site_id(sources, site_id)
 
     logger.info("api_video_detail title=%s year=%s sources=%d", req.title, req.year, len(sources))
 
@@ -618,7 +765,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
                     "director": item.get("director"),
                     "play_url_raw": play_raw,
                     "source_updated_at": item.get("updated_at"),
-                    "cached_at": datetime.now(timezone.utc),
+                    "cached_at": _utcnow(),
                     "has_detail": True,
                 }
                 return data, cache_entry, None
@@ -650,7 +797,7 @@ async def video_detail(req: DetailRequest, db: AsyncSession = Depends(get_db)):
 
     # 统一写入缓存（upsert）
     for entry in cache_entries:
-        stmt = insert(VideoCache).values(**entry)
+        stmt = insert_cls(VideoCache).values(**entry)
         set_ = {
             "title": entry["title"],
             "year": entry["year"],
@@ -874,6 +1021,90 @@ async def crawler_logs() -> CrawlerLogsResponse:
 async def _evict_video_cache_overflow(db) -> None:
     """取消 LRU 淘汰：本机/局域网部署，磁盘空间不是瓶颈，完整保留刮削数据。"""
     pass
+
+
+# ------------------------------------------------------------------
+# 清除失效资源（videolist 验证返回 total=0）
+# ------------------------------------------------------------------
+
+@router.post("/cleanup-expired")
+async def cleanup_expired(
+    site_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """清除失效视频缓存：向资源站 videolist 验证，返回 total=0 的视频视为已失效。
+
+    限制：每个站点最多检查 2000 条，避免超时。
+    """
+    import httpx
+    from app.services.aggregator import refresh_aggregated_view
+
+    if site_id:
+        site_result = await db.execute(select(Site).where(Site.id == site_id))
+    else:
+        site_result = await db.execute(select(Site).where(Site.enabled.is_(True)))
+    sites = site_result.scalars().all()
+
+    total_deleted = 0
+    total_checked = 0
+    by_site = []
+
+    BATCH_SIZE = 20
+    MAX_PER_SITE = 2000
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for site in sites:
+            video_result = await db.execute(
+                select(VideoCache.original_id)
+                .where(VideoCache.site_id == site.id)
+                .order_by(VideoCache.id)
+                .limit(MAX_PER_SITE)
+            )
+            ids = [r[0] for r in video_result.all()]
+            if not ids:
+                continue
+
+            expired_ids = []
+            for i in range(0, len(ids), BATCH_SIZE):
+                batch = ids[i : i + BATCH_SIZE]
+                ids_str = ",".join(str(x) for x in batch)
+                url = f"{site.base_url.rstrip('/')}?ac=videolist&ids={ids_str}"
+                try:
+                    resp = await client.get(url)
+                    data = resp.json()
+                    returned_ids = {
+                        str(item.get("vod_id", "")) for item in data.get("list", [])
+                    }
+                    for vid in batch:
+                        if str(vid) not in returned_ids:
+                            expired_ids.append(str(vid))
+                except Exception:
+                    continue
+
+            if expired_ids:
+                await db.execute(
+                    delete(VideoCache).where(
+                        VideoCache.site_id == site.id,
+                        VideoCache.original_id.in_(expired_ids),
+                    )
+                )
+                await db.commit()
+                total_deleted += len(expired_ids)
+
+            total_checked += len(ids)
+            by_site.append(
+                {
+                    "site_id": site.id,
+                    "site_name": site.name,
+                    "checked": len(ids),
+                    "deleted": len(expired_ids),
+                }
+            )
+
+    if total_deleted > 0:
+        await refresh_aggregated_view(db)
+
+    return {"deleted": total_deleted, "checked": total_checked, "by_site": by_site}
 
 
 # ------------------------------------------------------------------
