@@ -156,7 +156,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 1. **启动后端**（终端 1）：
    ```bash
-   cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8181 --reload
+   cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 2. **启动前端**（终端 2）：
@@ -182,7 +182,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
    - `http://<本机IP>:8181` — 局域网内所有设备可用
    - `http://localhost.com:8181` — 本机访问，不用记 IP
 
-> 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8181`，与后端开发端口保持一致。
+> 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8000`，与后端默认端口保持一致。若修改 `.env` 中的 `PORT`，需同步修改 `vite.config.ts` 中的代理目标。
 
 ### Windows 一键启动（PowerShell）
 
@@ -213,6 +213,7 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - 改动到「资源站请求参数」或「播放地址解析」相关代码时，回头核对本文件的硬规范章节
 - 新增任何「自动选源」「按某源默认播放」之类的逻辑前，先与用户确认 —— 这与现有契约相反
 - 下载根目录的获取应从配置层读，不要在调用点硬编码或重复询问用户
+- **分类禁用**：SystemCategory 和 Site.categories 映射条目均有 `enabled` 字段（默认 True）。禁用后：① 首页"全部"（物化视图查询）通过 `_video_has_enabled_source` 过滤掉所有 source 均被禁用的视频；② 分类筛选通过 `_resolve_remote_categories` 跳过 `enabled=False` 的映射；③ 禁用父分类时，其下所有子分类的视频在首页"全部"中不展示（子分类的 `enabled` 字段不变，前端根据父状态决定是否渲染）。允许同一视频在不同站点有不同分类时部分保留。
 - **分类映射**：系统分类是扁平的，禁止新增"电影""连续剧"等父级大类；新增分类时应映射到叶子子分类
 - **fetch-categories**：后端已过滤 `type_pid=0` 的父分类，不要修改此逻辑让父分类重新进入可选列表
 - **CategorySettings 互斥**：一个 remote_id 只能属于一个系统分类，前端用 occupancy map 维护此约束；如需改动映射逻辑，需同步更新 occupancy 计算和 releaseRemoteId 逻辑

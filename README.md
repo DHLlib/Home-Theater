@@ -21,6 +21,9 @@
 - **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，状态持久化
 - **播放器格式兼容**：支持 M3U8/MP4/WebM，自动归一化 dytt/xlyun/155m3u8 等后缀
 - **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
+- **分类禁用**：系统分类和站点映射支持单独禁用，禁用后首页自动过滤
+- **SSE 实时推送**：下载进度、站点健康状态实时推送到前端
+- **清除失效资源**：一键清理远程已下架的幽灵视频
 - **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
 - **性能优化**：
   - 后端：下载批量 commit、物化视图预聚合、PostgreSQL 连接池、刮削并发控制
@@ -40,81 +43,160 @@
 
 ---
 
+## 部署前置：PostgreSQL 安装与配置
+
+本项目使用 PostgreSQL 作为唯一数据库。以下教程覆盖 Windows、Linux/macOS、Docker 三种环境的完整安装流程。
+
+### 系统要求
+
+- PostgreSQL 16+（推荐最新稳定版）
+- 至少 2GB 可用磁盘空间（数据增长取决于视频缓存量）
+- 默认端口 `5432` 未被占用
+
+### 安装方式
+
+#### Windows
+
+**方式一 — 官网安装包（推荐）**：
+1. 访问 https://www.postgresql.org/download/windows/
+2. 下载 PostgreSQL 16+ Windows 安装包（x64）
+3. 运行安装向导，注意以下选项：
+   - 安装目录：默认 `C:\Program Files\PostgreSQL\16`
+   - 数据目录：默认即可
+   - 密码：**务必记住**，安装程序会要求为 `postgres` 超级用户设置密码
+   - 端口：保持默认 `5432`
+   - Locale：保持默认或选择 `Chinese (Simplified), China`
+4. 安装完成后，pgAdmin 4 和 psql 命令行工具已自动安装
+
+**方式二 — Chocolatey**：
+```powershell
+choco install postgresql
+```
+
+**方式三 — Scoop**：
+```powershell
+scoop install postgresql
+```
+
+#### Linux（Ubuntu/Debian）
+
+```bash
+# 添加官方仓库
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+
+# 安装
+sudo apt update
+sudo apt install postgresql-16
+
+# 启动并设置开机自启
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+```
+
+#### macOS
+
+```bash
+# 使用 Homebrew
+brew install postgresql@16
+
+# 启动服务
+brew services start postgresql@16
+```
+
+#### Docker（快速体验，不推荐生产）
+
+```bash
+docker run -d \
+  --name home-theater-pg \
+  -e POSTGRES_DB=home_theater \
+  -e POSTGRES_USER=home_theater \
+  -e POSTGRES_PASSWORD=your_password \
+  -p 5432:5432 \
+  -v pgdata:/var/lib/postgresql/data \
+  postgres:16
+```
+
+### 数据库初始化
+
+安装完成后，需要创建数据库和用户。
+
+**命令行方式（psql）**：
+
+```powershell
+# Windows：从开始菜单打开 "SQL Shell (psql)"，或直接运行
+psql -U postgres
+```
+
+```sql
+-- 创建数据库
+CREATE DATABASE home_theater;
+
+-- 创建用户（可选，可直接用 postgres 用户）
+CREATE USER home_theater WITH PASSWORD 'your_password';
+
+-- 授权
+GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;
+
+-- 退出
+\q
+```
+
+**pgAdmin 4（图形化，推荐新手）**：
+
+1. **连接服务器**
+   - 打开 pgAdmin 4，左侧展开 `Servers` → 双击 `PostgreSQL 16`
+   - 输入安装时设置的 `postgres` 密码
+   - 如未显示服务器：右键 `Servers` → `Register` → `Server`
+     - General 标签：Name 填 `localhost`
+     - Connection 标签：Host `localhost`，Port `5432`，Username `postgres`
+
+2. **创建数据库**
+   - 展开 `Servers` → `localhost` → `Databases`
+   - 右键 `Databases` → `Create` → `Database...`
+   - Database 填 `home_theater`，Owner 选 `postgres`，点击 Save
+
+3. **创建用户（可选）**
+   - 展开 `Servers` → `localhost` → `Login/Group Roles`
+   - 右键 → `Create` → `Login/Group Role...`
+   - General：Name 填 `home_theater`
+   - Definition：Password 填密码
+   - Privileges：勾选 `Can login?`
+
+4. **授权**
+   - 右键 `home_theater` 数据库 → `Query Tool`
+   - 粘贴 `GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;`
+   - F5 执行
+
+### 验证连接
+
+```bash
+# 使用 psql 验证
+psql postgresql://home_theater:your_password@localhost:5432/home_theater -c "SELECT version();"
+```
+
+输出包含 `PostgreSQL 16.x` 即表示连接成功。
+
+### 常见问题
+
+| 问题 | 解决 |
+|------|------|
+| `psql: 连接被拒绝` | 检查 PostgreSQL 服务是否启动（Windows 服务管理器 / `systemctl status postgresql`） |
+| `密码认证失败` | 确认 `.env` 中的密码与安装时设置的一致 |
+| `数据库不存在` | 先执行 `CREATE DATABASE home_theater;` |
+| `端口 5432 被占用` | 修改 PostgreSQL 端口后，`.env` 中的 `DATABASE_URL` 也要同步修改 |
+
+---
+
 ## 快速开始
 
 ### 前提
 
 - Python 3.11+（推荐 3.13）
 - Node.js 18+ 及 npm
-- PostgreSQL 16+（见下方安装教程）
+- PostgreSQL 16+（已完成安装配置，见上方【部署前置】）
 
-### 1. 安装 PostgreSQL
-
-**Windows（PowerShell）**
-
-方式一 — 官网安装包（推荐）：
-1. 访问 https://www.postgresql.org/download/windows/
-2. 下载 PostgreSQL 16+ 安装包
-3. 安装时记住密码，端口保持默认 `5432`
-
-方式二 — Chocolatey：
-```powershell
-choco install postgresql
-```
-
-方式三 — Scoop：
-```powershell
-scoop install postgresql
-```
-
-**方式 A — 命令行（psql）**：
-```powershell
-psql -U postgres
-```
-```sql
-CREATE DATABASE home_theater;
-CREATE USER home_theater WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;
-\q
-```
-
-**方式 B — pgAdmin 4（图形化，推荐新手）**：
-
-pgAdmin 4 安装 PostgreSQL 时默认已附带，在开始菜单搜索打开即可。
-
-1. **连接服务器**
-   - 左侧展开 `Servers` → 双击 `PostgreSQL 16`
-   - 输入安装时设置的密码
-   - 如未显示服务器，右键 `Servers` → `Register` → `Server`
-     - General 标签：Name 填 `localhost`
-     - Connection 标签：Host `localhost`，Port `5432`，Username `postgres`，Password 填安装密码，勾选 Save password
-
-2. **创建数据库**
-   - 展开 `Servers` → `localhost` → `Databases`
-   - 右键 `Databases` → `Create` → `Database...`
-   - Database 填 `home_theater`
-   - Owner 选择 `postgres`
-   - 点击 Save
-
-3. **创建用户（可选）**
-   - 展开 `Servers` → `localhost` → `Login/Group Roles`
-   - 右键 `Login/Group Roles` → `Create` → `Login/Group Role...`
-   - General 标签：Name 填 `home_theater`
-   - Definition 标签：Password 填你的密码
-   - Privileges 标签：勾选 `Can login?`
-   - 点击 Save
-
-4. **授权**
-   - 右键 `home_theater` 数据库 → `Query Tool...`
-   - 在右侧 SQL 编辑器粘贴：
-     ```sql
-     GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;
-     ```
-   - 按 F5 或点击上方闪电图标执行
-
-> 个人使用可跳过创建独立用户，直接用 `postgres` 用户连接。此时 `.env` 中用户名写 `postgres` 即可。
-
-### 2. 配置环境变量
+### 1. 配置环境变量
 
 复制示例配置文件并修改数据库密码：
 ```powershell
@@ -130,7 +212,7 @@ LOG_LEVEL=INFO
 DEFAULT_DOWNLOAD_ROOT=D:\Downloads
 ```
 
-### 3. 安装依赖
+### 2. 安装依赖
 
 **后端**：
 ```bash
@@ -144,7 +226,7 @@ cd frontend
 npm install
 ```
 
-### 4. 一键启动（Windows）
+### 3. 一键启动（Windows）
 
 ```powershell
 # 生产模式（单端口托管前后端）
@@ -159,7 +241,7 @@ npm install
 
 `start.ps1` 会自动检测 PostgreSQL 连通性，未安装时会输出安装教程。
 
-### 5. 手动启动（跨平台）
+### 4. 手动启动（跨平台）
 
 **开发模式（前后端分别启动）**
 
@@ -186,7 +268,7 @@ cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 浏览器访问：`http://<本机IP>:8000`（局域网可用）或 `http://localhost.com:8000`（本机）
 
-### 6. Docker 部署
+### 5. Docker 部署
 
 ```bash
 # 一键启动（含 PostgreSQL + 应用）
@@ -224,8 +306,9 @@ Home Theater/
 │   │   ├── db.py             # async engine + session_factory
 │   │   ├── config.py         # 配置读取（Pydantic Settings，从 .env 加载）
 │   │   ├── logging_config.py # 日志分类路由（api/source/crawler/download）
-│   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings / sse
-│   │   └── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver
+│   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings / sse / system_categories
+│   │   ├── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver / listen_manager / notify_sender
+│   │   └── sql/              # PostgreSQL 初始化脚本（物化视图、全文搜索）
 │   ├── .env.example          # 环境变量示例
 │   └── pyproject.toml
 ├── frontend/
@@ -261,7 +344,9 @@ Home Theater/
 | 下载根目录一次性配置 | `backend/app/api/settings_api.py` + `frontend/src/pages/Settings.tsx` |
 | 预聚合缓存（物化视图） | `backend/app/services/aggregator.py` `refresh_aggregated_view` |
 | 分类映射（扁平系统分类，互斥约束） | `frontend/src/components/CategorySettings.tsx` |
+| 分类禁用过滤 | `backend/app/api/videos.py` `_video_has_enabled_source` |
 | 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
+| SSE 实时推送 | `backend/app/api/sse.py` + `listen_manager.py` |
 | 项目常量（禁止魔法数字） | `backend/app/constants.py` |
 
 ---
