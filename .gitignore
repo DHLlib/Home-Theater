@@ -50,6 +50,7 @@ Thumbs.db
 
 # Claude
 .claude/
+CLAUDE.md
 
 # Test coverage
 htmlcov/
