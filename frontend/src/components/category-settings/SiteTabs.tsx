@@ -19,7 +19,7 @@ const SiteTabs = React.memo(function SiteTabs({
         gap: 4,
         overflowX: "auto",
         padding: "4px 0",
-        borderBottom: "1px solid var(--border)",
+        borderBottom: "1px solid var(--glass-border)",
       }}
     >
       {sites.map((site) => {
@@ -31,12 +31,12 @@ const SiteTabs = React.memo(function SiteTabs({
             style={{
               padding: "8px 16px",
               borderRadius: "6px 6px 0 0",
-              border: "1px solid var(--border)",
+              border: "1px solid var(--glass-border)",
               borderBottom: isActive
                 ? "1px solid var(--bg)"
-                : "1px solid var(--border)",
-              background: isActive ? "var(--bg)" : "var(--card)",
-              color: isActive ? "var(--fg)" : "var(--text-secondary)",
+                : "1px solid var(--glass-border)",
+              background: isActive ? "var(--bg)" : "rgba(255,255,255,0.03)",
+              color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
               fontSize: 14,
               fontWeight: isActive ? 600 : 400,
               fontFamily: "inherit",

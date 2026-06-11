@@ -61,12 +61,13 @@ function formatAxis(v: number): string {
 function SkeletonCard() {
   return (
     <div style={{
-      background: "var(--card)",
-      border: "1px solid var(--border)",
-      borderRadius: 16,
-      padding: "24px 28px",
+      background: "transparent",
+      border: "none",
+      borderRadius: 0,
+      padding: "24px 0",
       minWidth: 200,
       flex: 1,
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
     }}>
       <div className="skeleton" style={{ width: 80, height: 12, marginBottom: 16, borderRadius: 4 }} />
       <div className="skeleton" style={{ width: 120, height: 40, marginBottom: 8, borderRadius: 6 }} />
@@ -77,13 +78,14 @@ function SkeletonCard() {
 function SkeletonChart({ h = 260 }: { h?: number }) {
   return (
     <div style={{
-      background: "var(--card)",
-      border: "1px solid var(--border)",
-      borderRadius: 16,
-      padding: 20,
+      background: "transparent",
+      border: "none",
+      borderRadius: 0,
+      padding: "20px 0",
       height: h,
       flex: 1,
       minWidth: 280,
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
     }}>
       <div className="skeleton" style={{ width: 120, height: 14, marginBottom: 16, borderRadius: 4 }} />
       <div className="skeleton" style={{ width: "100%", height: h - 60, borderRadius: 4 }} />
@@ -100,12 +102,13 @@ function MetricCard({ icon, label, value, sub, color, delay = 0 }: {
   useEffect(() => { const t = setTimeout(() => setVisible(true), delay); return () => clearTimeout(t); }, [delay]);
   return (
     <div style={{
-      background: "var(--card)",
-      border: "1px solid var(--border)",
-      borderRadius: 16,
-      padding: "24px 28px",
+      background: "transparent",
+      border: "none",
+      borderRadius: 0,
+      padding: "24px 0",
       minWidth: 200,
       flex: 1,
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
       opacity: visible ? 1 : 0,
       transform: visible ? "translateY(0)" : "translateY(12px)",
       transition: "all 0.6s cubic-bezier(0.22,1,0.36,1)",
@@ -132,18 +135,19 @@ function ChartWrap({ title, children, delay = 0, style }: { title: string; child
   useEffect(() => { const t = setTimeout(() => setVisible(true), delay); return () => clearTimeout(t); }, [delay]);
   return (
     <div style={{
-      background: "var(--card)",
-      border: "1px solid var(--border)",
-      borderRadius: 16,
-      padding: 20,
+      background: "transparent",
+      border: "none",
+      borderRadius: 0,
+      padding: "20px 0",
       flex: 1,
       minWidth: 280,
       opacity: visible ? 1 : 0,
       transform: visible ? "translateY(0)" : "translateY(16px)",
       transition: "all 0.7s cubic-bezier(0.22,1,0.36,1)",
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
       ...style,
     }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)", marginBottom: 16, letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 16, letterSpacing: "0.03em", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 4, height: 16, borderRadius: 2, background: C_ORANGE }} />
         {title}
       </div>
@@ -198,7 +202,7 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
 
   return (
     <ChartWrap title="刮削趋势" delay={200} style={{ minWidth: 360 }}>
-      <div style={{ display: "flex", justifyContent: "center", gap: 24, fontSize: 12, color: "var(--fg)", marginBottom: 2 }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: 24, fontSize: 12, color: "var(--text-primary)", marginBottom: 2 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: C_ORANGE, flexShrink: 0 }} />
           <span>总刮削</span>
@@ -217,7 +221,7 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
         </defs>
         {gridYs.map((g, i) => (
           <g key={i}>
-            <line x1={pad.l} y1={g.y} x2={pad.l + w} y2={g.y} stroke="var(--muted)" strokeWidth={0.5} strokeDasharray="4,4" />
+            <line x1={pad.l} y1={g.y} x2={pad.l + w} y2={g.y} stroke="rgba(255,255,255,0.03)" strokeWidth={0.5} strokeDasharray="4,4" />
             <text x={pad.l - 8} y={g.y + 4} textAnchor="end" fontSize={10} fill="var(--text-secondary)" fontFamily="monospace">{formatAxis(g.v)}</text>
           </g>
         ))}
@@ -261,14 +265,14 @@ function DonutChart({ data, total }: { data: SiteStat[]; total: number }) {
           {segs.map((s, i) => (
             <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={r - innerR} strokeDasharray={s.dasharray} strokeDashoffset={s.offset} transform={`rotate(-90 ${cx} ${cy})`} />
           ))}
-          <text x={cx} y={cy - 6} textAnchor="middle" fontSize={28} fontWeight={700} fill="var(--fg)" fontFamily="monospace">{formatNum(total)}</text>
+          <text x={cx} y={cy - 6} textAnchor="middle" fontSize={28} fontWeight={700} fill="var(--text-primary)" fontFamily="monospace">{formatNum(total)}</text>
           <text x={cx} y={cy + 18} textAnchor="middle" fontSize={12} fill="var(--text-secondary)">总资源</text>
         </svg>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 160 }}>
           {segs.slice(0, 8).map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, whiteSpace: "nowrap" }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-              <span style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", width: 90 }} title={s.name}>{s.name}</span>
+              <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", width: 90 }} title={s.name}>{s.name}</span>
               <span style={{ color: "var(--text-secondary)", fontFamily: "monospace" }}>{s.pct}%</span>
             </div>
           ))}
@@ -388,7 +392,7 @@ function DetailTable({ data, total }: { data: SiteStat[]; total: number }) {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
-            <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
               {["站点", "资源占比", "已刮削", "未刮削", "已补全", "补全率"].map((h, i) => (
                 <th key={i} style={{ padding: "10px 12px", textAlign: i >= 2 ? "right" : "left", color: "var(--text-secondary)", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
               ))}
@@ -399,17 +403,17 @@ function DetailTable({ data, total }: { data: SiteStat[]; total: number }) {
               const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
               const rate = s.count > 0 ? Math.round((s.with_detail / s.count) * 100) : 0;
               return (
-                <tr key={s.site_id} style={{ borderBottom: "1px solid var(--border)", transition: "background 0.15s" }} onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = "var(--muted)"; }} onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}>
-                  <td style={{ padding: "10px 12px", color: "var(--fg)", fontWeight: 500, whiteSpace: "nowrap" }}>{s.site_name}</td>
+                <tr key={s.site_id} style={{ borderBottom: "1px solid var(--glass-border)", transition: "background 0.15s" }} onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = "rgba(255,255,255,0.03)"; }} onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}>
+                  <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontWeight: 500, whiteSpace: "nowrap" }}>{s.site_name}</td>
                   <td style={{ padding: "10px 12px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ flex: 1, height: 6, background: "var(--muted)", borderRadius: 3, overflow: "hidden", maxWidth: 100 }}>
+                      <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,0.03)", borderRadius: 3, overflow: "hidden", maxWidth: 100 }}>
                         <div style={{ width: `${pct}%`, height: "100%", background: rate >= 80 ? C_TEAL : rate >= 50 ? C_BLUE : C_AMBER, borderRadius: 3, transition: "width 0.6s ease-out" }} />
                       </div>
                       <span style={{ color: "var(--text-secondary)", fontSize: 10, fontFamily: "monospace", width: 28 }}>{pct}%</span>
                     </div>
                   </td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--fg)", fontFamily: "monospace" }}>{formatNum(s.count)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{formatNum(s.count)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-secondary)", fontFamily: "monospace" }}>{formatNum(s.without_detail)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: C_TEAL, fontFamily: "monospace" }}>{formatNum(s.with_detail)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right" }}>
@@ -460,7 +464,7 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: "var(--fg)", lineHeight: 1 }}>看板</h1>
+          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1 }}>看板</h1>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>数据监控中心</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

@@ -1,14 +1,15 @@
 import { NavLink, useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
 
 function HomeIcon({ active }: { active: boolean }) {
   return (
     <svg
-      width={24}
-      height={24}
+      width={22}
+      height={22}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={active ? 2.5 : 2}
+      strokeWidth={active ? 2 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -22,12 +23,12 @@ function HomeIcon({ active }: { active: boolean }) {
 function SearchIcon({ active }: { active: boolean }) {
   return (
     <svg
-      width={24}
-      height={24}
+      width={22}
+      height={22}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={active ? 2.5 : 2}
+      strokeWidth={active ? 2 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -41,12 +42,12 @@ function SearchIcon({ active }: { active: boolean }) {
 function HeartIcon({ active }: { active: boolean }) {
   return (
     <svg
-      width={24}
-      height={24}
+      width={22}
+      height={22}
       viewBox="0 0 24 24"
       fill={active ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth={active ? 2 : 2}
+      strokeWidth={active ? 2 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -59,12 +60,12 @@ function HeartIcon({ active }: { active: boolean }) {
 function SettingsIcon({ active }: { active: boolean }) {
   return (
     <svg
-      width={24}
-      height={24}
+      width={22}
+      height={22}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={active ? 2.5 : 2}
+      strokeWidth={active ? 2 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -78,12 +79,12 @@ function SettingsIcon({ active }: { active: boolean }) {
 function DashboardIcon({ active }: { active: boolean }) {
   return (
     <svg
-      width={24}
-      height={24}
+      width={22}
+      height={22}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={active ? 2.5 : 2}
+      strokeWidth={active ? 2 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -120,9 +121,25 @@ export default function BottomNav() {
             end={tab.end}
             className={`bottom-nav-item${isActive ? " active" : ""}`}
             aria-label={tab.label}
+            style={{ position: "relative" }}
           >
             <tab.Icon active={isActive} />
             <span>{tab.label}</span>
+            {isActive && (
+              <motion.div
+                layoutId="bottom-nav-indicator"
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "var(--primary)",
+                  boxShadow: "0 0 6px var(--primary-glow)",
+                }}
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              />
+            )}
           </NavLink>
         );
       })}

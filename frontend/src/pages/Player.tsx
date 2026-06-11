@@ -403,7 +403,7 @@ export default function Player() {
                         justifyContent: "flex-start",
                         borderColor:
                           ep.index === currentIndex
-                            ? "var(--accent)"
+                            ? "var(--primary)"
                             : undefined,
                         fontSize: 13,
                         padding: "6px 10px",
@@ -456,7 +456,7 @@ export default function Player() {
                 justifyContent: "space-between",
                 flexShrink: 0,
                 padding: "12px 16px",
-                borderBottom: "1px solid var(--border)",
+                borderBottom: "1px solid var(--glass-border)",
               }}
             >
               <h4 style={{ margin: 0, fontSize: 15 }}>选集</h4>
@@ -498,7 +498,7 @@ export default function Player() {
                         style={{
                           borderColor:
                             ep.index === currentIndex
-                              ? "var(--accent)"
+                              ? "var(--primary)"
                               : undefined,
                           fontSize: 12,
                           padding: "8px 4px",

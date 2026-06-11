@@ -122,10 +122,8 @@ function VideoCard({
         className="poster-wrap"
         style={{
           aspectRatio: "2/3",
-          background: "var(--card)",
-          borderRadius: 8,
+          borderRadius: 4,
           overflow: "hidden",
-          border: "1px solid var(--border)",
           position: "relative",
         }}
       >
@@ -184,7 +182,6 @@ function VideoCard({
       </div>
       <div
         className="card-title"
-        style={{ marginTop: 10, fontSize: 14, fontWeight: 500 }}
       >
         {item.title}
       </div>

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { NavLink, Outlet, useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import BottomNav from "./BottomNav";
 
 function SearchIcon({ size = 14 }: { size?: number }) {
@@ -21,69 +22,26 @@ function SearchIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-function SunIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="5" />
-      <line x1="12" y1="1" x2="12" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="23" />
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-      <line x1="1" y1="12" x2="3" y2="12" />
-      <line x1="21" y1="12" x2="23" y2="12" />
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-    </svg>
-  );
-}
+const pageVariants = {
+  initial: { opacity: 0, x: 20 },
+  animate: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -20 },
+};
 
-function MoonIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
+const pageTransition = {
+  type: "tween" as const,
+  ease: [0.4, 0, 0.2, 1] as [number, number, number, number],
+  duration: 0.3,
+};
 
 export default function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const wdFromUrl = searchParams.get("wd") || "";
   const [query, setQuery] = useState(wdFromUrl);
-  const [theme, setTheme] = useState(() =>
-    document.documentElement.getAttribute("data-theme") || "light"
-  );
-
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "theme" && e.newValue) {
-        setTheme(e.newValue);
-        document.documentElement.setAttribute("data-theme", e.newValue);
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  const navRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
   const links = [
     { to: "/", label: "首页", end: true },
@@ -94,6 +52,28 @@ export default function Layout() {
     { to: "/settings", label: "设置" },
   ];
 
+  // 更新导航指示条位置
+  useEffect(() => {
+    const activeLink = links.find((l) => {
+      if (l.end) return location.pathname === l.to;
+      return location.pathname.startsWith(l.to);
+    });
+    if (activeLink) {
+      const el = navRefs.current.get(activeLink.to);
+      if (el) {
+        const parent = el.parentElement;
+        if (parent) {
+          const parentRect = parent.getBoundingClientRect();
+          const elRect = el.getBoundingClientRect();
+          setIndicatorStyle({
+            left: elRect.left - parentRect.left,
+            width: elRect.width,
+          });
+        }
+      }
+    }
+  }, [location.pathname]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = query.trim();
@@ -101,20 +81,17 @@ export default function Layout() {
     navigate(`/?wd=${encodeURIComponent(q)}`);
   };
 
-  const toggleTheme = () => {
-    const next = theme === "light" ? "dark" : "light";
-    setTheme(next);
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("theme", next);
-  };
-
   return (
     <div>
-      <nav>
-        <div className="row" style={{ gap: 4 }}>
+      {/* 顶部导航 — 液态玻璃 */}
+      <nav className="top-nav">
+        <div className="row" style={{ gap: 4, position: "relative" }}>
           {links.map((l) => (
             <NavLink
               key={l.to}
+              ref={(el) => {
+                if (el) navRefs.current.set(l.to, el);
+              }}
               to={l.to}
               end={l.end}
               className="nav-link"
@@ -122,6 +99,20 @@ export default function Layout() {
               {l.label}
             </NavLink>
           ))}
+          {/* 绿色导航指示条 */}
+          <motion.div
+            className="nav-indicator"
+            animate={{
+              left: indicatorStyle.left,
+              width: indicatorStyle.width,
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 400,
+              damping: 30,
+            }}
+            style={{ position: "absolute", bottom: -1 }}
+          />
         </div>
         <form
           onSubmit={handleSearch}
@@ -132,10 +123,10 @@ export default function Layout() {
             <div
               style={{
                 position: "absolute",
-                left: 10,
+                left: 12,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "var(--text-secondary)",
+                color: "var(--text-muted)",
                 pointerEvents: "none",
               }}
             >
@@ -147,32 +138,36 @@ export default function Layout() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索..."
               style={{
-                width: 180,
-                padding: "6px 10px 6px 32px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "var(--bg)",
-                color: "var(--fg)",
+                width: 200,
+                padding: "8px 12px 8px 36px",
+                borderRadius: 4,
+                border: "1px solid var(--glass-border)",
+                background: "rgba(255,255,255,0.03)",
+                color: "var(--text-primary)",
                 fontSize: 13,
                 fontFamily: "inherit",
               }}
             />
           </div>
-          <button
-            type="button"
-            className="btn"
-            onClick={toggleTheme}
-            title={theme === "light" ? "切换深色模式" : "切换浅色模式"}
-            style={{ padding: "8px 10px", minHeight: 40, marginLeft: 4 }}
-            aria-label={theme === "light" ? "切换深色模式" : "切换浅色模式"}
-          >
-            {theme === "light" ? <MoonIcon /> : <SunIcon />}
-          </button>
         </form>
       </nav>
+
+      {/* 页面内容 + 转场动画 */}
       <main>
-        <Outlet />
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            variants={pageVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={pageTransition}
+          >
+            <Outlet />
+          </motion.div>
+        </AnimatePresence>
       </main>
+
       <BottomNav />
     </div>
   );

@@ -44,9 +44,9 @@ export default function Search() {
             flex: 1,
             padding: "8px 12px",
             borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "var(--card)",
-            color: "var(--fg)",
+            border: "1px solid var(--glass-border)",
+            background: "rgba(255,255,255,0.03)",
+            color: "var(--text-primary)",
           }}
         />
         <button type="submit" className="btn btn-primary" disabled={loading}>

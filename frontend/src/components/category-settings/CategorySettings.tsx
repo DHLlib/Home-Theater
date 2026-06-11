@@ -120,7 +120,7 @@ function SystemCategoryTree({
                 gap: 8,
                 padding: "6px 8px",
                 borderRadius: 6,
-                background: "var(--muted)",
+                background: "rgba(255,255,255,0.03)",
                 alignItems: "center",
               }}
             >
@@ -141,9 +141,9 @@ function SystemCategoryTree({
                       padding: "4px 8px",
                       fontSize: 13,
                       borderRadius: 4,
-                      border: "1px solid var(--border)",
+                      border: "1px solid var(--glass-border)",
                       background: "var(--bg)",
-                      color: "var(--fg)",
+                      color: "var(--text-primary)",
                     }}
                   />
                   <input
@@ -155,9 +155,9 @@ function SystemCategoryTree({
                       padding: "4px 8px",
                       fontSize: 13,
                       borderRadius: 4,
-                      border: "1px solid var(--border)",
+                      border: "1px solid var(--glass-border)",
                       background: "var(--bg)",
-                      color: "var(--fg)",
+                      color: "var(--text-primary)",
                     }}
                   />
                   <button
@@ -241,9 +241,9 @@ function SystemCategoryTree({
                             padding: "4px 8px",
                             fontSize: 13,
                             borderRadius: 4,
-                            border: "1px solid var(--border)",
+                            border: "1px solid var(--glass-border)",
                             background: "var(--bg)",
-                            color: "var(--fg)",
+                            color: "var(--text-primary)",
                           }}
                         />
                         <input
@@ -257,9 +257,9 @@ function SystemCategoryTree({
                             padding: "4px 8px",
                             fontSize: 13,
                             borderRadius: 4,
-                            border: "1px solid var(--border)",
+                            border: "1px solid var(--glass-border)",
                             background: "var(--bg)",
-                            color: "var(--fg)",
+                            color: "var(--text-primary)",
                           }}
                         />
                         <button
@@ -291,7 +291,7 @@ function SystemCategoryTree({
                           style={{
                             flex: 1,
                             fontSize: 13,
-                            ...(child.enabled === false ? disabledStyle : { color: "var(--fg)" }),
+                            ...(child.enabled === false ? disabledStyle : { color: "var(--text-primary)" }),
                           }}
                         >
                           {child.name}
@@ -356,9 +356,9 @@ function SystemCategoryTree({
                         padding: "4px 8px",
                         fontSize: 13,
                         borderRadius: 4,
-                        border: "1px solid var(--border)",
+                        border: "1px solid var(--glass-border)",
                         background: "var(--bg)",
-                        color: "var(--fg)",
+                        color: "var(--text-primary)",
                       }}
                     />
                     <button
@@ -402,7 +402,7 @@ function SystemCategoryTree({
             gap: 8,
             padding: "6px 8px",
             borderRadius: 6,
-            background: "var(--muted)",
+            background: "rgba(255,255,255,0.03)",
             alignItems: "center",
           }}
         >
@@ -415,9 +415,9 @@ function SystemCategoryTree({
               padding: "4px 8px",
               fontSize: 13,
               borderRadius: 4,
-              border: "1px solid var(--border)",
+              border: "1px solid var(--glass-border)",
               background: "var(--bg)",
-              color: "var(--fg)",
+              color: "var(--text-primary)",
             }}
           />
           <button
@@ -554,7 +554,7 @@ function SiteCategoryMappings({
                   borderRadius: 4,
                   alignItems: "center",
                   background: isMapped && isEnabled
-                    ? "rgba(52, 211, 153, 0.06)"
+                    ? "var(--primary-dim)"
                     : isMapped && !isEnabled
                     ? "rgba(239, 68, 68, 0.04)"
                     : "transparent",
@@ -574,7 +574,7 @@ function SiteCategoryMappings({
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
                     textDecoration: isMapped && !isEnabled ? "line-through" : "none",
-                    color: isMapped && !isEnabled ? "var(--text-secondary)" : "var(--fg)",
+                    color: isMapped && !isEnabled ? "var(--text-secondary)" : "var(--text-primary)",
                   }}
                   title={cat.name}
                 >
@@ -615,9 +615,9 @@ function SiteCategoryMappings({
                     padding: "4px 8px",
                     fontSize: 13,
                     borderRadius: 4,
-                    border: "1px solid var(--border)",
+                    border: "1px solid var(--glass-border)",
                     background: "var(--bg)",
-                    color: "var(--fg)",
+                    color: "var(--text-primary)",
                     fontFamily: "inherit",
                   }}
                 >

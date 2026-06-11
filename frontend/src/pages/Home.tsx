@@ -39,6 +39,108 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
 
 /* ===== 子组件 ===== */
 
+function HeroSection({
+  video,
+  onClick,
+}: {
+  video: AggregatedVideo;
+  onClick: () => void;
+}) {
+  const poster = video.poster_url || "";
+  return (
+    <div
+      className="hero-section"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label={`${video.title}${video.year ? ` (${video.year})` : ""}`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onClick();
+      }}
+    >
+      {/* 背景画报 */}
+      <div
+        className="hero-bg"
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: poster ? `url(${poster})` : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+          filter: "brightness(0.4)",
+        }}
+      />
+      {/* 底部渐变：融入黑色 */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(to top, var(--bg) 0%, transparent 60%), linear-gradient(to right, var(--bg) 0%, transparent 50%)",
+        }}
+      />
+      {/* 内容层 */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: "0 24px 80px",
+          zIndex: 2,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            letterSpacing: "0.15em",
+            color: "var(--primary)",
+            textTransform: "uppercase",
+            marginBottom: 12,
+            fontWeight: 600,
+          }}
+        >
+          最新推荐
+        </div>
+        <h1
+          className="font-display"
+          style={{
+            fontSize: "clamp(36px, 6vw, 60px)",
+            fontWeight: 700,
+            lineHeight: 1.1,
+            color: "var(--text-primary)",
+            marginBottom: 12,
+            maxWidth: 700,
+            textWrap: "balance",
+          }}
+        >
+          {video.title}
+        </h1>
+        {video.year && (
+          <div
+            style={{
+              fontSize: 16,
+              color: "var(--text-secondary)",
+              marginBottom: 20,
+              fontWeight: 300,
+            }}
+          >
+            {video.year}
+          </div>
+        )}
+        <div className="row" style={{ gap: 12 }}>
+          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            立即观看
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChevronLeftIcon({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -404,30 +506,23 @@ export default function Home() {
         }}
       >
         {/* 时间筛选 */}
-        <div
-          className="row"
-          style={{
-            gap: 0,
-            borderRadius: 8,
-            overflow: "hidden",
-            border: "1px solid var(--border)",
-          }}
-        >
-          {TIME_OPTIONS.map((t, idx, arr) => (
+        <div className="row" style={{ gap: 0 }}>
+          {TIME_OPTIONS.map((t) => (
             <button
               key={t.key}
-              className="btn"
-              style={{
-                borderRadius: 0,
-                border: "none",
-                borderRight: idx < arr.length - 1 ? "1px solid var(--border)" : "none",
-                background: timeFilter === t.key ? "var(--primary)" : undefined,
-                color: timeFilter === t.key ? "var(--primary-fg)" : undefined,
-                fontSize: 13,
-                padding: "6px 14px",
-                minHeight: 36,
-              }}
+              className="nav-link"
               onClick={() => setTimeFilter(t.key)}
+              style={{
+                color:
+                  timeFilter === t.key
+                    ? "var(--text-primary)"
+                    : undefined,
+                borderBottom:
+                  timeFilter === t.key
+                    ? "2px solid var(--primary)"
+                    : "2px solid transparent",
+                marginBottom: -1,
+              }}
             >
               {t.label}
             </button>
@@ -514,6 +609,21 @@ export default function Home() {
       {/* ===== 首页模式：三区域 ===== */}
       {!loading && !wdFromUrl.trim() && (
         <>
+          {/* Hero 首屏画报 */}
+          {!activeCategory && latestSection.length > 0 && (
+            <HeroSection
+              video={latestSection[0]}
+              onClick={() => {
+                const v = latestSection[0];
+                const params = new URLSearchParams();
+                params.set("title", v.title);
+                if (v.year != null) params.set("year", String(v.year));
+                params.set("sources", JSON.stringify(v.sources));
+                navigate(`/detail?${params.toString()}`, { state: v });
+              }}
+            />
+          )}
+
           {!hasContent && (
             <div className="empty" style={{ padding: 40 }}>
               {isSyncing && !activeCategory ? (

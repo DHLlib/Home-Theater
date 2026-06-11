@@ -178,7 +178,7 @@ export default function Detail() {
             <img
               src={item.poster_url || detail[0]?.poster_url || undefined}
               alt={item.title}
-              style={{ width: "100%", borderRadius: 8, display: "block" }}
+              style={{ width: "100%", borderRadius: 4, display: "block" }}
             />
           ) : (
             <div className="empty" style={{ height: 300 }}>
@@ -267,12 +267,12 @@ export default function Detail() {
         >
           <div
             style={{
-              background: "var(--card, #1c1c1e)",
-              color: "var(--fg, #f5f5f7)",
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
               padding: 20,
-              borderRadius: 8,
+              borderRadius: 4,
               width: "min(520px, 92vw)",
-              border: "1px solid var(--border, #2d2d2f)",
+              border: "1px solid var(--glass-border)",
               maxHeight: "80vh",
               display: "flex",
               flexDirection: "column",
