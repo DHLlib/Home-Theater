@@ -506,30 +506,23 @@ export default function Home() {
         }}
       >
         {/* 时间筛选 */}
-        <div
-          className="row"
-          style={{
-            gap: 0,
-            borderRadius: 8,
-            overflow: "hidden",
-            border: "1px solid var(--glass-border)",
-          }}
-        >
-          {TIME_OPTIONS.map((t, idx, arr) => (
+        <div className="row" style={{ gap: 0 }}>
+          {TIME_OPTIONS.map((t) => (
             <button
               key={t.key}
-              className="btn"
-              style={{
-                borderRadius: 0,
-                border: "none",
-                borderRight: idx < arr.length - 1 ? "1px solid var(--glass-border)" : "none",
-                background: timeFilter === t.key ? "var(--primary)" : undefined,
-                color: timeFilter === t.key ? "var(--primary-fg)" : undefined,
-                fontSize: 13,
-                padding: "6px 14px",
-                minHeight: 36,
-              }}
+              className="nav-link"
               onClick={() => setTimeFilter(t.key)}
+              style={{
+                color:
+                  timeFilter === t.key
+                    ? "var(--text-primary)"
+                    : undefined,
+                borderBottom:
+                  timeFilter === t.key
+                    ? "2px solid var(--primary)"
+                    : "2px solid transparent",
+                marginBottom: -1,
+              }}
             >
               {t.label}
             </button>

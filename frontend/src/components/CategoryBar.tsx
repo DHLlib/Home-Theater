@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listSystemCategories } from "../api/system-categories";
 import type { Site, SystemCategoryTreeItem } from "../types";
 
@@ -14,8 +14,9 @@ export default function CategoryBar({
   onSelect,
 }: CategoryBarProps) {
   const [systemTree, setSystemTree] = useState<SystemCategoryTreeItem[]>([]);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 加载系统分类树
   useEffect(() => {
     listSystemCategories().then(setSystemTree).catch(() => {});
   }, []);
@@ -30,8 +31,6 @@ export default function CategoryBar({
     return set;
   }, [sites]);
 
-  // 构建分组：父分类 -> 该父下可用的子分类列表
-  // 过滤掉 enabled=false 的分类；父分类被禁用时其下所有子类不展示
   const groups = useMemo(() => {
     const result: { label: string; items: string[] }[] = [];
     for (const parent of systemTree) {
@@ -47,63 +46,128 @@ export default function CategoryBar({
     return result;
   }, [systemTree, availableCategories]);
 
+  // 当前选中的子类属于哪个父类
+  const activeParent = useMemo(() => {
+    if (!activeCategory) return null;
+    for (const g of groups) {
+      if (g.items.includes(activeCategory)) return g.label;
+    }
+    return null;
+  }, [activeCategory, groups]);
+
+  const handleEnter = (label: string) => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+    setMenuOpen(label);
+  };
+
+  const handleLeave = () => {
+    hideTimer.current = setTimeout(() => {
+      setMenuOpen(null);
+    }, 150);
+  };
+
   if (availableCategories.size === 0) return null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        marginBottom: 16,
-      }}
-    >
-      {/* 全部按钮 */}
-      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+    <div style={{ marginBottom: 16 }}>
+      {/* 父类导航栏 */}
+      <div
+        className="row"
+        style={{
+          gap: 0,
+          flexWrap: "wrap",
+          alignItems: "center",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          paddingBottom: 1,
+        }}
+      >
+        {/* 全部 */}
         <button
-          className={`category-pill${activeCategory === null ? " active" : ""}`}
+          className="nav-link"
           onClick={() => onSelect(null)}
+          style={{
+            color:
+              activeCategory === null
+                ? "var(--text-primary)"
+                : undefined,
+            borderBottom:
+              activeCategory === null
+                ? "2px solid var(--primary)"
+                : "2px solid transparent",
+            marginBottom: -1,
+          }}
         >
           全部
         </button>
-      </div>
 
-      {/* 分组展示 */}
-      {groups.map((group) => (
-        <div
-          key={group.label}
-          className="row"
-          style={{
-            gap: 8,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              color: "var(--text-secondary)",
-              minWidth: 48,
-              textAlign: "right",
-              flexShrink: 0,
-            }}
-          >
-            {group.label}
-          </span>
-          <div className="row" style={{ gap: 6, flexWrap: "wrap", flex: 1 }}>
-            {group.items.map((name) => (
+        {groups.map((group) => {
+          const isActive = activeParent === group.label;
+          const isOpen = menuOpen === group.label;
+          return (
+            <div
+              key={group.label}
+              style={{ position: "relative" }}
+              onMouseEnter={() => handleEnter(group.label)}
+              onMouseLeave={handleLeave}
+            >
               <button
-                key={name}
-                className={`category-pill${activeCategory === name ? " active" : ""}`}
-                onClick={() => onSelect(name)}
+                className="nav-link"
+                onClick={() => {
+                  // 点击父类不触发筛选，仅展开下拉
+                  setMenuOpen(group.label);
+                }}
+                style={{
+                  color: isActive ? "var(--text-primary)" : undefined,
+                  borderBottom: isActive
+                    ? "2px solid var(--primary)"
+                    : isOpen
+                    ? "2px solid rgba(255,255,255,0.15)"
+                    : "2px solid transparent",
+                  marginBottom: -1,
+                }}
               >
-                {name}
+                {group.label}
               </button>
-            ))}
-          </div>
-        </div>
-      ))}
+
+              {/* 下拉子类框 */}
+              {isOpen && (
+                <div
+                  className="category-dropdown"
+                  onMouseEnter={() => handleEnter(group.label)}
+                  onMouseLeave={handleLeave}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      padding: "2px",
+                    }}
+                  >
+                    {group.items.map((name) => (
+                      <button
+                        key={name}
+                        className={`category-pill${
+                          activeCategory === name ? " active" : ""
+                        }`}
+                        onClick={() => {
+                          onSelect(name);
+                          setMenuOpen(null);
+                        }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
