@@ -21,6 +21,10 @@ from app.schemas import (
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
 from app.services.smart_matcher import match_site_categories
+from app.services.category_mapping import (
+    get_site_category_mappings,
+    save_site_category_mappings,
+)
 from app.services.template_manager import apply_template, preview_template, load_templates
 
 router = APIRouter(prefix="/sites", tags=["sites"])
@@ -105,7 +109,7 @@ async def get_site_categories(site_id: int, db: AsyncSession = Depends(get_db)):
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
-    cats = db_site.categories or []
+    cats = await get_site_category_mappings(db, db_site.id)
     return SiteCategoriesOut(
         site_id=db_site.id,
         categories=[CategoryMapping(**c) for c in cats],
@@ -132,12 +136,14 @@ async def update_site_categories(
             )
         seen[c.remote_id] = c.name
 
-    db_site.categories = [c.model_dump() for c in body.categories]
+    await save_site_category_mappings(
+        db, db_site.id, [c.model_dump() for c in body.categories]
+    )
     await db.commit()
-    await db.refresh(db_site)
+    cats = await get_site_category_mappings(db, db_site.id)
     return SiteCategoriesOut(
         site_id=db_site.id,
-        categories=[CategoryMapping(**c) for c in (db_site.categories or [])],
+        categories=[CategoryMapping(**c) for c in cats],
     )
 
 
@@ -293,7 +299,7 @@ async def smart_match_categories(site_id: int, db: AsyncSession = Depends(get_db
     result = match_site_categories(
         site_id=site_id,
         remote_categories=class_list,
-        existing_mappings=db_site.categories or [],
+        existing_mappings=await get_site_category_mappings(db, db_site.id),
         system_category_names=system_names,
     )
     return result
@@ -330,7 +336,7 @@ async def apply_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
         site_name=db_site.name,
         site_url=db_site.base_url,
         remote_categories=class_list,
-        existing_mappings=db_site.categories or [],
+        existing_mappings=await get_site_category_mappings(db, db_site.id),
     )
 
     if not result.template_matched:
@@ -369,7 +375,7 @@ async def preview_site_template(site_id: int, db: AsyncSession = Depends(get_db)
         site_name=db_site.name,
         site_url=db_site.base_url,
         remote_categories=class_list,
-        existing_mappings=db_site.categories or [],
+        existing_mappings=await get_site_category_mappings(db, db_site.id),
     )
 
     return result
@@ -399,7 +405,7 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
     result = match_site_categories(
         site_id=db_site.id,
         remote_categories=class_list,
-        existing_mappings=db_site.categories or [],
+        existing_mappings=await get_site_category_mappings(db, db_site.id),
         system_category_names=system_names,
     )
 
@@ -413,15 +419,13 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
             })
 
     if auto_mappings:
-        existing = db_site.categories or []
+        existing = await get_site_category_mappings(db, db_site.id)
         # 合并：保留已有映射，添加新的 auto_mapped
         existing_ids = {str(c.get("remote_id", "")) for c in existing}
         for am in auto_mappings:
             if am["remote_id"] not in existing_ids:
                 existing.append(am)
-        db_site.categories = existing
-        await db.commit()
-        await db.refresh(db_site)
+        await save_site_category_mappings(db, db_site.id, existing)
 
     summary = result.summary.model_dump()
     logger.info(

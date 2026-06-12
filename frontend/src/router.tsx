@@ -1,14 +1,16 @@
 import { createBrowserRouter } from "react-router-dom";
+import { lazy } from "react";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
-import Search from "./pages/Search";
-import Detail from "./pages/Detail";
-import Player from "./pages/Player";
-import Downloads from "./pages/Downloads";
-import Favorites from "./pages/Favorites";
-import Progress from "./pages/Progress";
-import Dashboard from "./pages/Dashboard";
-import Settings from "./pages/Settings";
+
+const Search = lazy(() => import("./pages/Search"));
+const Detail = lazy(() => import("./pages/Detail"));
+const Player = lazy(() => import("./pages/Player"));
+const Downloads = lazy(() => import("./pages/Downloads"));
+const Favorites = lazy(() => import("./pages/Favorites"));
+const Progress = lazy(() => import("./pages/Progress"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 export const router = createBrowserRouter([
   {

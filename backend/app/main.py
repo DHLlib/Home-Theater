@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -9,11 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
-from app.db import engine, init_db
+from app.db import async_session_factory, engine, init_db
 from app.logging_config import setup_logging
 from app.services.downloader import download_worker
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
+from app.services.category_mapping import migrate_categories_to_mapping_table
+from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
 
 
 DEFAULT_SYSTEM_CATEGORIES = [
@@ -96,7 +99,27 @@ async def lifespan(app: FastAPI):
     setup_logging()
     await check_db_connection()
     await init_db()
+    async with async_session_factory() as db:
+        await migrate_categories_to_mapping_table(db)
+        await migrate_video_cache_norm_title(db)
     await _init_default_categories()
+
+    # Phase 2: 首次启动或表为空时，后台重建聚合中间表
+    async def _bootstrap_aggregated_tables():
+        async with async_session_factory() as db:
+            from app.models import AggregatedVideoV3
+            from sqlalchemy import func, select
+
+            count = await db.execute(
+                select(func.count()).select_from(AggregatedVideoV3)
+            )
+            if count.scalar_one() == 0:
+                logger = logging.getLogger(__name__)
+                logger.info("聚合中间表为空，启动后台重建")
+                await refresh_aggregated_view(db)
+
+    asyncio.create_task(_bootstrap_aggregated_tables())
+
     await listen_manager.start()
     worker_task = asyncio.create_task(download_worker())
     scheduler_task = await init_scheduler()
