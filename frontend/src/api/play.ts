@@ -1,5 +1,5 @@
 import { get } from "./client";
-import type { Episode } from "../types";
+import type { Episode, PlaySourcesResponse } from "../types";
 
 export const getEpisodes = (site_id: number, original_id: string) =>
   get<Episode[]>(
@@ -7,3 +7,10 @@ export const getEpisodes = (site_id: number, original_id: string) =>
       original_id
     )}`
   );
+
+export const getSources = (title: string, year?: number | null) => {
+  const qs = new URLSearchParams();
+  qs.set("title", title);
+  if (year != null) qs.set("year", String(year));
+  return get<PlaySourcesResponse>(`/api/play/sources?${qs}`);
+};

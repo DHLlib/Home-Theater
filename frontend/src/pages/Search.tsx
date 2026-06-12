@@ -1,35 +1,33 @@
 import { useState } from "react";
-import { searchVideos } from "../api/videos";
+import { useNavigate } from "react-router-dom";
+import { useSearchVideosQuery } from "../hooks/useVideos";
 import VideoCard from "../components/VideoCard";
-import type { AggregatedVideo } from "../types";
 
 export default function Search() {
+  const navigate = useNavigate();
   const [wd, setWd] = useState("");
-  const [videos, setVideos] = useState<AggregatedVideo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searched, setSearched] = useState(false);
+  const [submittedWd, setSubmittedWd] = useState("");
+
+  const { data: videos = [], isLoading, error } = useSearchVideosQuery(submittedWd);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = wd.trim();
-    if (!q) return;
-    setLoading(true);
-    setError(null);
-    setSearched(true);
-    searchVideos({ wd: q })
-      .then((r) => {
-        setVideos(r.items);
-      })
-      .catch((err) => {
-        setVideos([]);
-        setError(err instanceof Error ? err.message : "搜索失败");
-      })
-      .finally(() => setLoading(false));
+    setSubmittedWd(q);
   };
+
+  const hasSearched = submittedWd.length > 0;
 
   return (
     <div>
+      <button
+        className="btn"
+        onClick={() => navigate("/")}
+        style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13, marginBottom: 8 }}
+        aria-label="返回首页"
+      >
+        ← 返回
+      </button>
       <form
         onSubmit={handleSearch}
         className="row search-page"
@@ -43,14 +41,14 @@ export default function Search() {
           style={{
             flex: 1,
             padding: "8px 12px",
-            borderRadius: 6,
-            border: "1px solid var(--glass-border)",
-            background: "rgba(255,255,255,0.03)",
+            borderRadius: 4,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.06)",
             color: "var(--text-primary)",
           }}
         />
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? "搜索中..." : "搜索"}
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? "搜索中..." : "搜索"}
         </button>
       </form>
 
@@ -60,17 +58,17 @@ export default function Search() {
             padding: 12,
             background: "rgba(255,0,0,0.08)",
             border: "1px solid var(--danger)",
-            borderRadius: 6,
+            borderRadius: 4,
             marginBottom: 12,
             fontSize: 13,
             color: "var(--danger)",
           }}
         >
-          {error}
+          {error instanceof Error ? error.message : "搜索失败"}
         </div>
       )}
 
-      {!loading && searched && videos.length === 0 && !error && (
+      {!isLoading && hasSearched && videos.length === 0 && !error && (
         <div className="empty" style={{ padding: 40 }}>
           未找到相关视频
         </div>

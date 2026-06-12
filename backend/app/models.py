@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -45,6 +45,25 @@ class Site(Base):
     sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     categories: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
     auto_disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class SiteCategoryMapping(Base):
+    __tablename__ = "site_category_mappings"
+    __table_args__ = (
+        UniqueConstraint("site_id", "remote_id", name="uix_site_remote_id"),
+        Index("ix_site_category_mappings_site_id", "site_id"),
+        Index("ix_site_category_mappings_system_name", "system_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_id: Mapped[str] = mapped_column(String, nullable=False)
+    remote_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    system_name: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
@@ -125,6 +144,7 @@ class VideoCache(Base):
     site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
     original_id: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
+    norm_title: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     intro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -178,6 +198,7 @@ class AggregatedVideo(Base):
     """物化视图映射（只读）。
 
     对应物化视图 mv_aggregated_videos，由 SQL 脚本创建和维护。
+    保留兼容历史数据；新查询优先使用 AggregatedVideoV3 表。
     """
 
     __tablename__ = "mv_aggregated_videos"
@@ -188,8 +209,78 @@ class AggregatedVideo(Base):
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    types: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class AggregatedVideoV3(Base):
+    """聚合视频中间表 v3（替代物化视图，统一 PG/SQLite）。"""
+
+    __tablename__ = "aggregated_videos"
+    __table_args__ = (
+        Index("ix_aggregated_videos_updated", "latest_updated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    norm_title: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    sources_rel: Mapped[list["AggregatedSource"]] = relationship(
+        "AggregatedSource", back_populates="video", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+class AggregatedSource(Base):
+    """聚合视频来源中间表。"""
+
+    __tablename__ = "aggregated_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "aggregated_video_id", "site_id", "original_id",
+            name="uix_aggregated_source",
+        ),
+        Index("ix_aggregated_sources_site_id", "site_id"),
+        Index("ix_aggregated_sources_type_id", "site_id", "type_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    aggregated_video_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("aggregated_videos.id", ondelete="CASCADE"), nullable=False
+    )
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id"), nullable=False
+    )
+    original_id: Mapped[str] = mapped_column(String, nullable=False)
+    site_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    type_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    type_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    video: Mapped["AggregatedVideoV3"] = relationship("AggregatedVideoV3", back_populates="sources_rel")
+
+
+class RecommendedVideo(Base):
+    """预计算推荐视频中间表（替代 mv_recommended_videos 物化视图）。"""
+
+    __tablename__ = "recommended_videos"
+    __table_args__ = (Index("ix_recommended_parent", "parent_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    parent_name: Mapped[str] = mapped_column(String, nullable=False)
+    rn: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class AppConfig(Base):

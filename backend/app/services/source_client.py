@@ -5,7 +5,6 @@
     t=<分类id>
     pg=<页数>
     wd=<关键字>
-    h=<小时数>
     ids=<逗号分隔>
 
 调用方禁止自拼 URL；任何路由都必须经过本模块。
@@ -63,7 +62,6 @@ class SourceClient:
         t: int | str | None = None,
         pg: int | None = None,
         wd: str | None = None,
-        h: int | None = None,
         by: str | None = None,
         ids: list[str | int] | None = None,
     ) -> dict[str, str]:
@@ -74,8 +72,6 @@ class SourceClient:
             params["pg"] = str(pg)
         if wd is not None:
             params["wd"] = str(wd)
-        if h is not None:
-            params["h"] = str(h)
         if by is not None:
             params["by"] = by
         if ids:
@@ -146,11 +142,10 @@ class SourceClient:
         t: int | str | None = None,
         pg: int | None = None,
         wd: str | None = None,
-        h: int | None = None,
         by: str | None = None,
         op: str = "unknown",
     ) -> list[dict[str, Any]]:
-        params = self._build_params("list", t=t, pg=pg, wd=wd, h=h, by=by)
+        params = self._build_params("list", t=t, pg=pg, wd=wd, by=by)
         data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:
@@ -163,10 +158,9 @@ class SourceClient:
         ids: list[str | int] | None = None,
         t: int | str | None = None,
         pg: int | None = None,
-        h: int | None = None,
         op: str = "unknown",
     ) -> list[dict[str, Any]]:
-        params = self._build_params("videolist", t=t, pg=pg, h=h, ids=ids)
+        params = self._build_params("videolist", t=t, pg=pg, ids=ids)
         data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:

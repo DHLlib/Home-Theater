@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import { subscribe, type ToastType } from "./utils/toast";
@@ -27,6 +27,19 @@ function ToastContainer() {
   );
 }
 
+function PageLoading() {
+  return (
+    <div className="page-loading" style={{
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}>
+      <div className="spinner" />
+    </div>
+  );
+}
+
 export default function App() {
   useEffect(() => {
     // Cinema theme: 强制深黑主题，清除旧主题设置
@@ -41,7 +54,9 @@ export default function App() {
 
   return (
     <>
-      <RouterProvider router={router} />
+      <Suspense fallback={<PageLoading />}>
+        <RouterProvider router={router} />
+      </Suspense>
       <ToastContainer />
     </>
   );
