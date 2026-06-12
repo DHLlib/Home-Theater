@@ -41,11 +41,13 @@ export default function Detail() {
     }
   }, [location.state, searchParams]);
 
-  const { data: detail = [] } = useDetailQuery(
+  const { data: detail = [], isLoading } = useDetailQuery(
     item?.title ?? "",
     item?.year,
     item?.sources ?? []
   );
+
+  const detailReady = !isLoading && detail.length > 0;
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAction, setPickerAction] = useState<"play" | "download" | null>(
@@ -196,20 +198,58 @@ export default function Detail() {
             </div>
           )}
           <div className="row detail-actions" style={{ marginTop: 8 }}>
-            <button className="btn btn-primary" onClick={handlePlay}>
+            <button
+              className="btn btn-primary"
+              onClick={handlePlay}
+              disabled={!detailReady}
+            >
               播放
             </button>
-            <button className="btn" onClick={handleDownload}>
+            <button
+              className="btn"
+              onClick={handleDownload}
+              disabled={!detailReady}
+            >
               下载
             </button>
             <button className="btn" onClick={handleFavorite}>
               收藏
             </button>
           </div>
+
+          {isLoading && (
+            <div
+              className="row"
+              style={{
+                marginTop: 16,
+                gap: 10,
+                color: "var(--text-secondary)",
+                fontSize: 13,
+              }}
+            >
+              <div
+                className="spinner"
+                style={{ width: 18, height: 18, borderWidth: 2 }}
+              />
+              正在加载源信息...
+            </div>
+          )}
+
+          {!isLoading && detail.length === 0 && (
+            <div
+              style={{
+                marginTop: 16,
+                color: "var(--text-secondary)",
+                fontSize: 13,
+              }}
+            >
+              暂无可用源信息
+            </div>
+          )}
         </div>
       </div>
 
-      {detail.map((s) => (
+      {!isLoading && detail.length > 0 && detail.map((s) => (
         <div
           key={`${s.site_id}-${s.original_id}`}
           style={{ marginTop: 16 }}

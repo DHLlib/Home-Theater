@@ -173,21 +173,6 @@ export default function RecommendedCarousel({
         boxSizing: "border-box",
       }}
     >
-      {/* 标题 */}
-      <div
-        style={{
-          textAlign: "center",
-          marginBottom: 16,
-          fontSize: 12,
-          letterSpacing: "0.15em",
-          color: "var(--primary)",
-          textTransform: "uppercase",
-          fontWeight: 600,
-        }}
-      >
-        推荐视频
-      </div>
-
       {/* 轮播视口 */}
       <div
         ref={containerRef}
