@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 export const BREAKPOINTS = {
   MOBILE_MAX: 767,
@@ -27,6 +27,33 @@ function getViewportInfo(): ViewportInfo {
   };
 }
 
+function getMql(query: string): MediaQueryList | null {
+  return typeof window !== "undefined" ? window.matchMedia(query) : null;
+}
+
+function subscribeMql(query: string, callback: () => void): () => void {
+  const mql = getMql(query);
+  if (!mql) return () => {};
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
+}
+
+export function useIsMobile(): boolean {
+  return useSyncExternalStore(
+    (cb) => subscribeMql(`(max-width: ${BREAKPOINTS.MOBILE_MAX}px)`, cb),
+    () => getMql(`(max-width: ${BREAKPOINTS.MOBILE_MAX}px)`)?.matches ?? false,
+    () => false
+  );
+}
+
+export function useIsDesktop(): boolean {
+  return useSyncExternalStore(
+    (cb) => subscribeMql(`(min-width: ${BREAKPOINTS.DESKTOP_MIN}px)`, cb),
+    () => getMql(`(min-width: ${BREAKPOINTS.DESKTOP_MIN}px)`)?.matches ?? false,
+    () => false
+  );
+}
+
 export function useViewport(): ViewportInfo {
   const [info, setInfo] = useState<ViewportInfo>(getViewportInfo);
 
@@ -36,7 +63,19 @@ export function useViewport(): ViewportInfo {
     const handleResize = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
-        setInfo(getViewportInfo());
+        setInfo((prev) => {
+          const next = getViewportInfo();
+          if (
+            prev.width === next.width &&
+            prev.height === next.height &&
+            prev.isMobile === next.isMobile &&
+            prev.isTablet === next.isTablet &&
+            prev.isDesktop === next.isDesktop
+          ) {
+            return prev;
+          }
+          return next;
+        });
       }, 150);
     };
 
@@ -48,14 +87,4 @@ export function useViewport(): ViewportInfo {
   }, []);
 
   return info;
-}
-
-export function useIsMobile(): boolean {
-  const { isMobile } = useViewport();
-  return isMobile;
-}
-
-export function useIsDesktop(): boolean {
-  const { isDesktop } = useViewport();
-  return isDesktop;
 }

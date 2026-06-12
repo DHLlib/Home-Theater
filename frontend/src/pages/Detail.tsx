@@ -1,20 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { getDetail } from "../api/videos";
 import { getDownloadRoot } from "../api/settings";
 import { createDownload } from "../api/downloads";
 import { addFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
-import { toastSuccess } from "../utils/toast";
-import {
-  getCachedDetail,
-  setCachedDetail,
-} from "../utils/cache";
+import { useDetailQuery } from "../hooks/useVideos";
+import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "../components/EpisodeList";
 import SourcePicker from "../components/SourcePicker";
 import type {
   AggregatedVideo,
-  SourceDetail,
   SourceRef,
   Episode,
 } from "../types";
@@ -45,7 +40,15 @@ export default function Detail() {
       return undefined;
     }
   }, [location.state, searchParams]);
-  const [detail, setDetail] = useState<SourceDetail[]>([]);
+
+  const { data: detail = [], isLoading } = useDetailQuery(
+    item?.title ?? "",
+    item?.year,
+    item?.sources ?? []
+  );
+
+  const detailReady = !isLoading && detail.length > 0;
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAction, setPickerAction] = useState<"play" | "download" | null>(
     null
@@ -53,31 +56,6 @@ export default function Detail() {
   const [selectedSource, setSelectedSource] = useState<SourceRef | null>(null);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-
-  useEffect(() => {
-    if (!item) return;
-
-    // 先读缓存立即渲染，减少白屏
-    getCachedDetail<SourceDetail[]>(item.title, item.year).then((cached) => {
-      if (cached) {
-        setDetail(cached);
-      }
-    });
-
-    // 再调 API 刷新并写入缓存
-    getDetail({
-      title: item.title,
-      year: item.year,
-      sources: item.sources,
-    })
-      .then((r) => {
-        setDetail(r.sources);
-        setCachedDetail(item.title, item.year, r.sources);
-      })
-      .catch(() => {
-        // ApiError already toasted by client.ts
-      });
-  }, [item]);
 
   if (!item) {
     return <div className="empty">非法入口，请从首页进入。</div>;
@@ -91,7 +69,7 @@ export default function Detail() {
   const handleDownload = async () => {
     const root = await getDownloadRoot();
     if (!root) {
-      alert("请先配置下载根目录");
+      toastError("请先配置下载根目录");
       navigate("/settings");
       return;
     }
@@ -127,7 +105,7 @@ export default function Detail() {
       );
     } else if (pickerAction === "download") {
       if (d.episodes.length === 0) {
-        alert("该源暂无可用集数");
+        toastError("该源暂无可用集数");
         return;
       }
       setSelectedSource(source);
@@ -146,7 +124,7 @@ export default function Detail() {
       );
       const resolved = resolvedEps.find((e) => e.index === ep.index);
       if (!resolved) {
-        alert("未能解析该集播放地址");
+        toastError("未能解析该集播放地址");
         return;
       }
 
@@ -162,7 +140,7 @@ export default function Detail() {
       });
       setEpisodePickerOpen(false);
       setSelectedSource(null);
-      alert("下载任务已创建");
+      toastSuccess("下载任务已创建");
     } catch {
       // ApiError already toasted by client.ts
     } finally {
@@ -172,6 +150,14 @@ export default function Detail() {
 
   return (
     <div className="col">
+      <button
+        className="btn"
+        onClick={() => navigate("/")}
+        style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13, marginBottom: 4 }}
+        aria-label="返回首页"
+      >
+        ← 返回
+      </button>
       <div className="row detail-layout" style={{ alignItems: "flex-start" }}>
         <div className="detail-poster-wrap" style={{ width: 220, flexShrink: 0 }}>
           {(item.poster_url || detail[0]?.poster_url) ? (
@@ -191,35 +177,79 @@ export default function Detail() {
             {item.title} {item.year ? `(${item.year})` : ""}
           </h2>
           {detail[0]?.area && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>地区：{detail[0].area}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>地区：{detail[0].area}</div>
           )}
           {detail[0]?.actors && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>演员：{detail[0].actors}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>演员：{detail[0].actors}</div>
           )}
           {detail[0]?.director && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>导演：{detail[0].director}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>导演：{detail[0].director}</div>
           )}
           {detail[0]?.intro && (
             <div
-              style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.6 }}
-              dangerouslySetInnerHTML={{ __html: detail[0].intro }}
-            />
+              style={{
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {detail[0].intro.replace(/<[^>]*>/g, "")}
+            </div>
           )}
           <div className="row detail-actions" style={{ marginTop: 8 }}>
-            <button className="btn btn-primary" onClick={handlePlay}>
+            <button
+              className="btn btn-primary"
+              onClick={handlePlay}
+              disabled={!detailReady}
+            >
               播放
             </button>
-            <button className="btn" onClick={handleDownload}>
+            <button
+              className="btn"
+              onClick={handleDownload}
+              disabled={!detailReady}
+            >
               下载
             </button>
             <button className="btn" onClick={handleFavorite}>
               收藏
             </button>
           </div>
+
+          {isLoading && (
+            <div
+              className="row"
+              style={{
+                marginTop: 16,
+                gap: 10,
+                color: "var(--text-secondary)",
+                fontSize: 13,
+              }}
+            >
+              <div
+                className="spinner"
+                style={{ width: 18, height: 18, borderWidth: 2 }}
+              />
+              正在加载源信息...
+            </div>
+          )}
+
+          {!isLoading && detail.length === 0 && (
+            <div
+              style={{
+                marginTop: 16,
+                color: "var(--text-secondary)",
+                fontSize: 13,
+              }}
+            >
+              暂无可用源信息
+            </div>
+          )}
         </div>
       </div>
 
-      {detail.map((s) => (
+      {!isLoading && detail.length > 0 && detail.map((s) => (
         <div
           key={`${s.site_id}-${s.original_id}`}
           style={{ marginTop: 16 }}
@@ -279,7 +309,7 @@ export default function Detail() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>选择要下载的集数</h3>
-            <p style={{ opacity: 0.7, fontSize: 13 }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
               {selectedSource.site_name || `站点 #${selectedSource.site_id}`} · {item.title}
             </p>
 
@@ -292,7 +322,7 @@ export default function Detail() {
                 );
                 if (!d || d.episodes.length === 0) {
                   return (
-                    <div style={{ opacity: 0.7, padding: 12 }}>暂无可用集数</div>
+                    <div style={{ color: "var(--text-secondary)", padding: 12 }}>暂无可用集数</div>
                   );
                 }
                 return (

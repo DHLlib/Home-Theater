@@ -34,7 +34,8 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
 )
 from app.models import AppConfig, Site, VideoCache
-from app.services.aggregator import refresh_aggregated_view
+from app.services.aggregator import normalize_title, refresh_aggregated_view
+from app.services.category_mapping import get_site_category_mappings
 from app.services.source_client import SourceClient
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ class Crawler:
         self._site_status: dict[int, str] = {}  # site_id -> status
         self._running = False
         self._logs: deque[dict] = deque(maxlen=50)
+        self._pending_norm_titles: set[str] = set()
+        self._refresh_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -221,13 +224,15 @@ class Crawler:
         client = SourceClient(
             site_id=site.id, base_url=site.base_url, name=site.name
         )
+        affected_norm_titles: set[str] = set()
 
         try:
             state = await self._load_state()
             site_state = state.setdefault("sites", {}).setdefault(str(site.id), {})
             cat_states = site_state.setdefault("categories", {})
 
-            categories = self._get_site_categories(site)
+            async with self._db_factory() as db:
+                categories = await self._get_site_categories(db, site)
             if not categories:
                 categories = [None]
 
@@ -265,7 +270,7 @@ class Crawler:
                         # 批量 upsert list 字段（每 100 条一刷）
                         if len(batch_entries) >= CRAWLER_BATCH_INSERT_SIZE:
                             async with self._db_factory() as db:
-                                await self._batch_upsert_list_fields(db, batch_entries)
+                                affected_norm_titles.update(await self._batch_upsert_list_fields(db, batch_entries))
                             batch_entries = []
 
                         last_vod_time = items[-1].get("updated_at")
@@ -281,7 +286,7 @@ class Crawler:
                             need_videolist = []
 
                     # 记录本页日志（全量）
-                    self._add_log(
+                    await self._add_log(
                         site=site,
                         category=cat_id,
                         page=page,
@@ -300,13 +305,15 @@ class Crawler:
                 # 分类结束：刷新剩余 batch_entries
                 if batch_entries:
                     async with self._db_factory() as db:
-                        await self._batch_upsert_list_fields(db, batch_entries)
+                        affected_norm_titles.update(await self._batch_upsert_list_fields(db, batch_entries))
                     batch_entries = []
 
                 cat_states[cat_key] = {"last_vod_time": last_vod_time}
 
             if need_videolist:
-                await self._batch_videolist(site, client, need_videolist, op="crawler_full")
+                affected_norm_titles.update(
+                    await self._batch_videolist(site, client, need_videolist, op="crawler_full")
+                )
 
             site_state["status"] = "idle"
             site_state["last_full_crawl"] = datetime.now(timezone.utc).isoformat()
@@ -328,7 +335,7 @@ class Crawler:
             self._site_status[site.id] = "idle"
             await client.aclose()
             await self._update_stats_cache()
-            await self._refresh_aggregated_cache()
+            await self._refresh_aggregated_cache(affected_norm_titles=affected_norm_titles)
 
     # ------------------------------------------------------------------
     # 增量刮削（单站点）
@@ -343,7 +350,10 @@ class Crawler:
             site_id=site.id, base_url=site.base_url, name=site.name
         )
 
-        categories = self._get_site_categories(site)
+        affected_norm_titles: set[str] = set()
+
+        async with self._db_factory() as db:
+            categories = await self._get_site_categories(db, site)
         if not categories:
             categories = [None]
 
@@ -414,13 +424,15 @@ class Crawler:
                         # 批量 upsert list 字段（每 100 条一刷）
                         if len(batch_entries) >= CRAWLER_BATCH_INSERT_SIZE:
                             async with self._db_factory() as db:
-                                await self._batch_upsert_list_fields(
-                                    db, batch_entries
+                                affected_norm_titles.update(
+                                    await self._batch_upsert_list_fields(
+                                        db, batch_entries
+                                    )
                                 )
                             batch_entries = []
 
                     # 记录本页日志（增量）
-                    self._add_log(
+                    await self._add_log(
                         site=site,
                         category=cat_id,
                         page=page,
@@ -444,14 +456,16 @@ class Crawler:
                 # 分类结束：刷新剩余 batch_entries
                 if batch_entries:
                     async with self._db_factory() as db:
-                        await self._batch_upsert_list_fields(db, batch_entries)
+                        affected_norm_titles.update(await self._batch_upsert_list_fields(db, batch_entries))
                     batch_entries = []
 
                 if new_last_vod_time:
                     cat_states[cat_key] = {"last_vod_time": new_last_vod_time}
 
             if need_videolist:
-                await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
+                affected_norm_titles.update(
+                    await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
+                )
 
             site_state["last_incremental"] = datetime.now(timezone.utc).isoformat()
             all_times = [
@@ -467,7 +481,7 @@ class Crawler:
         finally:
             await client.aclose()
             await self._update_stats_cache()
-            await self._refresh_aggregated_cache()
+            await self._refresh_aggregated_cache(affected_norm_titles=affected_norm_titles)
 
     # ------------------------------------------------------------------
     # 内部工具
@@ -479,12 +493,13 @@ class Crawler:
         )
         return list(result.scalars().all())
 
-    def _get_site_categories(self, site: Site) -> list:
-        """获取站点的分类 remote_id 列表。"""
-        if not site.categories:
+    async def _get_site_categories(self, db: AsyncSession, site: Site) -> list:
+        """获取站点的分类 remote_id 列表（中间表优先）。"""
+        mappings = await get_site_category_mappings(db, site.id)
+        if not mappings:
             return []
         cats = []
-        for c in site.categories:
+        for c in mappings:
             rid = c.get("remote_id")
             if rid is not None:
                 cats.append(rid)
@@ -507,8 +522,9 @@ class Crawler:
 
     async def _batch_videolist(
         self, site: Site, client: SourceClient, entries: list[dict], op: str = "unknown"
-    ):
+    ) -> set[str]:
         """批量 videolist 补充 detail 字段。"""
+        affected: set[str] = set()
         for i in range(0, len(entries), self.BATCH_SIZE):
             batch = entries[i : i + self.BATCH_SIZE]
             ids = [e["original_id"] for e in batch]
@@ -522,14 +538,20 @@ class Crawler:
                     d = detail_map.get(entry["original_id"])
                     if not d:
                         continue
-                    detail_entries.append(self._build_detail_entry(site.id, d))
+                    detail_entry = self._build_detail_entry(site.id, d)
+                    # 保留 list 阶段的分类信息（videolist 接口不返回 type_id）
+                    detail_entry["type_id"] = entry.get("type_id")
+                    detail_entry["type_name"] = entry.get("type_name")
+                    detail_entries.append(detail_entry)
 
                 if detail_entries:
                     async with self._db_factory() as db:
-                        await self._batch_upsert_detail_fields(db, detail_entries)
+                        batch_affected = await self._batch_upsert_detail_fields(db, detail_entries)
+                        affected.update(batch_affected)
 
             except Exception as exc:
                 logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+        return affected
 
     async def _get_cached_item(
         self, db: AsyncSession, site_id: int, original_id: str
@@ -570,10 +592,12 @@ class Crawler:
 
     @staticmethod
     def _build_list_entry(site_id: int, item: dict) -> dict:
+        title = item.get("title", "")
         return {
             "site_id": site_id,
             "original_id": item.get("original_id", ""),
-            "title": item.get("title", ""),
+            "title": title,
+            "norm_title": normalize_title(title),
             "year": item.get("year"),
             "type_id": item.get("type_id"),
             "type_name": item.get("type"),
@@ -585,10 +609,12 @@ class Crawler:
 
     @staticmethod
     def _build_detail_entry(site_id: int, item: dict) -> dict:
+        title = item.get("title", "")
         return {
             "site_id": site_id,
             "original_id": item.get("original_id", ""),
-            "title": item.get("title", ""),
+            "title": title,
+            "norm_title": normalize_title(title),
             "year": item.get("year"),
             "poster_url": item.get("poster_url"),
             "intro": item.get("intro"),
@@ -611,6 +637,7 @@ class Crawler:
             index_elements=["site_id", "original_id"],
             set_={
                 "title": entry.get("title"),
+                "norm_title": entry.get("norm_title"),
                 "year": entry.get("year"),
                 "type_id": entry.get("type_id"),
                 "type_name": entry.get("type_name"),
@@ -629,6 +656,7 @@ class Crawler:
             index_elements=["site_id", "original_id"],
             set_={
                 "title": entry.get("title"),
+                "norm_title": entry.get("norm_title"),
                 "year": entry.get("year"),
                 "poster_url": entry.get("poster_url"),
                 "intro": entry.get("intro"),
@@ -648,9 +676,14 @@ class Crawler:
     # 批量 upsert（减少事务开销）
     # ------------------------------------------------------------------
 
-    async def _batch_upsert_list_fields(self, db: AsyncSession, entries: list[dict]):
+    async def _batch_upsert_list_fields(self, db: AsyncSession, entries: list[dict]) -> set[str]:
+        affected: set[str] = set()
         if not entries:
-            return
+            return affected
+        for e in entries:
+            nt = e.get("norm_title")
+            if nt:
+                affected.add(nt)
         batch_size = 2000
         if len(entries) >= batch_size:
             for i in range(0, len(entries), batch_size):
@@ -661,6 +694,7 @@ class Crawler:
                         index_elements=["site_id", "original_id"],
                         set_={
                             "title": stmt.excluded.title,
+                            "norm_title": stmt.excluded.norm_title,
                             "year": stmt.excluded.year,
                             "type_id": stmt.excluded.type_id,
                             "type_name": stmt.excluded.type_name,
@@ -679,12 +713,13 @@ class Crawler:
                         "列表字段批量写入失败 batch=%d/%d", i // batch_size + 1,
                         (len(entries) + batch_size - 1) // batch_size
                     )
-            return
+            return affected
         stmt = insert_cls(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
                 "title": stmt.excluded.title,
+                "norm_title": stmt.excluded.norm_title,
                 "year": stmt.excluded.year,
                 "type_id": stmt.excluded.type_id,
                 "type_name": stmt.excluded.type_name,
@@ -699,10 +734,16 @@ class Crawler:
         await self._evict_if_overflow(db)
         # 主动让出，避免刮削任务独占事件循环
         await asyncio.sleep(0)
+        return affected
 
-    async def _batch_upsert_detail_fields(self, db: AsyncSession, entries: list[dict]):
+    async def _batch_upsert_detail_fields(self, db: AsyncSession, entries: list[dict]) -> set[str]:
+        affected: set[str] = set()
         if not entries:
-            return
+            return affected
+        for e in entries:
+            nt = e.get("norm_title")
+            if nt:
+                affected.add(nt)
         batch_size = 2000
         if len(entries) >= batch_size:
             for i in range(0, len(entries), batch_size):
@@ -713,6 +754,7 @@ class Crawler:
                         index_elements=["site_id", "original_id"],
                         set_={
                             "title": stmt.excluded.title,
+                            "norm_title": stmt.excluded.norm_title,
                             "year": stmt.excluded.year,
                             "poster_url": stmt.excluded.poster_url,
                             "intro": stmt.excluded.intro,
@@ -721,6 +763,9 @@ class Crawler:
                             "director": stmt.excluded.director,
                             "play_url_raw": stmt.excluded.play_url_raw,
                             "has_detail": stmt.excluded.has_detail,
+                            # 保留 list 阶段分类信息（videolist 不返回 type_id）
+                            "type_id": stmt.excluded.type_id,
+                            "type_name": stmt.excluded.type_name,
                             # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
                             # 未返回 updated_at 时将其刷为 None
                             "cached_at": stmt.excluded.cached_at,
@@ -736,12 +781,13 @@ class Crawler:
                         (len(entries) + batch_size - 1) // batch_size
                     )
                     # 单 batch 失败不阻断后续批次
-            return
+            return affected
         stmt = insert_cls(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
             index_elements=["site_id", "original_id"],
             set_={
                 "title": stmt.excluded.title,
+                "norm_title": stmt.excluded.norm_title,
                 "year": stmt.excluded.year,
                 "poster_url": stmt.excluded.poster_url,
                 "intro": stmt.excluded.intro,
@@ -750,6 +796,9 @@ class Crawler:
                 "director": stmt.excluded.director,
                 "play_url_raw": stmt.excluded.play_url_raw,
                 "has_detail": stmt.excluded.has_detail,
+                # 保留 list 阶段分类信息（videolist 不返回 type_id）
+                "type_id": stmt.excluded.type_id,
+                "type_name": stmt.excluded.type_name,
                 # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
                 # 未返回 updated_at 时将其刷为 None
                 "cached_at": stmt.excluded.cached_at,
@@ -760,12 +809,13 @@ class Crawler:
         await self._evict_if_overflow(db)
         # 主动让出，避免刮削任务独占事件循环
         await asyncio.sleep(0)
+        return affected
 
     # ------------------------------------------------------------------
     # 日志
     # ------------------------------------------------------------------
 
-    def _add_log(
+    async def _add_log(
         self,
         *,
         site: Site,
@@ -778,14 +828,16 @@ class Crawler:
         duration_ms: int,
     ):
         """记录单页刮削日志，内存保留最近 50 条。"""
-        # 解析分类名称
+        # 解析分类名称（中间表优先）
         type_name = "全部"
-        if category is not None and site.categories:
-            for c in site.categories:
-                rid = c.get("remote_id")
-                if str(rid) == str(category):
-                    type_name = c.get("name") or "全部"
-                    break
+        if category is not None:
+            async with self._db_factory() as db:
+                mappings = await get_site_category_mappings(db, site.id)
+                for c in mappings:
+                    rid = c.get("remote_id")
+                    if str(rid) == str(category):
+                        type_name = c.get("name") or "全部"
+                        break
 
         self._logs.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -970,36 +1022,45 @@ class Crawler:
     # 预聚合缓存刷新（双缓冲）
     # ------------------------------------------------------------------
 
-    async def _refresh_aggregated_cache(self):
-        """刷新预聚合缓存：刷新物化视图 mv_aggregated_videos（带 60 秒防抖动）。"""
-        MIN_REFRESH_INTERVAL = 60
-        async with self._db_factory() as db:
-            result = await db.execute(
-                select(AppConfig).where(AppConfig.key == "aggregated_cache_computed_at")
-            )
-            row = result.scalar_one_or_none()
-            if row and row.value:
-                try:
-                    last = datetime.fromisoformat(row.value)
-                    if (_utcnow() - last).total_seconds() < MIN_REFRESH_INTERVAL:
-                        return
-                except ValueError:
-                    pass
+    async def _refresh_aggregated_cache(self, affected_norm_titles: set[str] | None = None):
+        """刷新预聚合缓存：增量刷新，带 60 秒防抖。"""
+        if affected_norm_titles:
+            self._pending_norm_titles.update(affected_norm_titles)
 
-            ok = await refresh_aggregated_view(db)
-            if ok:
-                now = _utcnow()
-                stmt = insert_cls(AppConfig).values(
-                    key="aggregated_cache_computed_at",
-                    value=now.isoformat(),
-                    updated_at=now,
+        MIN_REFRESH_INTERVAL = 60
+        async with self._refresh_lock:
+            async with self._db_factory() as db:
+                result = await db.execute(
+                    select(AppConfig).where(AppConfig.key == "aggregated_cache_computed_at")
                 )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["key"],
-                    set_={"value": now.isoformat(), "updated_at": now},
+                row = result.scalar_one_or_none()
+                if row and row.value:
+                    try:
+                        last = datetime.fromisoformat(row.value)
+                        if (_utcnow() - last).total_seconds() < MIN_REFRESH_INTERVAL:
+                            return
+                    except ValueError:
+                        pass
+
+                to_refresh = self._pending_norm_titles
+                self._pending_norm_titles = set()
+                ok = await refresh_aggregated_view(
+                    db, affected_norm_titles=to_refresh if to_refresh else None
                 )
-                await db.execute(stmt)
-                await db.commit()
+                if ok:
+                    now = _utcnow()
+                    stmt = insert_cls(AppConfig).values(
+                        key="aggregated_cache_computed_at",
+                        value=now.isoformat(),
+                        updated_at=now,
+                    )
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["key"],
+                        set_={"value": now.isoformat(), "updated_at": now},
+                    )
+                    await db.execute(stmt)
+                    await db.commit()
+                    await db.commit()
 
     async def _save_state(self, state: dict):
         async with self._db_factory() as db:

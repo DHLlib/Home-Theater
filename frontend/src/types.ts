@@ -5,6 +5,18 @@ export interface Episode {
   index: number;
 }
 
+export interface PlaySource {
+  site_id: number;
+  site_name: string;
+  original_id: string;
+  episode_count: number;
+  suffix: string;
+}
+
+export interface PlaySourcesResponse {
+  sources: PlaySource[];
+}
+
 export interface SourceRef {
   site_id: number;
   site_name?: string | null;

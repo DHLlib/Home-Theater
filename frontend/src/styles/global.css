@@ -485,28 +485,29 @@ input[type="text"],
 input[type="search"],
 select,
 textarea {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
   border-radius: 4px;
   color: var(--text-primary);
   font-family: inherit;
   font-size: 14px;
   padding: 8px 12px;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
 input[type="text"]::placeholder,
 input[type="search"]::placeholder,
 textarea::placeholder {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 input[type="text"]:focus,
 input[type="search"]:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(255,255,255,0.2);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
   outline: none;
 }
 
@@ -514,16 +515,30 @@ textarea:focus {
 .hero-section {
   position: relative;
   width: 100vw;
-  height: 100vh;
+  height: 70vh;
+  min-height: 420px;
+  max-height: 720px;
   margin: 0 -24px;
   overflow: hidden;
   cursor: pointer;
 }
 
+@media (min-width: 1400px) {
+  .hero-section {
+    height: 80vh;
+    max-height: 900px;
+  }
+}
+
 @media (max-width: 767px) {
   .hero-section {
-    height: 70vh;
+    height: 60vh;
+    min-height: 360px;
     margin: 0 -12px;
+  }
+
+  .hero-content {
+    padding: 0 16px 32px !important;
   }
 }
 

@@ -126,7 +126,7 @@ export default function Layout() {
                 left: 12,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "var(--text-muted)",
+                color: "var(--text-secondary)",
                 pointerEvents: "none",
               }}
             >
@@ -141,8 +141,8 @@ export default function Layout() {
                 width: 200,
                 padding: "8px 12px 8px 36px",
                 borderRadius: 4,
-                border: "1px solid var(--glass-border)",
-                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.06)",
                 color: "var(--text-primary)",
                 fontSize: 13,
                 fontFamily: "inherit",
