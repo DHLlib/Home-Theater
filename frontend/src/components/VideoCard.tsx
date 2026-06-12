@@ -45,14 +45,14 @@ function PosterPlaceholder() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
-        style={{ opacity: 0.4 }}
+        style={{ color: "var(--text-muted)" }}
         aria-hidden="true"
       >
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <circle cx="8.5" cy="8.5" r="1.5" />
         <path d="M21 15l-5-5L5 21" />
       </svg>
-      <span style={{ fontSize: 12, opacity: 0.5 }}>暂无封面</span>
+      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>暂无封面</span>
     </div>
   );
 }
@@ -68,17 +68,6 @@ function VideoCard({
   const [favorited, setFavorited] = useState(false);
 
   const poster = item.poster_url && !imgError ? item.poster_url : null;
-
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (item.sources.length === 0) return;
-    const first = item.sources[0];
-    navigate(
-      `/player?site_id=${first.site_id}&original_id=${encodeURIComponent(
-        first.original_id
-      )}&ep=0&title=${encodeURIComponent(item.title)}&year=${item.year ?? ""}`
-    );
-  };
 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -152,13 +141,6 @@ function VideoCard({
               </div>
               <div className="action-line">
                 <button
-                  className="action-btn"
-                  onClick={handlePlay}
-                  aria-label={`播放 ${item.title}`}
-                >
-                  播放
-                </button>
-                <button
                   className="action-btn secondary"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -173,7 +155,7 @@ function VideoCard({
                   onClick={handleFavorite}
                   aria-label={`收藏 ${item.title}`}
                 >
-                  <HeartIcon size={12} color={favorited ? "#ff4081" : "currentColor"} />
+                  <HeartIcon size={12} color={favorited ? "var(--danger)" : "currentColor"} />
                 </button>
               </div>
             </div>

@@ -18,7 +18,13 @@ export default function CategoryBar({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    listSystemCategories().then(setSystemTree).catch(() => {});
+    const load = () => listSystemCategories().then(setSystemTree).catch(() => {});
+    load();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
   const availableCategories = useMemo(() => {

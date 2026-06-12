@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { searchVideos } from "../api/videos";
 import VideoCard from "../components/VideoCard";
 import type { AggregatedVideo } from "../types";
 
 export default function Search() {
+  const navigate = useNavigate();
   const [wd, setWd] = useState("");
   const [videos, setVideos] = useState<AggregatedVideo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,6 +32,14 @@ export default function Search() {
 
   return (
     <div>
+      <button
+        className="btn"
+        onClick={() => navigate("/")}
+        style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13, marginBottom: 8 }}
+        aria-label="返回首页"
+      >
+        ← 返回
+      </button>
       <form
         onSubmit={handleSearch}
         className="row search-page"
@@ -43,9 +53,9 @@ export default function Search() {
           style={{
             flex: 1,
             padding: "8px 12px",
-            borderRadius: 6,
-            border: "1px solid var(--glass-border)",
-            background: "rgba(255,255,255,0.03)",
+            borderRadius: 4,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.06)",
             color: "var(--text-primary)",
           }}
         />
@@ -60,7 +70,7 @@ export default function Search() {
             padding: 12,
             background: "rgba(255,0,0,0.08)",
             border: "1px solid var(--danger)",
-            borderRadius: 6,
+            borderRadius: 4,
             marginBottom: 12,
             fontSize: 13,
             color: "var(--danger)",

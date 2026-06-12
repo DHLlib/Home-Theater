@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { listSites } from "../api/sites";
-import { listVideos, searchVideos, getCrawlerStatus } from "../api/videos";
+import {
+  listVideos,
+  searchVideos,
+  getCrawlerStatus,
+  getRecommendedVideos,
+} from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
+import RecommendedCarousel from "../components/RecommendedCarousel";
 import VideoCard from "../components/VideoCard";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
@@ -11,15 +17,6 @@ import {
   setCachedAggregated,
 } from "../utils/cache";
 import type { AggregatedVideo, Site } from "../types";
-
-type TimeFilter = "all" | 24 | 72 | 168;
-
-const TIME_OPTIONS: { key: TimeFilter; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: 24, label: "24h" },
-  { key: 72, label: "72h" },
-  { key: 168, label: "7天" },
-];
 
 function videoKey(item: AggregatedVideo): string {
   return `${item.title}-${item.year ?? "null"}`;
@@ -38,108 +35,6 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
 }
 
 /* ===== 子组件 ===== */
-
-function HeroSection({
-  video,
-  onClick,
-}: {
-  video: AggregatedVideo;
-  onClick: () => void;
-}) {
-  const poster = video.poster_url || "";
-  return (
-    <div
-      className="hero-section"
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      aria-label={`${video.title}${video.year ? ` (${video.year})` : ""}`}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick();
-      }}
-    >
-      {/* 背景画报 */}
-      <div
-        className="hero-bg"
-        style={{
-          position: "absolute",
-          inset: 0,
-          backgroundImage: poster ? `url(${poster})` : undefined,
-          backgroundSize: "cover",
-          backgroundPosition: "center top",
-          filter: "brightness(0.4)",
-        }}
-      />
-      {/* 底部渐变：融入黑色 */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background:
-            "linear-gradient(to top, var(--bg) 0%, transparent 60%), linear-gradient(to right, var(--bg) 0%, transparent 50%)",
-        }}
-      />
-      {/* 内容层 */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "0 24px 80px",
-          zIndex: 2,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 12,
-            letterSpacing: "0.15em",
-            color: "var(--primary)",
-            textTransform: "uppercase",
-            marginBottom: 12,
-            fontWeight: 600,
-          }}
-        >
-          最新推荐
-        </div>
-        <h1
-          className="font-display"
-          style={{
-            fontSize: "clamp(36px, 6vw, 60px)",
-            fontWeight: 700,
-            lineHeight: 1.1,
-            color: "var(--text-primary)",
-            marginBottom: 12,
-            maxWidth: 700,
-            textWrap: "balance",
-          }}
-        >
-          {video.title}
-        </h1>
-        {video.year && (
-          <div
-            style={{
-              fontSize: 16,
-              color: "var(--text-secondary)",
-              marginBottom: 20,
-              fontWeight: 300,
-            }}
-          >
-            {video.year}
-          </div>
-        )}
-        <div className="row" style={{ gap: 12 }}>
-          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); onClick(); }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            立即观看
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ChevronLeftIcon({ size = 20 }: { size?: number }) {
   return (
@@ -228,11 +123,12 @@ export default function Home() {
   const [sites, setSites] = useState<Site[]>([]);
   const [videos, setVideos] = useState<AggregatedVideo[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [noMore, setNoMore] = useState(false);
+  const [recommendedVideos, setRecommendedVideos] = useState<AggregatedVideo[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(true);
   const [crawlerStatus, setCrawlerStatus] = useState<{ running: boolean; site_status: Record<string, string> } | null>(null);
   const [showBackTop, setShowBackTop] = useState(false);
   const navigate = useNavigate();
@@ -255,19 +151,8 @@ export default function Home() {
     return sorted.slice(0, 12);
   }, [videos]);
 
-  const hotSection = useMemo(() => {
-    const featured = new Set(latestSection.map((v) => videoKey(v)));
-    const sorted = [...videos]
-      .filter((v) => !featured.has(videoKey(v)))
-      .sort((a, b) => b.sources.length - a.sources.length);
-    return sorted.slice(0, 12);
-  }, [videos, latestSection]);
-
   const allSection = useMemo(() => {
-    const featured = new Set([
-      ...latestSection.map((v) => videoKey(v)),
-      ...hotSection.map((v) => videoKey(v)),
-    ]);
+    const featured = new Set(latestSection.map((v) => videoKey(v)));
     return [...videos]
       .filter((v) => !featured.has(videoKey(v)))
       .sort((a, b) => {
@@ -278,22 +163,21 @@ export default function Home() {
         if (!tb) return -1;
         return tb.localeCompare(ta);
       });
-  }, [videos, latestSection, hotSection]);
+  }, [videos, latestSection]);
 
   // 加载数据（先读缓存，再调 API 刷新）
   const loadPage = useCallback(
-    async (pg: number, append: boolean) => {
+    async (pg: number, append: boolean, skipCache = false) => {
       const q = wdFromUrl.trim();
       const cacheParams = {
         category: activeCategory,
-        timeFilter,
         viewMode: "aggregated",
         page: pg,
         wd: q,
       };
 
       // 第 1 页：先读缓存立即渲染，减少白屏
-      if (pg === 1 && !append) {
+      if (pg === 1 && !append && !skipCache) {
         const cached = await getCachedAggregated<{
           items: AggregatedVideo[];
         }>(cacheParams);
@@ -314,7 +198,6 @@ export default function Home() {
         pg,
         mode: "aggregated",
       };
-      if (timeFilter !== "all") params.h = timeFilter;
       if (activeCategory) params.category = activeCategory;
 
       let cacheResult: { items: AggregatedVideo[] } | undefined;
@@ -361,7 +244,7 @@ export default function Home() {
         );
       }
     },
-    [timeFilter, activeCategory, wdFromUrl]
+    [activeCategory, wdFromUrl]
   );
 
   const loadInitial = useCallback(() => {
@@ -393,6 +276,26 @@ export default function Home() {
     });
   }, []);
 
+  // 页面从后台切回前台时跳过缓存重新加载（比如从设置页回来）
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadPage(1, false, true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [loadPage]);
+
+  // 加载推荐视频
+  useEffect(() => {
+    setRecommendedLoading(true);
+    getRecommendedVideos()
+      .then((r) => setRecommendedVideos(r.items))
+      .catch(() => {})
+      .finally(() => setRecommendedLoading(false));
+  }, []);
+
   // 定期检查刮削状态
   useEffect(() => {
     const check = () => {
@@ -421,7 +324,7 @@ export default function Home() {
     if (sites.length > 0) {
       loadInitialRef.current();
     }
-  }, [activeCategory, timeFilter, sites.length, wdFromUrl]);
+  }, [activeCategory, sites.length, wdFromUrl]);
 
   // 无限滚动：监听 sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -467,7 +370,7 @@ export default function Home() {
           暂无采集站
         </h2>
         <p style={{ marginBottom: 20, color: "var(--text-secondary)" }}>
-          请先去「设置」页添加资源站点。
+          添加采集站后即可浏览聚合后的视频内容。采集站是提供影视资源的外部站点，支持 AppleCMS 接口规范。
         </p>
         <button
           className="btn btn-primary"
@@ -481,8 +384,8 @@ export default function Home() {
   }
 
   const hasContent =
+    recommendedVideos.length > 0 ||
     latestSection.length > 0 ||
-    hotSection.length > 0 ||
     allSection.length > 0;
 
   const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
@@ -493,42 +396,6 @@ export default function Home() {
     <div>
       {/* ===== 移动端顶部搜索栏 ===== */}
       {isMobile && <MobileSearchBar />}
-
-      {/* ===== 工具栏：紧凑排列 ===== */}
-      <div
-        className="row"
-        style={{
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-          gap: 8,
-          flexWrap: "wrap",
-        }}
-      >
-        {/* 时间筛选 */}
-        <div className="row" style={{ gap: 0 }}>
-          {TIME_OPTIONS.map((t) => (
-            <button
-              key={t.key}
-              className="nav-link"
-              onClick={() => setTimeFilter(t.key)}
-              style={{
-                color:
-                  timeFilter === t.key
-                    ? "var(--text-primary)"
-                    : undefined,
-                borderBottom:
-                  timeFilter === t.key
-                    ? "2px solid var(--primary)"
-                    : "2px solid transparent",
-                marginBottom: -1,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <CategoryBar
         sites={sites}
@@ -543,7 +410,7 @@ export default function Home() {
             <div key={i}>
               <div
                 className="skeleton"
-                style={{ aspectRatio: "2/3", borderRadius: 8 }}
+                style={{ aspectRatio: "2/3", borderRadius: 4 }}
               />
               <div
                 className="skeleton"
@@ -609,12 +476,12 @@ export default function Home() {
       {/* ===== 首页模式：三区域 ===== */}
       {!loading && !wdFromUrl.trim() && (
         <>
-          {/* Hero 首屏画报 */}
-          {!activeCategory && latestSection.length > 0 && (
-            <HeroSection
-              video={latestSection[0]}
-              onClick={() => {
-                const v = latestSection[0];
+          {/* 推荐视频轮播 */}
+          {!activeCategory && (
+            <RecommendedCarousel
+              videos={recommendedVideos}
+              loading={recommendedLoading}
+              onSelect={(v) => {
                 const params = new URLSearchParams();
                 params.set("title", v.title);
                 if (v.year != null) params.set("year", String(v.year));
@@ -678,18 +545,7 @@ export default function Home() {
               </ScrollRow>
             )}
 
-            {/* 区域二：热门视频 */}
-            {hotSection.length > 0 && (
-              <ScrollRow title="热门视频" titleColor="var(--warning)">
-                {hotSection.map((v) => (
-                  <div key={videoKey(v)} style={{ width: 160 }}>
-                    <VideoCard item={v} width={160} />
-                  </div>
-                ))}
-              </ScrollRow>
-            )}
-
-            {/* 区域三：全部视频 */}
+            {/* 区域二：全部视频 */}
             <section style={{ marginBottom: 24 }}>
               <div className="section-title">
                 <span
@@ -760,7 +616,9 @@ export default function Home() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            background: "var(--glass-bg)",
+            backdropFilter: "blur(12px)",
+            border: "1px solid var(--glass-border)",
             padding: 0,
           }}
         >

@@ -4,10 +4,12 @@ import time
 from dataclasses import replace
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import Site
+from app.models import Site, VideoCache
 from app.schemas import Episode
 from app.services.parser import parse_episodes
 from app.services.resolver import resolve_feifan
@@ -15,6 +17,75 @@ from app.services.source_client import SourceClient
 
 router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
+
+
+class PlaySourceOut(BaseModel):
+    site_id: int
+    site_name: str
+    original_id: str
+    episode_count: int
+    suffix: str
+
+
+class PlaySourcesResponse(BaseModel):
+    sources: list[PlaySourceOut]
+
+
+def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
+    """从 play_url_raw 解析集数和主要后缀。"""
+    if not play_url_raw:
+        return 0, "mp4"
+    lines = [ln.strip() for ln in play_url_raw.splitlines() if ln.strip()]
+    count = len(lines)
+    suffix = "mp4"
+    if lines:
+        parts = lines[0].split("$")
+        if len(parts) >= 3:
+            suffix = parts[-1].strip()
+    return count, suffix
+
+
+@router.get("/sources", response_model=PlaySourcesResponse)
+async def get_sources(
+    title: str,
+    year: int | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """查询指定视频（title + year）的所有可用播放源。"""
+    stmt = (
+        select(VideoCache, Site.name.label("site_name"))
+        .join(Site, VideoCache.site_id == Site.id)
+        .where(
+            VideoCache.title == title,
+            VideoCache.play_url_raw.isnot(None),
+            VideoCache.play_url_raw != "",
+        )
+    )
+    if year is not None:
+        stmt = stmt.where(VideoCache.year == year)
+    else:
+        stmt = stmt.where(VideoCache.year.is_(None))
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    sources: list[PlaySourceOut] = []
+    for row in rows:
+        video_cache = row[0]
+        site_name = row[1]
+        episode_count, suffix = _parse_source_info(video_cache.play_url_raw)
+        sources.append(
+            PlaySourceOut(
+                site_id=video_cache.site_id,
+                site_name=site_name or str(video_cache.site_id),
+                original_id=video_cache.original_id,
+                episode_count=episode_count,
+                suffix=suffix,
+            )
+        )
+
+    logger.info("play_sources title=%s year=%s count=%d", title, year, len(sources))
+    return PlaySourcesResponse(sources=sources)
 
 
 @router.get("/episodes")

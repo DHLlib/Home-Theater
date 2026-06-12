@@ -5,7 +5,7 @@ import { getDownloadRoot } from "../api/settings";
 import { createDownload } from "../api/downloads";
 import { addFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
-import { toastSuccess } from "../utils/toast";
+import { toastError, toastSuccess } from "../utils/toast";
 import {
   getCachedDetail,
   setCachedDetail,
@@ -91,7 +91,7 @@ export default function Detail() {
   const handleDownload = async () => {
     const root = await getDownloadRoot();
     if (!root) {
-      alert("请先配置下载根目录");
+      toastError("请先配置下载根目录");
       navigate("/settings");
       return;
     }
@@ -127,7 +127,7 @@ export default function Detail() {
       );
     } else if (pickerAction === "download") {
       if (d.episodes.length === 0) {
-        alert("该源暂无可用集数");
+        toastError("该源暂无可用集数");
         return;
       }
       setSelectedSource(source);
@@ -146,7 +146,7 @@ export default function Detail() {
       );
       const resolved = resolvedEps.find((e) => e.index === ep.index);
       if (!resolved) {
-        alert("未能解析该集播放地址");
+        toastError("未能解析该集播放地址");
         return;
       }
 
@@ -162,7 +162,7 @@ export default function Detail() {
       });
       setEpisodePickerOpen(false);
       setSelectedSource(null);
-      alert("下载任务已创建");
+      toastSuccess("下载任务已创建");
     } catch {
       // ApiError already toasted by client.ts
     } finally {
@@ -172,6 +172,14 @@ export default function Detail() {
 
   return (
     <div className="col">
+      <button
+        className="btn"
+        onClick={() => navigate("/")}
+        style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13, marginBottom: 4 }}
+        aria-label="返回首页"
+      >
+        ← 返回
+      </button>
       <div className="row detail-layout" style={{ alignItems: "flex-start" }}>
         <div className="detail-poster-wrap" style={{ width: 220, flexShrink: 0 }}>
           {(item.poster_url || detail[0]?.poster_url) ? (
@@ -191,19 +199,25 @@ export default function Detail() {
             {item.title} {item.year ? `(${item.year})` : ""}
           </h2>
           {detail[0]?.area && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>地区：{detail[0].area}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>地区：{detail[0].area}</div>
           )}
           {detail[0]?.actors && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>演员：{detail[0].actors}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>演员：{detail[0].actors}</div>
           )}
           {detail[0]?.director && (
-            <div style={{ fontSize: 13, opacity: 0.8 }}>导演：{detail[0].director}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>导演：{detail[0].director}</div>
           )}
           {detail[0]?.intro && (
             <div
-              style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.6 }}
-              dangerouslySetInnerHTML={{ __html: detail[0].intro }}
-            />
+              style={{
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {detail[0].intro.replace(/<[^>]*>/g, "")}
+            </div>
           )}
           <div className="row detail-actions" style={{ marginTop: 8 }}>
             <button className="btn btn-primary" onClick={handlePlay}>
@@ -279,7 +293,7 @@ export default function Detail() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>选择要下载的集数</h3>
-            <p style={{ opacity: 0.7, fontSize: 13 }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
               {selectedSource.site_name || `站点 #${selectedSource.site_id}`} · {item.title}
             </p>
 
@@ -292,7 +306,7 @@ export default function Detail() {
                 );
                 if (!d || d.episodes.length === 0) {
                   return (
-                    <div style={{ opacity: 0.7, padding: 12 }}>暂无可用集数</div>
+                    <div style={{ color: "var(--text-secondary)", padding: 12 }}>暂无可用集数</div>
                   );
                 }
                 return (

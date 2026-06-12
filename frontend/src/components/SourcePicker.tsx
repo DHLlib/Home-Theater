@@ -39,7 +39,7 @@ export default function SourcePicker(props: SourcePickerProps) {
       }}
     >
       {sources.length === 0 && (
-        <li style={{ opacity: 0.7, padding: 12 }}>无可用源</li>
+        <li style={{ color: "var(--text-secondary)", padding: 12 }}>无可用源</li>
       )}
       {sources.map((s) => {
         const key = `${s.site_id}-${s.original_id}`;
@@ -75,7 +75,7 @@ export default function SourcePicker(props: SourcePickerProps) {
               </div>
               {formatSubtitle && (
                 <div
-                  style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}
+                  style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}
                 >
                   {formatSubtitle(s)}
                 </div>
@@ -109,7 +109,7 @@ export default function SourcePicker(props: SourcePickerProps) {
   if (isMobile) {
     return (
       <BottomSheet open={open} title={pickerTitle} onClose={onCancel}>
-        <p style={{ opacity: 0.7, fontSize: 13, marginTop: 4 }}>
+        <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
           每个源由不同采集站提供，请显式点选一个再确认。
         </p>
         {sourceList}
@@ -144,7 +144,7 @@ export default function SourcePicker(props: SourcePickerProps) {
         }}
       >
         <h3 style={{ marginTop: 0 }}>{pickerTitle}</h3>
-        <p style={{ opacity: 0.7, fontSize: 13 }}>
+        <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
           每个源由不同采集站提供，请显式点选一个再确认。
         </p>
         {sourceList}

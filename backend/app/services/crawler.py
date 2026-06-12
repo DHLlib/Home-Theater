@@ -526,7 +526,11 @@ class Crawler:
                     d = detail_map.get(entry["original_id"])
                     if not d:
                         continue
-                    detail_entries.append(self._build_detail_entry(site.id, d))
+                    detail_entry = self._build_detail_entry(site.id, d)
+                    # 保留 list 阶段的分类信息（videolist 接口不返回 type_id）
+                    detail_entry["type_id"] = entry.get("type_id")
+                    detail_entry["type_name"] = entry.get("type_name")
+                    detail_entries.append(detail_entry)
 
                 if detail_entries:
                     async with self._db_factory() as db:
@@ -725,6 +729,9 @@ class Crawler:
                             "director": stmt.excluded.director,
                             "play_url_raw": stmt.excluded.play_url_raw,
                             "has_detail": stmt.excluded.has_detail,
+                            # 保留 list 阶段分类信息（videolist 不返回 type_id）
+                            "type_id": stmt.excluded.type_id,
+                            "type_name": stmt.excluded.type_name,
                             # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
                             # 未返回 updated_at 时将其刷为 None
                             "cached_at": stmt.excluded.cached_at,
@@ -754,6 +761,9 @@ class Crawler:
                 "director": stmt.excluded.director,
                 "play_url_raw": stmt.excluded.play_url_raw,
                 "has_detail": stmt.excluded.has_detail,
+                # 保留 list 阶段分类信息（videolist 不返回 type_id）
+                "type_id": stmt.excluded.type_id,
+                "type_name": stmt.excluded.type_name,
                 # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
                 # 未返回 updated_at 时将其刷为 None
                 "cached_at": stmt.excluded.cached_at,

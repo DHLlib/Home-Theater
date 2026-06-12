@@ -123,14 +123,13 @@ async function set<T>(storeName: string, key: string, value: T): Promise<void> {
 export function cacheAggregatedKey(
   params: {
     category?: string | null;
-    timeFilter?: string | number;
     viewMode?: string;
     page?: number;
     wd?: string;
   }
 ): string {
-  const { category, timeFilter, viewMode, page, wd } = params;
-  return [category ?? "", timeFilter ?? "", viewMode ?? "", page ?? 1, wd ?? ""].join(":");
+  const { category, viewMode, page, wd } = params;
+  return [category ?? "", viewMode ?? "", page ?? 1, wd ?? ""].join(":");
 }
 
 export async function getCachedAggregated<T>(params: Parameters<typeof cacheAggregatedKey>[0]): Promise<T | null> {

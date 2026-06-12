@@ -13,11 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 仓库已按 `backend/` + `frontend/` 两目录拆分 MVP 骨架落地；`backend/data/app.db`（SQLite，默认）由 SQLAlchemy `Base.metadata.create_all` 启动时自动建表。PostgreSQL 下需手动执行 SQL 初始化脚本（`backend/app/sql/*.sql`）创建物化视图和触发器。
 
-### v1.1 刮削架构（新增）
+### v1.1 刮削架构
 
 从实时代理模式改为**本地聚合数据库**模式：
 
-- **首次启动**：后端自动检测 VideoCache 是否为空，若为空则在后台启动**全量刮削**（遍历所有站点的所有分类），预计 20-40 分钟
+- **首次启动**：后端自动检测 VideoCache 是否为空，若为空则在后台启动**全量刮削**（遍历所有站点的所有分类），预计 20-40 分钟。开发环境下首次启动后首页可能为空，属正常。
 - **日常更新**：每 5 分钟检测各站第一页，有新内容则自动触发**增量更新**（遇旧即停）
 - **数据存储**：所有 list 字段 + videolist 详情字段全部写入 `VideoCache` 表，封面只存 `poster_url` 外链
 - **首页/搜索**：本地数据库查询，不再实时请求资源站
@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 刮削状态 API：`GET /api/videos/crawler/status`
 手动触发增量：`POST /api/videos/crawler/incremental/{site_id}`
 
-### v1.2 预聚合缓存架构（新增）
+### v1.2 预聚合缓存架构
 
 为解决首页大数据量聚合查询缓慢（~8s）问题，引入预聚合缓存：
 
@@ -52,9 +52,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **后端**：FastAPI（Python，async）；HTTP 客户端使用 `httpx.AsyncClient` 并发拉取多源
 - **存储**：SQLite（默认，异步驱动 `aiosqlite`）/ PostgreSQL（可选，异步驱动 `asyncpg`）；`settings.is_postgres` 统一切换；用户一次性配置的下载根目录持久化在配置表
-- **前端**：React + Vite SPA，原生 CSS 变量主题系统（浅色/深色双主题）
-- **播放器**：ckplayer（与资源站返回的 `$ckplayer` 后缀对齐）
+- **前端**：React 18 + Vite SPA，原生 CSS 变量主题系统（**v2.1 深黑影院主题**，强制深黑，无浅色主题）
+- **播放器**：xgplayer v3 + xgplayer-hls.js（M3U8/MP4/WebM），同时保留 ckplayer 兼容性入口
 - **部署**：纯 Python 脚本运行 —— `uvicorn` 起后端，前端 `vite build` 产物交由 FastAPI 静态文件路由托管；亦可通过 `start.ps1` / `stop.ps1` 一键启停
+
+## 核心架构数据流
+
+### 首页列表查询流
+```
+前端 Home.tsx → GET /api/videos?page=&category=
+  → videos.py
+    → 无 category: 读预聚合缓存表（SQLite 双缓冲 / PG 物化视图）
+    → 有 category: _resolve_remote_categories → 实时聚合查询 VideoCache
+  → 返回聚合后的视频卡片数据
+```
+
+### 刮削数据流
+```
+main.py lifespan → init_scheduler() → scheduler.py _master_loop
+  → crawler.start()        [首次全量刮削，后台独立运行]
+  → _probe_loop()          [每 10 分钟探测站点健康]
+  → _check_update_loop()   [每 5 分钟检测各站第一页]
+  → _crawl_worker_loop()   [消费刮削队列，执行增量刮削]
+
+crawler.py 内部：
+  source_client.py (httpx) → 资源站 API → parser.py 解析 XML/JSON
+  → VideoCache 表批量 upsert → refresh_aggregated_view() 刷新预聚合缓存
+```
+
+### 播放数据流
+```
+前端 Player.tsx → getEpisodes(site_id, original_id)
+  → play.py get_episodes()
+    → 读 VideoCache（优先）或实时 videolist
+    → parser.py parse_episodes() 切分 "集数$地址$后缀"
+    → 后缀归一化（feifan/360zy/dytt/*m3u8/*yun → ffm3u8）
+  → 返回 episodes 到 VideoPlayer 组件
+
+VideoPlayer.tsx：
+  → xgplayer 初始化
+  → 检测 suffix.endsWith("m3u8") || suffix.endsWith("yun") 决定用 HLS 或 MP4
+```
+
+### 下载数据流
+```
+前端 Downloads.tsx → POST /api/downloads
+  → downloader.py 创建任务 → 写入 DownloadTask 表
+  → download_worker() 后台协程消费队列
+    → HTTP Range 请求 → 本地文件写入
+    → 批量 commit（每 5 秒或 100 个 chunk）
+    → SSE publish("download_progress") 推送进度
+  → 前端 SSE 事件驱动增量更新 UI
+```
 
 ## 资源站接口规范（硬约定，不可改）
 
@@ -123,26 +172,39 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 ## 分类映射规范
 
-系统分类是**扁平**的，不存在"电影"这种聚合大类。可映射的条目是各资源站的**子分类**（`type_pid > 0`）。
+系统分类采用**父子层级**结构：`SystemCategory` 表有 `parent_id`，`/api/system-categories` 返回树形结构，前端 `CategoryBar` 按父类分组展示子类。
 
 ### 设计原则
 
-1. **扁平系统分类**：动作片、科幻片、喜剧片、剧情片、国产剧、大陆综艺、国产动漫……等叶子节点，没有"电影"、"连续剧"这种父级大类。
-2. **多对一映射**：一个系统分类可以对应一个站点的多个子分类（如"恐怖片"同时映射 ffzy 恐怖片 + 360zy 恐怖片/惊悚片/灾难片）。
-3. **互斥约束**：一个站点分类（remote_id）只能映射到一个系统分类。前端 `CategorySettings` 通过 occupancy map 实现置灰 + 释放机制。
-4. **查询链路**：前端点击系统分类 → `GET /api/videos?category=系统分类名` → 后端 `_resolve_remote_categories` 映射为各站点 remote_id → 向各站点并发请求 `t=remote_id` → 聚合返回。
+1. **父子层级系统分类**：存在"电影"、"连续剧"、"综艺"、"动漫"、"体育"、"短剧"等父分类，每个父分类下有若干叶子子分类（如"电影"下有动作片、科幻片、喜剧片等）。新增系统分类时可指定 `parent_id`。
+2. **映射发生在叶子层**：各资源站的 `remote_id` 最终映射到系统分类的**叶子节点**（子分类），而不是父分类。父分类仅用于前端分组展示和推荐等聚合场景。
+3. **多对一映射**：一个系统子分类可以对应一个站点的多个子分类（如"恐怖片"同时映射 ffzy 恐怖片 + 360zy 恐怖片/惊悚片/灾难片）。
+4. **互斥约束**：一个站点分类（remote_id）只能映射到一个系统分类。前端 `CategorySettings` 通过 occupancy map 实现置灰 + 释放机制。
+5. **禁用级联**：父分类 `enabled=False` 时，其下所有子分类在前端过滤和推荐查询中均视为禁用（见 `_video_has_enabled_source`）。删除父分类会级联删除子分类。
+6. **查询链路**：前端点击系统子分类 → `GET /api/videos?category=系统分类名` → 后端 `_resolve_remote_categories` 映射为各站点 remote_id → 向各站点并发请求 `t=remote_id` → 聚合返回。
 
 ### 当前系统分类清单
 
-| 系统分类 | 典型映射 |
-|---------|---------|
-| 动作片、科幻片、喜剧片、爱情片、剧情片、战争片、恐怖片、伦理片 | 电影类子分类 |
-| 纪录片、动画片、短片 | 360zy 特有电影子类 |
-| 国产剧、香港剧、韩国剧、欧美剧、台湾剧、日本剧、泰国剧、海外剧 | 连续剧子分类 |
-| 大陆综艺、港台综艺、日韩综艺、欧美综艺 | 综艺子分类 |
-| 国产动漫、日韩动漫、欧美动漫、港台动漫、海外动漫 | 动漫子分类 |
-| 体育 | 360zy 足球/篮球/NBA |
-| 短剧 | ffzy 短剧 + 360zy 各短剧子类 |
+| 父分类 | 子分类 |
+|---|---|
+| 电影 | 动作片、科幻片、喜剧片、爱情片、剧情片、战争片、恐怖片、伦理片、纪录片、动画片、短片、4K电影、邵氏电影、Netflix、悬疑片、犯罪片、奇幻片 |
+| 连续剧 | 国产剧、香港剧、韩国剧、欧美剧、台湾剧、日本剧、泰国剧、海外剧 |
+| 综艺 | 大陆综艺、港台综艺、日韩综艺、欧美综艺 |
+| 动漫 | 国产动漫、日韩动漫、欧美动漫、港台动漫、海外动漫 |
+| 体育 | 足球、篮球、综合体育 |
+| 短剧 | 古装短剧、都市短剧、穿越短剧、恋爱短剧、其他短剧 |
+| 其他 | 其他资源 |
+
+## 主题系统（v2.1 深黑影院主题）
+
+v2.1 已彻底重构为**深黑影院主题（Cinema Theme）**，不再支持浅色主题。
+
+- `global.css` 中 `:root` 定义深黑变量：`--bg: #000000`，`--primary: #4ade80`（呼吸绿）
+- `App.tsx` 强制深黑主题：移除 `data-theme` 属性、清除 localStorage 中的旧主题设置
+- 所有组件使用 CSS 变量，禁止硬编码 `rgba(0,0,0,...)` 或 `#fff` 等不与主题一致的颜色
+- 字体：`Cinzel`（英文标题）+ `Noto Sans SC`（中文正文）
+
+> 注：如果修改颜色，只需改 `global.css` 中的 CSS 变量；组件中的 `var(--xxx)` 引用会自动生效。
 
 ## 局域网访问注意事项
 
@@ -184,6 +246,27 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 
 > 注：`frontend/vite.config.ts` 开发代理目标为 `http://localhost:8181`，与后端开发端口保持一致。
 
+### 测试
+
+**前端测试**（Vitest）：
+```bash
+cd frontend && npm test
+```
+
+**后端测试**（pytest）：
+```bash
+# 先安装 dev 依赖（若未安装）
+cd backend && pip install -e ".[dev]"
+# 运行全部测试
+pytest
+# 运行单个测试文件
+pytest test/test_videos.py
+# 运行特定测试函数
+pytest test/test_videos.py::test_list_videos
+```
+
+后端测试使用独立测试数据库（默认 `postgresql+asyncpg://localhost:5432/home_theater_test`），每个测试后自动 truncate 所有表保证隔离。可通过 `TEST_DB_URL` 环境变量覆盖。
+
 ### Windows 一键启动（PowerShell）
 
 ```powershell
@@ -213,11 +296,11 @@ AppleCMS 站点的 `ac=list` 响应中，`class` 数组包含父分类（`type_p
 - 改动到「资源站请求参数」或「播放地址解析」相关代码时，回头核对本文件的硬规范章节
 - 新增任何「自动选源」「按某源默认播放」之类的逻辑前，先与用户确认 —— 这与现有契约相反
 - 下载根目录的获取应从配置层读，不要在调用点硬编码或重复询问用户
-- **分类映射**：系统分类是扁平的，禁止新增"电影""连续剧"等父级大类；新增分类时应映射到叶子子分类
-- **fetch-categories**：后端已过滤 `type_pid=0` 的父分类，不要修改此逻辑让父分类重新进入可选列表
+- **分类映射**：系统分类是父子层级结构，资源站 `remote_id` 映射到叶子子分类；父分类用于展示分组和推荐聚合。新增分类时应映射到叶子子分类，并正确设置 `parent_id`。
+- **fetch-categories**：后端已过滤 `type_pid=0` 的资源站父分类，只返回可查询的子分类；不要把资源站父分类重新加入可选列表。
 - **CategorySettings 互斥**：一个 remote_id 只能属于一个系统分类，前端用 occupancy map 维护此约束；如需改动映射逻辑，需同步更新 occupancy 计算和 releaseRemoteId 逻辑
 - **feifan/360zy 后缀处理**：`video_detail` 和 `play.py` 都要对 episodes 做后缀归一化（`feifan` → 解析为真实 m3u8 后 suffix 改为 `ffm3u8`；`360zy` → `ffm3u8`）。只改一处会导致详情页播放和直接刷新播放器行为不一致（见 `docs/lessons-learned.md` #17）
-- **主题系统**：`global.css` 中 `:root` 为浅色主题（`#f9e9cd` 暖米色背景），`[data-theme="dark"]` 为深色主题。新增主题变量或修改颜色时必须同步更新两套变量；组件中的硬编码颜色（如 `rgba(0,0,0,...)`、`#fff`）需检查在另一主题下是否可读。主题切换逻辑在 `App.tsx`（初始化）和 `Layout.tsx`（切换按钮）。
+- **主题系统**：v2.1 为强制深黑影院主题，`global.css` 中不再有浅色主题变量；`App.tsx` 会清除旧主题设置。新增组件时使用 `var(--bg)`、`var(--text-primary)` 等变量，不要硬编码颜色。
 - **刮削模块**：`app/services/crawler.py` 负责全量/增量刮削；`app/services/scheduler.py` 负责定时调度。修改刮削逻辑时需同步更新状态持久化（AppConfig key="crawler_state"）。
 - **列表排序**：`app/api/videos.py` 的 list/search 查询必须带二级排序 `desc(VideoCache.id)`，否则 `cached_at` 相同时返回顺序不稳定。
 - **crawler 导入**：`app/api/videos.py` 中不能写 `from app.services.scheduler import crawler`（快照导入），必须用 `import app.services.scheduler as scheduler_module` 然后通过 `scheduler_module.crawler` 访问（模块引用）。
