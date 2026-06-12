@@ -7,15 +7,17 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
 from app.db import get_db
 from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.models import (
     _utcnow,
-
-    AggregatedVideo as AggregatedVideoModel,
+    AggregatedVideo as AggregatedVideoMV,
+    AggregatedVideoV3,
     AppConfig,
+    RecommendedVideo,
     Site,
     SystemCategory,
     VideoCache,
@@ -400,32 +402,25 @@ async def _query_aggregated_cache(
     per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
     site_id: int | None = None,
 ) -> AggregatedListResponse | None:
-    """从物化视图 mv_aggregated_videos 读取预聚合缓存。
+    """从中间表 aggregated_videos / aggregated_sources 读取预聚合缓存。
 
-    若物化视图为空（首次启动未初始化），返回 None 让调用方 fallback。
+    若表为空（首次启动未初始化），返回 None 让调用方 fallback。
     """
     try:
         # 加载分类禁用映射（缓存 60 秒）
         system_by_name, system_by_id, site_mappings = await _load_category_filter_maps(db)
 
-        count_query = select(func.count()).select_from(AggregatedVideoModel)
-        query = select(AggregatedVideoModel)
+        base_query = select(AggregatedVideoV3)
+        count_query = select(func.count()).select_from(AggregatedVideoV3)
 
-        # JSONB 按 site_id 过滤（参数化绑定，防注入）
         if site_id is not None:
-            from sqlalchemy.dialects.postgresql import JSONB
-
-            jsonb_filter = bindparam(
-                "site_id_filter",
-                value=[{"site_id": site_id}],
-                type_=JSONB,
+            subq = (
+                select(AggregatedSource.aggregated_video_id)
+                .where(AggregatedSource.site_id == site_id)
+                .subquery()
             )
-            count_query = count_query.where(
-                AggregatedVideoModel.sources.op("@>")(jsonb_filter)
-            )
-            query = query.where(
-                AggregatedVideoModel.sources.op("@>")(jsonb_filter)
-            )
+            base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
+            count_query = count_query.where(AggregatedVideoV3.id.in_(subq))
 
         count_result = await db.execute(count_query)
         count = count_result.scalar_one()
@@ -435,26 +430,42 @@ async def _query_aggregated_cache(
         page = pg or 1
         offset = (page - 1) * per_page
 
-        # 多取 5 倍数据以补偿分类过滤导致的缩减
         result = await db.execute(
-            query.order_by(
-                desc(AggregatedVideoModel.latest_updated_at),
-                desc(AggregatedVideoModel.id),
+            base_query.order_by(
+                desc(AggregatedVideoV3.latest_updated_at),
+                desc(AggregatedVideoV3.id),
             )
             .limit(per_page * 5)
             .offset(offset)
+            .options(selectinload(AggregatedVideoV3.sources_rel))
         )
         rows = result.scalars().all()
 
         items = []
         for r in rows:
-            sources = [SourceRef(**s) for s in (r.sources or [])]
-            # 双重保险：数据库端过滤后再 Python 端确认
-            sources = _filter_sources_by_site_id(sources, site_id)
+            sources = [
+                SourceRef(
+                    site_id=s.site_id,
+                    site_name=s.site_name,
+                    original_id=s.original_id,
+                    type=s.type_name,
+                    type_id=s.type_id,
+                    category=None,
+                    remarks=s.remarks,
+                    updated_at=s.updated_at,
+                )
+                for s in r.sources_rel
+            ]
 
             # AC-031: 分类禁用过滤——所有 source 都被禁用时整体过滤
-            if not _video_has_enabled_source(sources, system_by_name, system_by_id, site_mappings):
+            if not _video_has_enabled_source(
+                sources, system_by_name, system_by_id, site_mappings
+            ):
                 continue
+
+            # site_id 已在 SQL 层过滤，这里做双重保险
+            if site_id is not None:
+                sources = _filter_sources_by_site_id(sources, site_id)
 
             items.append(
                 AggregatedVideo(
@@ -462,7 +473,7 @@ async def _query_aggregated_cache(
                     year=r.year,
                     poster_url=r.poster_url,
                     sources=sources,
-                    source_count=r.source_count,
+                    source_count=len(sources),
                 )
             )
             if len(items) >= per_page:
@@ -470,7 +481,7 @@ async def _query_aggregated_cache(
 
         return AggregatedListResponse(items=items, failed_sources=[])
     except Exception:
-        # 物化视图不存在时 fallback
+        # 表未初始化或异常时 fallback
         return None
 
 
@@ -575,34 +586,30 @@ async def list_videos(
 
 @router.get("/recommended")
 async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedListResponse:
-    """推荐视频：从预计算物化视图读取 6+3+3+3 条。"""
-    sql = text("""
-        SELECT title, year, poster_url, latest_updated_at, source_count, sources
-        FROM mv_recommended_videos
-        ORDER BY id
-    """)
-
+    """推荐视频：从预计算推荐中间表读取 6+3+3+3 条。"""
     try:
-        result = await db.execute(sql)
-        rows = result.mappings().all()
+        result = await db.execute(
+            select(RecommendedVideo).order_by(RecommendedVideo.id)
+        )
+        rows = result.scalars().all()
     except Exception as exc:
         logger.warning("recommended_videos query failed: %s", exc)
         return AggregatedListResponse(items=[], failed_sources=[])
 
     items = []
     for r in rows:
-        sources = [SourceRef(**s) for s in (r["sources"] or [])]
+        sources = [SourceRef(**s) for s in (r.sources or [])]
         items.append(
             AggregatedVideo(
-                title=r["title"],
-                year=r["year"],
-                poster_url=r["poster_url"],
+                title=r.title,
+                year=r.year,
+                poster_url=r.poster_url,
                 sources=sources,
-                source_count=r["source_count"],
+                source_count=r.source_count,
             )
         )
 
-    # 兜底：对物化视图中 poster_url 为空的记录，从 video_cache 补充非空封面
+    # 兜底：对 poster_url 为空的记录，从 video_cache 补充非空封面
     missing_posters = [
         (i, item.title, item.year)
         for i, item in enumerate(items)
@@ -626,7 +633,6 @@ async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedLi
         for i, title, year in missing_posters:
             poster = poster_map.get((title, year))
             if not poster:
-                # 退而求其次：按 title 匹配任意年份的封面
                 for (t, _), p in poster_map.items():
                     if t == title:
                         poster = p
