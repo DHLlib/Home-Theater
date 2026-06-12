@@ -1,12 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { listSites } from "../api/sites";
-import {
-  listVideos,
-  searchVideos,
-  getCrawlerStatus,
-  getRecommendedVideos,
-} from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
 import RecommendedCarousel from "../components/RecommendedCarousel";
 import ScrollRow from "../components/ScrollRow";
@@ -14,10 +7,12 @@ import VideoCard from "../components/VideoCard";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
 import {
-  getCachedAggregated,
-  setCachedAggregated,
-} from "../utils/cache";
-import type { AggregatedVideo, Site } from "../types";
+  useSitesQuery,
+  useRecommendedVideosQuery,
+  useCrawlerStatusQuery,
+  useVideosInfinite,
+} from "../hooks/useVideos";
+import type { AggregatedVideo } from "../types";
 
 function videoKey(item: AggregatedVideo): string {
   return `${item.title}-${item.year ?? "null"}`;
@@ -38,25 +33,31 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
 /* ===== 主页面 ===== */
 
 export default function Home() {
-  const [sites, setSites] = useState<Site[]>([]);
-  const [videos, setVideos] = useState<AggregatedVideo[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [noMore, setNoMore] = useState(false);
-  const [recommendedVideos, setRecommendedVideos] = useState<AggregatedVideo[]>([]);
-  const [recommendedLoading, setRecommendedLoading] = useState(true);
-  const [crawlerStatus, setCrawlerStatus] = useState<{ running: boolean; site_status: Record<string, string> } | null>(null);
   const [showBackTop, setShowBackTop] = useState(false);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
 
-  // 从 URL 读取搜索词
   const wdFromUrl = searchParams.get("wd") || "";
 
-  // 计算聚合模式三区域
+  const { data: sites = [] } = useSitesQuery();
+  const { data: recommendedVideos = [], isLoading: recommendedLoading } =
+    useRecommendedVideosQuery();
+  const { data: crawlerStatus } = useCrawlerStatusQuery();
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl });
+
+  const videos = useMemo(() => {
+    return data?.pages.flat() ?? [];
+  }, [data]);
+
   const latestSection = useMemo(() => {
     const sorted = [...videos].sort((a, b) => {
       const ta = getLatestUpdatedAt(a);
@@ -83,101 +84,6 @@ export default function Home() {
       });
   }, [videos, latestSection]);
 
-  // 加载数据（先读缓存，再调 API 刷新）
-  const loadPage = useCallback(
-    async (pg: number, append: boolean, skipCache = false) => {
-      const q = wdFromUrl.trim();
-      const cacheParams = {
-        category: activeCategory,
-        viewMode: "aggregated",
-        page: pg,
-        wd: q,
-      };
-
-      // 第 1 页：先读缓存立即渲染，减少白屏
-      if (pg === 1 && !append && !skipCache) {
-        const cached = await getCachedAggregated<{
-          items: AggregatedVideo[];
-        }>(cacheParams);
-        if (cached) {
-          setVideos(cached.items);
-          // 有缓存时先结束 loading，让 UI 立即可交互
-          setLoading(false);
-        }
-      }
-
-      if (pg === 1) {
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
-
-      const params: Record<string, string | number> = {
-        pg,
-        mode: "aggregated",
-      };
-      if (activeCategory) params.category = activeCategory;
-
-      let cacheResult: { items: AggregatedVideo[] } | undefined;
-      try {
-        const r = q
-          ? await searchVideos({
-              wd: q,
-              pg,
-              mode: "aggregated",
-              ...(activeCategory ? { category: activeCategory } : {}),
-            })
-          : await listVideos(params);
-        cacheResult = r;
-        if (pg === 1) {
-          setVideos(r.items);
-        } else {
-          setVideos((prev) => {
-            const map = new Map<string, AggregatedVideo>();
-            for (const v of prev) map.set(videoKey(v), v);
-            for (const v of r.items) map.set(videoKey(v), v);
-            return Array.from(map.values());
-          });
-        }
-        if (r.items.length === 0) {
-          setNoMore(true);
-        }
-      } catch {
-        if (pg === 1) {
-          setVideos([]);
-        }
-        setNoMore(true);
-      } finally {
-        if (pg === 1) {
-          setLoading(false);
-        } else {
-          setLoadingMore(false);
-        }
-      }
-
-      // fire-and-forget：缓存写入不阻塞 UI 状态更新
-      if (cacheResult) {
-        setCachedAggregated(cacheParams, { items: cacheResult.items }).catch(
-          () => {}
-        );
-      }
-    },
-    [activeCategory, wdFromUrl]
-  );
-
-  const loadInitial = useCallback(() => {
-    setPage(1);
-    setNoMore(false);
-    loadPage(1, false);
-  }, [loadPage]);
-
-  const loadMore = useCallback(() => {
-    if (loadingMore || noMore || loading) return;
-    const nextPage = page + 1;
-    setPage(nextPage);
-    loadPage(nextPage, true);
-  }, [loadingMore, noMore, loading, page, loadPage]);
-
   // 返回顶部按钮显隐
   useEffect(() => {
     const onScroll = () => {
@@ -187,83 +93,39 @@ export default function Home() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // 初始加载站点列表
-  useEffect(() => {
-    listSites().then((s) => {
-      setSites(s);
-    });
-  }, []);
-
-  // 页面从后台切回前台时跳过缓存重新加载（比如从设置页回来）
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        loadPage(1, false, true);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [loadPage]);
-
-  // 加载推荐视频
-  useEffect(() => {
-    setRecommendedLoading(true);
-    getRecommendedVideos()
-      .then((r) => setRecommendedVideos(r.items))
-      .catch(() => {})
-      .finally(() => setRecommendedLoading(false));
-  }, []);
-
-  // 定期检查刮削状态
-  useEffect(() => {
-    const check = () => {
-      getCrawlerStatus().then(setCrawlerStatus).catch(() => {});
-    };
-    check();
-    const id = setInterval(check, 10000);
-    return () => clearInterval(id);
-  }, []);
-
   // 刮削完成后自动刷新（从 syncing 变为 idle）
   const wasSyncingRef = useRef(false);
   useEffect(() => {
     const statuses = Object.values(crawlerStatus?.site_status || {});
-    const isSyncing = statuses.some((s) => s === "full_crawling" || s === "incremental_running");
+    const isSyncing = statuses.some(
+      (s) => s === "full_crawling" || s === "incremental_running"
+    );
     if (wasSyncingRef.current && !isSyncing && videos.length === 0) {
-      loadInitialRef.current();
+      refetch();
     }
     wasSyncingRef.current = isSyncing;
-  }, [crawlerStatus, videos.length]);
-
-  // 筛选条件变化时重置加载
-  const loadInitialRef = useRef(loadInitial);
-  loadInitialRef.current = loadInitial;
-  useEffect(() => {
-    if (sites.length > 0) {
-      loadInitialRef.current();
-    }
-  }, [activeCategory, sites.length, wdFromUrl]);
+  }, [crawlerStatus, videos.length, refetch]);
 
   // 无限滚动：监听 sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const loadMoreRef = useRef(loadMore);
-  loadMoreRef.current = loadMore;
+  const fetchNextPageRef = useRef(fetchNextPage);
+  fetchNextPageRef.current = fetchNextPage;
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || noMore || loading) return;
+    if (!el || !hasNextPage || isLoading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          loadMoreRef.current();
+          fetchNextPageRef.current();
         }
       },
       { rootMargin: "300px" }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [noMore, loading, videos.length]);
+  }, [hasNextPage, isLoading, videos.length]);
 
   if (sites.length === 0) {
     return (
@@ -322,7 +184,7 @@ export default function Home() {
       />
 
       {/* ===== 加载骨架屏 ===== */}
-      {loading && (
+      {isLoading && (
         <div className="grid" style={{ marginTop: 8 }}>
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i}>
@@ -354,7 +216,7 @@ export default function Home() {
       )}
 
       {/* ===== 搜索模式 ===== */}
-      {!loading && wdFromUrl.trim() && (
+      {!isLoading && wdFromUrl.trim() && (
         <>
           {videos.length === 0 && (
             <div className="empty" style={{ padding: 40 }}>
@@ -392,7 +254,7 @@ export default function Home() {
       )}
 
       {/* ===== 首页模式：三区域 ===== */}
-      {!loading && !wdFromUrl.trim() && (
+      {!isLoading && !wdFromUrl.trim() && (
         <>
           {/* 推荐视频轮播 */}
           {!activeCategory && (
@@ -472,7 +334,7 @@ export default function Home() {
                 />
                 全部视频
               </div>
-              {allSection.length === 0 && !loadingMore && (
+              {allSection.length === 0 && !isFetchingNextPage && (
                 <div className="empty" style={{ padding: 20 }}>
                   <p>该条件下暂无更新</p>
                 </div>
@@ -490,7 +352,7 @@ export default function Home() {
       {/* 无限滚动 sentinel */}
       <div ref={sentinelRef} style={{ height: 1 }} />
 
-      {loadingMore && (
+      {isFetchingNextPage && (
         <div
           className="row"
           style={{ justifyContent: "center", padding: 20, gap: 8 }}
@@ -505,7 +367,7 @@ export default function Home() {
         </div>
       )}
 
-      {noMore && hasContent && (
+      {!hasNextPage && hasContent && (
         <div
           style={{
             textAlign: "center",

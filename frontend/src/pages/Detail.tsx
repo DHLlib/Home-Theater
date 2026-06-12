@@ -1,20 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { getDetail } from "../api/videos";
 import { getDownloadRoot } from "../api/settings";
 import { createDownload } from "../api/downloads";
 import { addFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
+import { useDetailQuery } from "../hooks/useVideos";
 import { toastError, toastSuccess } from "../utils/toast";
-import {
-  getCachedDetail,
-  setCachedDetail,
-} from "../utils/cache";
 import EpisodeList from "../components/EpisodeList";
 import SourcePicker from "../components/SourcePicker";
 import type {
   AggregatedVideo,
-  SourceDetail,
   SourceRef,
   Episode,
 } from "../types";
@@ -45,7 +40,13 @@ export default function Detail() {
       return undefined;
     }
   }, [location.state, searchParams]);
-  const [detail, setDetail] = useState<SourceDetail[]>([]);
+
+  const { data: detail = [] } = useDetailQuery(
+    item?.title ?? "",
+    item?.year,
+    item?.sources ?? []
+  );
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAction, setPickerAction] = useState<"play" | "download" | null>(
     null
@@ -53,31 +54,6 @@ export default function Detail() {
   const [selectedSource, setSelectedSource] = useState<SourceRef | null>(null);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-
-  useEffect(() => {
-    if (!item) return;
-
-    // 先读缓存立即渲染，减少白屏
-    getCachedDetail<SourceDetail[]>(item.title, item.year).then((cached) => {
-      if (cached) {
-        setDetail(cached);
-      }
-    });
-
-    // 再调 API 刷新并写入缓存
-    getDetail({
-      title: item.title,
-      year: item.year,
-      sources: item.sources,
-    })
-      .then((r) => {
-        setDetail(r.sources);
-        setCachedDetail(item.title, item.year, r.sources);
-      })
-      .catch(() => {
-        // ApiError already toasted by client.ts
-      });
-  }, [item]);
 
   if (!item) {
     return <div className="empty">非法入口，请从首页进入。</div>;

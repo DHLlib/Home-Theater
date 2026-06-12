@@ -1,34 +1,22 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { searchVideos } from "../api/videos";
+import { useSearchVideosQuery } from "../hooks/useVideos";
 import VideoCard from "../components/VideoCard";
-import type { AggregatedVideo } from "../types";
 
 export default function Search() {
   const navigate = useNavigate();
   const [wd, setWd] = useState("");
-  const [videos, setVideos] = useState<AggregatedVideo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searched, setSearched] = useState(false);
+  const [submittedWd, setSubmittedWd] = useState("");
+
+  const { data: videos = [], isLoading, error } = useSearchVideosQuery(submittedWd);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = wd.trim();
-    if (!q) return;
-    setLoading(true);
-    setError(null);
-    setSearched(true);
-    searchVideos({ wd: q })
-      .then((r) => {
-        setVideos(r.items);
-      })
-      .catch((err) => {
-        setVideos([]);
-        setError(err instanceof Error ? err.message : "搜索失败");
-      })
-      .finally(() => setLoading(false));
+    setSubmittedWd(q);
   };
+
+  const hasSearched = submittedWd.length > 0;
 
   return (
     <div>
@@ -59,8 +47,8 @@ export default function Search() {
             color: "var(--text-primary)",
           }}
         />
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? "搜索中..." : "搜索"}
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? "搜索中..." : "搜索"}
         </button>
       </form>
 
@@ -76,11 +64,11 @@ export default function Search() {
             color: "var(--danger)",
           }}
         >
-          {error}
+          {error instanceof Error ? error.message : "搜索失败"}
         </div>
       )}
 
-      {!loading && searched && videos.length === 0 && !error && (
+      {!isLoading && hasSearched && videos.length === 0 && !error && (
         <div className="empty" style={{ padding: 40 }}>
           未找到相关视频
         </div>
