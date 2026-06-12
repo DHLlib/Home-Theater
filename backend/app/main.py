@@ -9,11 +9,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
-from app.db import engine, init_db
+from app.db import async_session_factory, engine, init_db
 from app.logging_config import setup_logging
 from app.services.downloader import download_worker
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
+from app.services.category_mapping import migrate_categories_to_mapping_table
 
 
 DEFAULT_SYSTEM_CATEGORIES = [
@@ -96,6 +97,8 @@ async def lifespan(app: FastAPI):
     setup_logging()
     await check_db_connection()
     await init_db()
+    async with async_session_factory() as db:
+        await migrate_categories_to_mapping_table(db)
     await _init_default_categories()
     await listen_manager.start()
     worker_task = asyncio.create_task(download_worker())

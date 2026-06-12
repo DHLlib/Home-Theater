@@ -48,6 +48,25 @@ class Site(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SiteCategoryMapping(Base):
+    __tablename__ = "site_category_mappings"
+    __table_args__ = (
+        UniqueConstraint("site_id", "remote_id", name="uix_site_remote_id"),
+        Index("ix_site_category_mappings_site_id", "site_id"),
+        Index("ix_site_category_mappings_system_name", "system_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_id: Mapped[str] = mapped_column(String, nullable=False)
+    remote_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    system_name: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (UniqueConstraint("title", "year", name="uix_favorite_title_year"),)

@@ -33,6 +33,10 @@ from app.schemas import (
     SourceRef,
 )
 from app.services.aggregator import normalize_title
+from app.services.category_mapping import (
+    get_site_category_mappings,
+    load_all_site_mappings,
+)
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
 from app.services.resolver import resolve_feifan
 import app.services.scheduler as scheduler_module
@@ -70,18 +74,8 @@ async def _load_category_filter_maps(db: AsyncSession) -> tuple[dict, dict, dict
         system_by_name[c.name] = info
         system_by_id[c.id] = info
 
-    # 站点分类映射
-    result = await db.execute(select(Site))
-    site_mappings: dict[int, dict[str, dict]] = {}
-    for s in result.scalars().all():
-        site_mappings[s.id] = {}
-        for c in (s.categories or []):
-            rid = c.get("remote_id")
-            if rid is not None:
-                site_mappings[s.id][str(rid)] = {
-                    "enabled": c.get("enabled", True),
-                    "system_name": c.get("name", ""),
-                }
+    # 站点分类映射（中间表优先，带 60 秒缓存）
+    site_mappings = await load_all_site_mappings(db)
 
     _category_filter_cache = (system_by_name, system_by_id, site_mappings)
     _category_filter_cache_ts = now
@@ -185,15 +179,18 @@ def _get_page_size(request: Request, pg_size: int | None) -> int:
 # 分类解析（复用现有逻辑）
 # ------------------------------------------------------------------
 
-def _resolve_remote_categories(site: Site, category: str | None) -> list[str | int]:
+async def _resolve_remote_categories(
+    db: AsyncSession, site: Site, category: str | None
+) -> list[str | int]:
     """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。
 
-    跳过 enabled=False 的映射条目。
+    跳过 enabled=False 的映射条目，优先读中间表。
     """
     if not category:
         return []
     results = []
-    for c in (site.categories or []):
+    mappings = await get_site_category_mappings(db, site.id)
+    for c in mappings:
         if c.get("enabled") is False:
             continue
         if c.get("name") == category:
@@ -546,10 +543,10 @@ async def list_videos(
     filters = []
     for site in sites:
         if category:
-            remote_cats = _resolve_remote_categories(site, category)
+            remote_cats = await _resolve_remote_categories(db, site, category)
             # 子分类无映射时回退到父分类
             if not remote_cats and fallback_category:
-                remote_cats = _resolve_remote_categories(site, fallback_category)
+                remote_cats = await _resolve_remote_categories(db, site, fallback_category)
             if not remote_cats:
                 continue
             for rid in remote_cats:
@@ -678,7 +675,7 @@ async def search_videos(
     filters = []
     for site in sites:
         if category:
-            remote_cats = _resolve_remote_categories(site, category)
+            remote_cats = await _resolve_remote_categories(db, site, category)
             if not remote_cats:
                 continue
             for rid in remote_cats:

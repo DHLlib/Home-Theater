@@ -35,6 +35,7 @@ from app.constants import (
 )
 from app.models import AppConfig, Site, VideoCache
 from app.services.aggregator import refresh_aggregated_view
+from app.services.category_mapping import get_site_category_mappings
 from app.services.source_client import SourceClient
 
 logger = logging.getLogger(__name__)
@@ -227,7 +228,8 @@ class Crawler:
             site_state = state.setdefault("sites", {}).setdefault(str(site.id), {})
             cat_states = site_state.setdefault("categories", {})
 
-            categories = self._get_site_categories(site)
+            async with self._db_factory() as db:
+                categories = await self._get_site_categories(db, site)
             if not categories:
                 categories = [None]
 
@@ -281,7 +283,7 @@ class Crawler:
                             need_videolist = []
 
                     # 记录本页日志（全量）
-                    self._add_log(
+                    await self._add_log(
                         site=site,
                         category=cat_id,
                         page=page,
@@ -343,7 +345,8 @@ class Crawler:
             site_id=site.id, base_url=site.base_url, name=site.name
         )
 
-        categories = self._get_site_categories(site)
+        async with self._db_factory() as db:
+            categories = await self._get_site_categories(db, site)
         if not categories:
             categories = [None]
 
@@ -420,7 +423,7 @@ class Crawler:
                             batch_entries = []
 
                     # 记录本页日志（增量）
-                    self._add_log(
+                    await self._add_log(
                         site=site,
                         category=cat_id,
                         page=page,
@@ -479,12 +482,13 @@ class Crawler:
         )
         return list(result.scalars().all())
 
-    def _get_site_categories(self, site: Site) -> list:
-        """获取站点的分类 remote_id 列表。"""
-        if not site.categories:
+    async def _get_site_categories(self, db: AsyncSession, site: Site) -> list:
+        """获取站点的分类 remote_id 列表（中间表优先）。"""
+        mappings = await get_site_category_mappings(db, site.id)
+        if not mappings:
             return []
         cats = []
-        for c in site.categories:
+        for c in mappings:
             rid = c.get("remote_id")
             if rid is not None:
                 cats.append(rid)
@@ -765,7 +769,7 @@ class Crawler:
     # 日志
     # ------------------------------------------------------------------
 
-    def _add_log(
+    async def _add_log(
         self,
         *,
         site: Site,
@@ -778,14 +782,16 @@ class Crawler:
         duration_ms: int,
     ):
         """记录单页刮削日志，内存保留最近 50 条。"""
-        # 解析分类名称
+        # 解析分类名称（中间表优先）
         type_name = "全部"
-        if category is not None and site.categories:
-            for c in site.categories:
-                rid = c.get("remote_id")
-                if str(rid) == str(category):
-                    type_name = c.get("name") or "全部"
-                    break
+        if category is not None:
+            async with self._db_factory() as db:
+                mappings = await get_site_category_mappings(db, site.id)
+                for c in mappings:
+                    rid = c.get("remote_id")
+                    if str(rid) == str(category):
+                        type_name = c.get("name") or "全部"
+                        break
 
         self._logs.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
