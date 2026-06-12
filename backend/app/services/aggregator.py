@@ -41,7 +41,7 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
                 "site_name": item.get("site_name"),
                 "original_id": item.get("original_id"),
             }
-            extra_keys = ("type", "category", "remarks", "updated_at")
+            extra_keys = ("type", "type_id", "category", "remarks", "updated_at")
             for ek in extra_keys:
                 if ek in item:
                     source_ref[ek] = item[ek]
@@ -64,7 +64,7 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
 # ------------------------------------------------------------------
 
 async def refresh_aggregated_view(db) -> bool:
-    """刷新物化视图 mv_aggregated_videos。
+    """刷新物化视图 mv_aggregated_videos 及预计算推荐视图。
 
     调用方需自行处理间隔控制（最小 60 秒）。
     """
@@ -73,8 +73,9 @@ async def refresh_aggregated_view(db) -> bool:
         await db.execute(text("SET LOCAL enable_mergejoin = off"))
         # CONCURRENTLY 要求物化视图上有唯一索引
         await db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_aggregated_videos"))
+        await db.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_recommended_videos"))
         await db.commit()
-        logger.info("物化视图 mv_aggregated_videos 刷新完成")
+        logger.info("物化视图刷新完成")
         return True
     except Exception as exc:
         logger.warning("物化视图刷新失败: %s", exc)
@@ -82,8 +83,9 @@ async def refresh_aggregated_view(db) -> bool:
         try:
             await db.execute(text("SET LOCAL enable_mergejoin = off"))
             await db.execute(text("REFRESH MATERIALIZED VIEW mv_aggregated_videos"))
+            await db.execute(text("REFRESH MATERIALIZED VIEW mv_recommended_videos"))
             await db.commit()
-            logger.info("物化视图 mv_aggregated_videos 非并发刷新完成")
+            logger.info("物化视图非并发刷新完成")
             return True
         except Exception as exc2:
             logger.error("物化视图刷新彻底失败: %s", exc2)

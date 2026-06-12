@@ -308,10 +308,14 @@ async def _query_and_aggregate(
         else:
             if r.source_updated_at and r.source_updated_at > latest_update[key]:
                 latest_update[key] = r.source_updated_at
+            # 同一视频多来源时，优先保留非空封面
+            if not bucket[key]["poster_url"] and r.poster_url:
+                bucket[key]["poster_url"] = r.poster_url
         source_ref = {
             "site_id": r.site_id,
             "original_id": r.original_id,
             "type": r.type_name,
+            "type_id": r.type_id,
             "remarks": r.remarks,
             "updated_at": r.source_updated_at,
         }
@@ -493,7 +497,6 @@ async def list_videos(
     request: Request,
     t: int | str | None = None,
     pg: int | None = 1,
-    h: int | None = None,
     by: str | None = None,
     category: str | None = None,
     mode: str = "aggregated",
@@ -567,6 +570,80 @@ async def list_videos(
     elapsed = time.monotonic() - start
     logger.info("api_list_videos_done items=%d elapsed=%.2fs", len(response.items), elapsed)
     return response
+
+
+# ------------------------------------------------------------------
+# 推荐视频 API
+# ------------------------------------------------------------------
+
+@router.get("/recommended")
+async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedListResponse:
+    """推荐视频：从预计算物化视图读取 6+3+3+3 条。"""
+    sql = text("""
+        SELECT title, year, poster_url, latest_updated_at, source_count, sources
+        FROM mv_recommended_videos
+        ORDER BY id
+    """)
+
+    try:
+        result = await db.execute(sql)
+        rows = result.mappings().all()
+    except Exception as exc:
+        logger.warning("recommended_videos query failed: %s", exc)
+        return AggregatedListResponse(items=[], failed_sources=[])
+
+    items = []
+    for r in rows:
+        sources = [SourceRef(**s) for s in (r["sources"] or [])]
+        items.append(
+            AggregatedVideo(
+                title=r["title"],
+                year=r["year"],
+                poster_url=r["poster_url"],
+                sources=sources,
+                source_count=r["source_count"],
+            )
+        )
+
+    # 兜底：对物化视图中 poster_url 为空的记录，从 video_cache 补充非空封面
+    missing_posters = [
+        (i, item.title, item.year)
+        for i, item in enumerate(items)
+        if not item.poster_url
+    ]
+    if missing_posters:
+        titles = list({t for _, t, _ in missing_posters})
+        poster_result = await db.execute(
+            select(VideoCache.title, VideoCache.year, VideoCache.poster_url).where(
+                VideoCache.title.in_(titles),
+                VideoCache.poster_url.isnot(None),
+                VideoCache.poster_url != "",
+            )
+        )
+        poster_map: dict[tuple[str, int | None], str] = {}
+        for pr in poster_result.all():
+            key = (pr.title, pr.year)
+            if key not in poster_map:
+                poster_map[key] = pr.poster_url
+
+        for i, title, year in missing_posters:
+            poster = poster_map.get((title, year))
+            if not poster:
+                # 退而求其次：按 title 匹配任意年份的封面
+                for (t, _), p in poster_map.items():
+                    if t == title:
+                        poster = p
+                        break
+            if poster:
+                items[i] = AggregatedVideo(
+                    title=items[i].title,
+                    year=items[i].year,
+                    poster_url=poster,
+                    sources=items[i].sources,
+                    source_count=items[i].source_count,
+                )
+
+    return AggregatedListResponse(items=items, failed_sources=[])
 
 
 # ------------------------------------------------------------------

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -188,6 +188,7 @@ class AggregatedVideo(Base):
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    types: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
