@@ -16,7 +16,7 @@ from app.services.downloader import download_worker
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
 from app.services.category_mapping import migrate_categories_to_mapping_table
-from app.services.aggregator import refresh_aggregated_view
+from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
 
 
 DEFAULT_SYSTEM_CATEGORIES = [
@@ -101,6 +101,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)
+        await migrate_video_cache_norm_title(db)
     await _init_default_categories()
 
     # Phase 2: 首次启动或表为空时，后台重建聚合中间表

@@ -34,7 +34,7 @@ from app.schemas import (
     SiteStat,
     SourceRef,
 )
-from app.services.aggregator import normalize_title
+from app.services.aggregator import normalize_title, refresh_aggregated_view
 from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,
@@ -1117,7 +1117,6 @@ async def cleanup_expired(
     限制：每个站点最多检查 2000 条，避免超时。
     """
     import httpx
-    from app.services.aggregator import refresh_aggregated_view
 
     if site_id:
         site_result = await db.execute(select(Site).where(Site.id == site_id))
@@ -1127,6 +1126,7 @@ async def cleanup_expired(
 
     total_deleted = 0
     total_checked = 0
+    affected_norm_titles: set[str] = set()
     by_site = []
 
     BATCH_SIZE = 20
@@ -1162,6 +1162,15 @@ async def cleanup_expired(
                     continue
 
             if expired_ids:
+                norm_result = await db.execute(
+                    select(VideoCache.norm_title)
+                    .where(
+                        VideoCache.site_id == site.id,
+                        VideoCache.original_id.in_(expired_ids),
+                    )
+                )
+                affected_norm_titles.update(n for n in norm_result.scalars() if n)
+
                 await db.execute(
                     delete(VideoCache).where(
                         VideoCache.site_id == site.id,
@@ -1182,7 +1191,10 @@ async def cleanup_expired(
             )
 
     if total_deleted > 0:
-        await refresh_aggregated_view(db)
+        await refresh_aggregated_view(
+            db,
+            affected_norm_titles=affected_norm_titles if affected_norm_titles else None,
+        )
 
     return {"deleted": total_deleted, "checked": total_checked, "by_site": by_site}
 

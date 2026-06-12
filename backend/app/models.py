@@ -144,6 +144,7 @@ class VideoCache(Base):
     site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
     original_id: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
+    norm_title: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     intro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
