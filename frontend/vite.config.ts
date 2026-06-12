@@ -24,5 +24,22 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (/node_modules\/react\//.test(id) ||
+              /node_modules\/react-dom\//.test(id) ||
+              /node_modules\/react-router-dom\//.test(id)) {
+            return "react-vendor";
+          }
+          if (/node_modules\/xgplayer/.test(id)) {
+            return "player-vendor";
+          }
+          if (/node_modules\/framer-motion/.test(id)) {
+            return "ui-vendor";
+          }
+        },
+      },
+    },
   },
 });

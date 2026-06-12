@@ -9,6 +9,7 @@ import {
 } from "../api/videos";
 import CategoryBar from "../components/CategoryBar";
 import RecommendedCarousel from "../components/RecommendedCarousel";
+import ScrollRow from "../components/ScrollRow";
 import VideoCard from "../components/VideoCard";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
@@ -32,89 +33,6 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
     }
   }
   return latest;
-}
-
-/* ===== 子组件 ===== */
-
-function ChevronLeftIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-function ScrollRow({
-  title,
-  titleColor,
-  children,
-}: {
-  title: string;
-  titleColor: string;
-  children: React.ReactNode;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const scroll = (dir: "left" | "right") => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const amount = Math.floor(el.clientWidth * 0.85);
-    el.scrollBy({ left: dir === "left" ? -amount : amount, behavior: "smooth" });
-  };
-
-  return (
-    <div className="scroll-row-wrap">
-      <div className="section-title">
-        <span className="section-title-bar" style={{ background: titleColor }} />
-        {title}
-      </div>
-      <button
-        className="scroll-arrow left"
-        onClick={() => scroll("left")}
-        aria-label={`向左滚动 ${title}`}
-      >
-        <ChevronLeftIcon />
-      </button>
-      <div ref={scrollRef} className="scroll-row">
-        {children}
-      </div>
-      <button
-        className="scroll-arrow right"
-        onClick={() => scroll("right")}
-        aria-label={`向右滚动 ${title}`}
-      >
-        <ChevronRightIcon />
-      </button>
-    </div>
-  );
 }
 
 /* ===== 主页面 ===== */
