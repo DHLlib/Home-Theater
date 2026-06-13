@@ -141,6 +141,15 @@ export interface ProbeResult {
   error?: string | null;
 }
 
+export interface SiteProbeResult {
+  site_id: number;
+  site_name: string;
+  url: string;
+  ok: boolean;
+  latency_ms?: number | null;
+  error?: string | null;
+}
+
 export interface CategoryMapping {
   remote_id: string;
   name: string;
@@ -214,6 +223,8 @@ export interface CrawlerStatsResponse {
   total: number;
   by_site: SiteStat[];
   with_detail: number;
+  without_detail: number;
+  aggregated_count: number;
   last_updated_at: string | null;
   history: HistoryPoint[];
   computed_at: string | null;

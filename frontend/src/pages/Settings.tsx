@@ -6,11 +6,12 @@ import {
   probeSite,
   updateSite,
   batchProbe,
+  probeSitesBatch,
 } from "../api/sites";
 import { getDownloadRoot, setDownloadRoot } from "../api/settings";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import CategorySettings from "../components/category-settings/CategorySettings";
-import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult } from "../types";
+import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult, SiteProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
   return (
@@ -213,6 +214,9 @@ export default function Settings() {
   const [batchLoading, setBatchLoading] = useState(false);
   const [showBatchPanel, setShowBatchPanel] = useState(false);
 
+  /* ---- batch detect existing sites state ---- */
+  const [batchDetectLoading, setBatchDetectLoading] = useState(false);
+
   useEffect(() => {
     listSites().then(setSites);
     getDownloadRoot().then((r) => {
@@ -325,6 +329,22 @@ export default function Settings() {
     );
   };
 
+  const handleBatchDetect = () => {
+    if (sites.length === 0) return;
+    if (!confirm(`确定要批量检测全部 ${sites.length} 个资源站吗？`)) return;
+    setBatchDetectLoading(true);
+    probeSitesBatch()
+      .then((results) => {
+        const next: Record<number, ProbeResult> = {};
+        results.forEach((r: SiteProbeResult) => {
+          next[r.site_id] = { ok: r.ok, latency_ms: r.latency_ms, error: r.error };
+        });
+        setProbeResults((prev) => ({ ...prev, ...next }));
+      })
+      .catch(() => alert("批量检测失败"))
+      .finally(() => setBatchDetectLoading(false));
+  };
+
   const saveRoot = () => {
     if (!root.trim()) return;
     setDownloadRoot(root.trim()).then((r) => setSavedRoot(r.value));
@@ -386,21 +406,49 @@ export default function Settings() {
             padding: 20,
           }}
         >
-          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-            <span style={{ color: "var(--primary)" }}>
-              <ServerIcon size={16} />
-            </span>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 16,
-                fontWeight: 600,
-                textShadow: "0 0 12px var(--primary-glow)",
-                letterSpacing: 0.3,
-              }}
-            >
-              采集站管理
-            </h3>
+          <div
+            className="row"
+            style={{
+              gap: 8,
+              marginBottom: 16,
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div className="row" style={{ gap: 8, alignItems: "center" }}>
+              <span style={{ color: "var(--primary)" }}>
+                <ServerIcon size={16} />
+              </span>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 16,
+                  fontWeight: 600,
+                  textShadow: "0 0 12px var(--primary-glow)",
+                  letterSpacing: 0.3,
+                }}
+              >
+                采集站管理
+              </h3>
+            </div>
+            {sites.length > 0 && (
+              <button
+                className="btn"
+                onClick={handleBatchDetect}
+                disabled={batchDetectLoading}
+                style={{ fontSize: 12, gap: 4 }}
+              >
+                {batchDetectLoading ? (
+                  <span style={{ color: "var(--text-muted)" }}>检测中...</span>
+                ) : (
+                  <>
+                    <ActivityIcon size={14} />
+                    批量检测
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="col" style={{ gap: 10 }}>
@@ -1054,117 +1102,124 @@ export default function Settings() {
               <p style={{ marginTop: 8 }}>暂无刮削记录</p>
             </div>
           ) : (
-            <div className="col" style={{ gap: 8 }}>
-              {/* 表头 */}
+            <div style={{ overflowX: "auto" }}>
               <div
-                className="row"
+                className="col"
                 style={{
                   gap: 8,
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                  borderBottom: "1px solid var(--glass-border)",
+                  minWidth: 720,
                 }}
               >
-                <span style={{ width: 150, flexShrink: 0 }}>时间</span>
-                <span style={{ width: 80, flexShrink: 0 }}>站点</span>
-                <span style={{ width: 80, flexShrink: 0 }}>分类</span>
-                <span style={{ width: 50, flexShrink: 0 }}>页码</span>
-                <span style={{ width: 60, flexShrink: 0 }}>类型</span>
-                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>处理</span>
-                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>新增</span>
-                <span style={{ width: 50, flexShrink: 0, textAlign: "right" }}>更新</span>
-                <span style={{ width: 60, flexShrink: 0, textAlign: "right" }}>耗时</span>
-              </div>
-              {/* 日志行 */}
-              {crawlerLogs.map((log, idx) => (
+                {/* 表头 */}
                 <div
-                  key={idx}
-                  className="row"
                   style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(140px, 1.6fr) minmax(70px, 0.9fr) minmax(70px, 0.9fr) minmax(50px, 0.6fr) minmax(60px, 0.7fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(65px, 0.7fr)",
                     gap: 8,
                     padding: "8px 12px",
                     fontSize: 12,
-                    background:
-                      idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.03)",
-                    borderRadius: 4,
+                    fontWeight: 600,
+                    color: "var(--text-secondary)",
+                    borderBottom: "1px solid var(--glass-border)",
+                    alignItems: "center",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 150,
-                      flexShrink: 0,
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {new Date(log.timestamp).toLocaleString("zh-CN")}
-                  </span>
-                  <span
-                    style={{
-                      width: 80,
-                      flexShrink: 0,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {log.site_name}
-                  </span>
-                  <span
-                    style={{
-                      width: 80,
-                      flexShrink: 0,
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {log.category}
-                  </span>
-                  <span style={{ width: 50, flexShrink: 0 }}>
-                    {log.page}
-                  </span>
-                  <span style={{ width: 60, flexShrink: 0 }}>
-                    {log.crawl_type === "full" ? "全量" : "增量"}
-                  </span>
-                  <span
-                    style={{
-                      width: 50,
-                      flexShrink: 0,
-                      textAlign: "right",
-                    }}
-                  >
-                    {log.items_count}
-                  </span>
-                  <span
-                    style={{
-                      width: 50,
-                      flexShrink: 0,
-                      textAlign: "right",
-                      color: "var(--success)",
-                    }}
-                  >
-                    {log.new_count}
-                  </span>
-                  <span
-                    style={{
-                      width: 50,
-                      flexShrink: 0,
-                      textAlign: "right",
-                      color: "var(--primary)",
-                    }}
-                  >
-                    {log.update_count}
-                  </span>
-                  <span
-                    style={{
-                      width: 60,
-                      flexShrink: 0,
-                      textAlign: "right",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {log.duration_ms}ms
-                  </span>
+                  <span>时间</span>
+                  <span>站点</span>
+                  <span>分类</span>
+                  <span>页码</span>
+                  <span>类型</span>
+                  <span style={{ textAlign: "right" }}>处理</span>
+                  <span style={{ textAlign: "right" }}>新增</span>
+                  <span style={{ textAlign: "right" }}>更新</span>
+                  <span style={{ textAlign: "right" }}>耗时</span>
                 </div>
-              ))}
+                {/* 日志行 */}
+                {crawlerLogs.map((log, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "minmax(140px, 1.6fr) minmax(70px, 0.9fr) minmax(70px, 0.9fr) minmax(50px, 0.6fr) minmax(60px, 0.7fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(65px, 0.7fr)",
+                      gap: 8,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      background:
+                        idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.03)",
+                      borderRadius: 4,
+                      alignItems: "center",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {new Date(log.timestamp).toLocaleString("zh-CN")}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {log.site_name}
+                    </span>
+                    <span
+                      style={{
+                        color: "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {log.category}
+                    </span>
+                    <span>{log.page}</span>
+                    <span>
+                      {log.crawl_type === "full" ? "全量" : "增量"}
+                    </span>
+                    <span
+                      style={{
+                        textAlign: "right",
+                      }}
+                    >
+                      {log.items_count}
+                    </span>
+                    <span
+                      style={{
+                        textAlign: "right",
+                        color: "var(--success)",
+                      }}
+                    >
+                      {log.new_count}
+                    </span>
+                    <span
+                      style={{
+                        textAlign: "right",
+                        color: "var(--primary)",
+                      }}
+                    >
+                      {log.update_count}
+                    </span>
+                    <span
+                      style={{
+                        textAlign: "right",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {log.duration_ms}ms
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>

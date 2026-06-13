@@ -13,12 +13,12 @@ import json
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from app.models import _utcnow
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.dialects.postgresql import insert as insert_cls
@@ -33,7 +33,7 @@ from app.constants import (
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
 )
-from app.models import AppConfig, Site, VideoCache
+from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
 from app.services.aggregator import normalize_title, refresh_aggregated_view
 from app.services.category_mapping import get_site_category_mappings
 from app.services.source_client import SourceClient
@@ -206,7 +206,7 @@ class Crawler:
         }
 
     def get_logs(self) -> list[dict]:
-        """返回最近 50 条刮削日志。"""
+        """返回当天刮削日志（最多 50 条）。"""
         return list(self._logs)
 
     async def stop(self):
@@ -827,7 +827,7 @@ class Crawler:
         update_count: int,
         duration_ms: int,
     ):
-        """记录单页刮削日志，内存保留最近 50 条。"""
+        """记录单页刮削日志，仅保留当天日志，最多 50 条。"""
         # 解析分类名称（中间表优先）
         type_name = "全部"
         if category is not None:
@@ -851,6 +851,17 @@ class Crawler:
             "update_count": update_count,
             "duration_ms": duration_ms,
         })
+
+        # 仅保留当天日志
+        today = date.today()
+        self._logs = deque(
+            [
+                log
+                for log in self._logs
+                if datetime.fromisoformat(log["timestamp"]).astimezone().date() == today
+            ],
+            maxlen=50,
+        )
 
     # ------------------------------------------------------------------
     # 状态持久化
@@ -937,10 +948,22 @@ class Crawler:
             )
             global_row = global_result.one()
 
+            # 聚合后视频数
+            aggregated_count_result = await db.execute(
+                select(func.count()).select_from(AggregatedVideoV3)
+            )
+            aggregated_count = aggregated_count_result.scalar_one() or 0
+
+            total = global_row.total or 0
+            with_detail = int(global_row.with_detail or 0)
+            without_detail = total - with_detail
+
             stats = {
-                "total": global_row.total or 0,
+                "total": total,
                 "by_site": by_site,
-                "with_detail": int(global_row.with_detail or 0),
+                "with_detail": with_detail,
+                "without_detail": without_detail,
+                "aggregated_count": aggregated_count,
                 "last_updated_at": global_row.last_updated,
                 "computed_at": datetime.now(timezone.utc).isoformat(),
             }
