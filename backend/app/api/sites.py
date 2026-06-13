@@ -17,6 +17,7 @@ from app.schemas import (
     SiteCreate, SitePatch, BatchProbeItem, BatchProbeResult, BatchProbeResponse,
     SmartMatchResponse,
     TemplateApplyResponse, TemplatePreviewResponse,
+    SiteProbeResult, ProbeSitesBatchRequest,
 )
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
@@ -29,6 +30,8 @@ from app.services.template_manager import apply_template, preview_template, load
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 logger = logging.getLogger(__name__)
+
+_SEM = asyncio.Semaphore(BATCH_PROBE_CONCURRENCY)
 
 
 @router.get("")
@@ -56,6 +59,36 @@ async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
         )
 
     return db_site
+
+
+@router.post("/probe-batch")
+async def probe_sites_batch(
+    req: ProbeSitesBatchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """批量检测已有资源站连通性。不传 site_ids 时检测全部站点。"""
+    site_ids = req.site_ids
+    if site_ids:
+        result = await db.execute(select(Site).where(Site.id.in_(site_ids)))
+    else:
+        result = await db.execute(select(Site))
+    db_sites = result.scalars().all()
+
+    async def _probe_one(site: Site) -> SiteProbeResult:
+        async with _SEM:
+            r = await health_probe(site_id=site.id, base_url=site.base_url, name=site.name)
+        return SiteProbeResult(
+            site_id=site.id,
+            site_name=site.name,
+            url=site.base_url,
+            ok=r.ok,
+            latency_ms=r.latency_ms,
+            error=r.error,
+        )
+
+    results = await asyncio.gather(*[_probe_one(site) for site in db_sites])
+    logger.info("probe_sites_batch count=%d ok=%d", len(results), sum(1 for r in results if r.ok))
+    return results
 
 
 @router.patch("/{site_id}")
@@ -436,9 +469,6 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
         summary.get("unrecognized", 0),
     )
     return summary
-
-
-_SEM = asyncio.Semaphore(BATCH_PROBE_CONCURRENCY)
 
 
 async def _probe_one(item: BatchProbeItem) -> BatchProbeResult:
