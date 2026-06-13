@@ -1001,6 +1001,14 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
                 except (json.JSONDecodeError, KeyError):
                     pass
 
+            # 旧缓存可能缺少 aggregated_count，实时补一次（COUNT 很快）
+            aggregated_count = data.get("aggregated_count", 0)
+            if not aggregated_count:
+                aggregated_count_result = await db.execute(
+                    select(func.count()).select_from(AggregatedVideoV3)
+                )
+                aggregated_count = aggregated_count_result.scalar_one() or 0
+
             return CrawlerStatsResponse(
                 total=data.get("total", 0),
                 by_site=by_site,
@@ -1008,7 +1016,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
                 without_detail=data.get(
                     "without_detail", data.get("total", 0) - data.get("with_detail", 0)
                 ),
-                aggregated_count=data.get("aggregated_count", 0),
+                aggregated_count=aggregated_count,
                 last_updated_at=data.get("last_updated_at"),
                 history=history,
                 computed_at=data.get("computed_at"),
