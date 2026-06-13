@@ -25,6 +25,7 @@
 - **SSE 实时推送**：下载进度、站点健康状态实时推送到前端
 - **清除失效资源**：一键清理远程已下架的幽灵视频
 - **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
+- **深黑影院主题（v2.1）**：强制深黑基底、Cinzel + Noto Sans SC 字体、液态玻璃导航、页面转场动画、海报悬停光晕
 - **性能优化**：
   - 后端：下载批量 commit、物化视图预聚合、PostgreSQL 连接池、刮削并发控制
   - 前端：IndexedDB 3 秒超时保护、API AbortController 超时、请求去重/并发限制
@@ -36,7 +37,7 @@
 | 层级 | 技术 |
 |------|------|
 | 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), asyncpg |
-| 前端 | React 18, Vite, TypeScript, react-router-dom |
+| 前端 | React 18, Vite, TypeScript, react-router-dom, framer-motion |
 | 播放器 | xgplayer v3 + xgplayer-hls.js |
 | 数据库 | SQLite（默认）/ PostgreSQL 16+（可选） |
 | 部署 | uvicorn + FastAPI 静态托管前端构建产物 / Docker |
@@ -194,10 +195,6 @@ psql postgresql://home_theater:your_password@localhost:5432/home_theater -c "SEL
 
 - Python 3.11+（推荐 3.13）
 - Node.js 18+ 及 npm
-### 前提
-
-- Python 3.11+（推荐 3.13）
-- Node.js 18+ 及 npm
 - 数据库：SQLite 为默认零配置方案；PostgreSQL 16+ 为可选高性能方案（见上方【部署前置】）
 - **ffmpeg（可选）**：用于 m3u8 下载后的 TS 片段合并为 MP4；未安装时会自动降级为直接字节拼接，部分编码可能不兼容
 
@@ -325,7 +322,7 @@ Home Theater/
 │   ├── src/
 │   │   ├── api/              # fetch 封装 + 各模块 API
 │   │   ├── pages/            # Home / Search / Detail / Player / Downloads / Favorites / Progress / Settings
-│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout / BottomNav
+│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout / BottomNav / CategoryBar
 │   │   ├── utils/            # cache（IndexedDB）/ toast
 │   │   └── types.ts          # TypeScript 类型
 │   └── vite.config.ts
@@ -355,6 +352,7 @@ Home Theater/
 | 预聚合缓存（物化视图） | `backend/app/services/aggregator.py` `refresh_aggregated_view` |
 | 分类映射（扁平系统分类，互斥约束） | `frontend/src/components/CategorySettings.tsx` |
 | 分类禁用过滤 | `backend/app/api/videos.py` `_video_has_enabled_source` |
+| 主题系统（深黑影院，CSS 变量） | `frontend/src/styles/global.css` + `frontend/src/App.tsx` |
 | 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
 | SSE 实时推送 | `backend/app/api/sse.py` + `listen_manager.py` |
 | 项目常量（禁止魔法数字） | `backend/app/constants.py` |
