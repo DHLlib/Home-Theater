@@ -40,13 +40,15 @@ export default function Player() {
   const passedConsumedRef = useRef(false);
 
   const { isFullscreen, isFakeLandscape, isSimulatedFullscreen, toggleFullscreen } = useFullscreen();
+  const sidebarOpenRef = useRef(sidebarOpen);
+  sidebarOpenRef.current = sidebarOpen;
 
   // 窗口从移动端变桌面端时自动展开 sidebar
   useEffect(() => {
-    if (!isMobile && !sidebarOpen) {
+    if (!isMobile && !sidebarOpenRef.current) {
       setSidebarOpen(true);
     }
-  }, [isMobile, sidebarOpen]);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!site_id || !original_id) return;
