@@ -8,6 +8,28 @@ $frontendDir = Join-Path $projectRoot "frontend"
 $pidFile = Join-Path $backendDir ".pid"
 $pidFileFrontend = Join-Path $frontendDir ".pid"
 
+function Get-EnvValue($key, $defaultValue) {
+    $envFile = Join-Path $backendDir ".env"
+    if (-not (Test-Path $envFile)) { return $defaultValue }
+    foreach ($line in Get-Content $envFile -Encoding UTF8) {
+        if ($line -match "^\s*$key\s*=\s*(.*?)\s*$") {
+            return $matches[1]
+        }
+    }
+    return $defaultValue
+}
+
+$PORT = [int](Get-EnvValue "PORT" "8000")
+
+function Get-ProcessIdByPort($port) {
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
+        return $conn.OwningProcess
+    } catch {
+        return $null
+    }
+}
+
 $stopped = $false
 
 # ── Stop backend by PID file ────────────────────────────────────
@@ -34,6 +56,24 @@ if (Test-Path $pidFileFrontend) {
         Write-Host "[WARN] Frontend PID $pidValue not found" -ForegroundColor Yellow
     }
     Remove-Item $pidFileFrontend -Force
+}
+
+# ── Fallback: terminate backend by port ─────────────────────────
+$pidOnPort = Get-ProcessIdByPort $PORT
+if ($pidOnPort) {
+    try {
+        $proc = Get-Process -Id $pidOnPort -ErrorAction Stop
+        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$pidOnPort").CommandLine
+        if ($proc.ProcessName -eq "python" -and $cmd -like "*uvicorn*") {
+            Stop-Process -Id $pidOnPort -Force
+            Write-Host "[OK] Stopped orphan backend PID $pidOnPort on port $PORT" -ForegroundColor Green
+            $stopped = $true
+        } else {
+            Write-Host "[WARN] Port $PORT is occupied by a non-Home Theater process (PID: $pidOnPort), skipped" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[WARN] Could not stop process on port $PORT" -ForegroundColor Yellow
+    }
 }
 
 # ── Fallback: terminate backend by command line matching ────────
