@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { getDownloadRoot } from "../api/settings";
-import { createDownload } from "../api/downloads";
+import { createDownloadBatch } from "../api/downloads";
 import { addFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
 import { useDetailQuery } from "../hooks/useVideos";
@@ -10,14 +10,26 @@ import EpisodeList from "../components/EpisodeList";
 import SourcePicker from "../components/SourcePicker";
 import type {
   AggregatedVideo,
+  DownloadBatchItem,
   SourceRef,
-  Episode,
 } from "../types";
+
+const logger = {
+  info: (...args: unknown[]) => console.info("[Detail]", ...args),
+  warn: (...args: unknown[]) => console.warn("[Detail]", ...args),
+  error: (...args: unknown[]) => console.error("[Detail]", ...args),
+};
 
 export default function Detail() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const item = useMemo(() => {
     const fromState = location.state as AggregatedVideo | undefined;
@@ -55,6 +67,9 @@ export default function Detail() {
   );
   const [selectedSource, setSelectedSource] = useState<SourceRef | null>(null);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
+  const [selectedEpisodeIndices, setSelectedEpisodeIndices] = useState<
+    Set<number>
+  >(new Set());
   const [downloading, setDownloading] = useState(false);
 
   if (!item) {
@@ -109,43 +124,124 @@ export default function Detail() {
         return;
       }
       setSelectedSource(source);
+      setSelectedEpisodeIndices(new Set());
       setEpisodePickerOpen(true);
     }
   };
 
-  const handleDownloadEpisode = async (ep: Episode) => {
-    if (!selectedSource || !item) return;
+  const handleToggleEpisode = (index: number, selected: boolean) => {
+    setSelectedEpisodeIndices((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  };
+
+  const handleSelectAll = (episodes: { index: number }[]) => {
+    setSelectedEpisodeIndices(new Set(episodes.map((e) => e.index)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedEpisodeIndices(new Set());
+  };
+
+  const createTasksAsync = async (
+    source: SourceRef,
+    indices: Set<number>,
+    videoItem: AggregatedVideo
+  ) => {
+    logger.info(
+      "create_tasks_start title=%s site_id=%s original_id=%s selected=%d",
+      videoItem.title,
+      source.site_id,
+      source.original_id,
+      indices.size
+    );
     setDownloading(true);
     try {
-      // 先解析真实播放地址（feifan 分享页 → 真实 m3u8，360zy → ffm3u8）
       const resolvedEps = await getEpisodes(
-        selectedSource.site_id,
-        selectedSource.original_id
+        source.site_id,
+        source.original_id
       );
-      const resolved = resolvedEps.find((e) => e.index === ep.index);
-      if (!resolved) {
-        toastError("未能解析该集播放地址");
+      logger.info(
+        "create_tasks_got_episodes title=%s count=%d",
+        videoItem.title,
+        resolvedEps.length
+      );
+      const selectedEps = resolvedEps.filter((e) => indices.has(e.index));
+      if (selectedEps.length === 0) {
+        logger.warn(
+          "create_tasks_no_selected_episodes title=%s indices=%o",
+          videoItem.title,
+          Array.from(indices)
+        );
+        toastError("未能解析选中的集数");
         return;
       }
 
-      await createDownload({
-        site_id: selectedSource.site_id,
-        original_id: selectedSource.original_id,
-        episode_index: resolved.index,
-        episode_name: resolved.ep_name,
-        url: resolved.url,
-        suffix: resolved.suffix,
-        title: item.title,
-        year: item.year,
+      const episodes: DownloadBatchItem[] = selectedEps.map((ep) => ({
+        episode_index: ep.index,
+        episode_name: ep.ep_name,
+        url: ep.url,
+        suffix: ep.suffix,
+      }));
+
+      const result = await createDownloadBatch({
+        site_id: source.site_id,
+        original_id: source.original_id,
+        title: videoItem.title,
+        year: videoItem.year,
+        episodes,
       });
-      setEpisodePickerOpen(false);
-      setSelectedSource(null);
-      toastSuccess("下载任务已创建");
-    } catch {
+
+      logger.info(
+        "create_tasks_batch_done title=%s created=%o skipped=%o recreated=%o",
+        videoItem.title,
+        result.created,
+        result.skipped,
+        result.recreated
+      );
+
+      const total = selectedEps.length;
+      const createdCount = result.created.length;
+      const skippedCount = result.skipped.length;
+      const recreatedCount = result.recreated.length;
+      const failedCount =
+        total - createdCount - skippedCount - recreatedCount;
+
+      const parts: string[] = [];
+      if (createdCount) parts.push(`新建 ${createdCount} 个`);
+      if (skippedCount) parts.push(`跳过 ${skippedCount} 个`);
+      if (recreatedCount) parts.push(`重建 ${recreatedCount} 个`);
+      if (failedCount) parts.push(`失败 ${failedCount} 个`);
+
+      toastSuccess(
+        parts.length > 0 ? parts.join("，") : "下载任务处理完成"
+      );
+    } catch (err) {
+      logger.error("create_tasks_failed title=%s error=%o", videoItem.title, err);
       // ApiError already toasted by client.ts
     } finally {
-      setDownloading(false);
+      if (isMountedRef.current) {
+        setDownloading(false);
+      }
     }
+  };
+
+  const handleConfirmBatchDownload = () => {
+    if (!selectedSource || !item) return;
+    if (selectedEpisodeIndices.size === 0) return;
+
+    // 立即关闭弹窗、清空选择，避免阻塞 UI；后台任务 fire-and-forget
+    const source = selectedSource;
+    const indices = new Set(selectedEpisodeIndices);
+    setEpisodePickerOpen(false);
+    setSelectedSource(null);
+    setSelectedEpisodeIndices(new Set());
+    toastSuccess("已开始创建下载任务");
+
+    createTasksAsync(source, indices, item);
   };
 
   return (
@@ -326,24 +422,34 @@ export default function Detail() {
                   );
                 }
                 return (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 8,
-                    }}
-                  >
-                    {d.episodes.map((ep) => (
+                  <div className="col" style={{ gap: 12 }}>
+                    <div className="row" style={{ gap: 8 }}>
                       <button
-                        key={ep.index}
+                        type="button"
                         className="btn"
                         disabled={downloading}
-                        onClick={() => handleDownloadEpisode(ep)}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        onClick={() => handleSelectAll(d.episodes)}
                       >
-                        {ep.ep_name}
-                        {ep.suffix ? ` (${ep.suffix})` : ""}
+                        全选
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={downloading}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        onClick={handleDeselectAll}
+                      >
+                        取消全选
+                      </button>
+                    </div>
+                    <EpisodeList
+                      episodes={d.episodes}
+                      onPick={() => {}}
+                      multiSelect
+                      selectedIndices={selectedEpisodeIndices}
+                      onToggleSelection={handleToggleEpisode}
+                    />
                   </div>
                 );
               })()}
@@ -352,22 +458,37 @@ export default function Detail() {
             <div
               style={{
                 display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
                 gap: 8,
-                justifyContent: "flex-end",
                 marginTop: 8,
               }}
             >
-              <button
-                type="button"
-                className="btn"
-                disabled={downloading}
-                onClick={() => {
-                  setEpisodePickerOpen(false);
-                  setSelectedSource(null);
-                }}
-              >
-                取消
-              </button>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                已选 {selectedEpisodeIndices.size} 集
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={downloading}
+                  onClick={() => {
+                    setEpisodePickerOpen(false);
+                    setSelectedSource(null);
+                    setSelectedEpisodeIndices(new Set());
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={downloading || selectedEpisodeIndices.size === 0}
+                  onClick={handleConfirmBatchDownload}
+                >
+                  {downloading ? "创建中..." : "确定下载"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

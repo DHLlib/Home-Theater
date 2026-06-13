@@ -12,7 +12,7 @@ from starlette.responses import Response
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
 from app.db import async_session_factory, engine, init_db
 from app.logging_config import setup_logging
-from app.services.downloader import download_worker
+from app.services.downloader import download_coordinator
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
 from app.services.category_mapping import migrate_categories_to_mapping_table
@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_bootstrap_aggregated_tables())
 
     await listen_manager.start()
-    worker_task = asyncio.create_task(download_worker())
+    worker_task = asyncio.create_task(download_coordinator())
     scheduler_task = await init_scheduler()
     yield
     worker_task.cancel()

@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -73,3 +73,13 @@ async def get_progress(
     else:
         logger.info("progress_get_miss title=%s year=%s", title, year)
     return row
+
+
+@router.delete("")
+async def clear_progress(db: AsyncSession = Depends(get_db)):
+    """清空所有最近播放记录。"""
+    result = await db.execute(delete(PlayProgress))
+    await db.commit()
+    deleted = result.rowcount
+    logger.info("progress_cleared count=%d", deleted)
+    return {"deleted": deleted}
