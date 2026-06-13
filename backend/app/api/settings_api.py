@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import AppConfig
+from app.services import downloader
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -46,3 +47,36 @@ async def set_download_root(body: dict = Body(...), db: AsyncSession = Depends(g
         db.add(row)
     await db.commit()
     return {"value": row.value}
+
+
+@router.get("/max-concurrent-downloads")
+async def get_max_concurrent_downloads():
+    return {"value": downloader.get_max_concurrent()}
+
+
+@router.put("/max-concurrent-downloads")
+async def set_max_concurrent_downloads(
+    body: dict = Body(...), db: AsyncSession = Depends(get_db)
+):
+    raw = body.get("value")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="value must be an integer")
+    if value < 1 or value > 50:
+        raise HTTPException(status_code=400, detail="value must be between 1 and 50")
+
+    result = await db.execute(
+        select(AppConfig).where(AppConfig.key == "max_concurrent_downloads")
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.value = str(value)
+    else:
+        row = AppConfig(key="max_concurrent_downloads", value=str(value))
+        db.add(row)
+    await db.commit()
+
+    # 立即通知运行中的 coordinator
+    actual = downloader.set_max_concurrent(value)
+    return {"value": actual}

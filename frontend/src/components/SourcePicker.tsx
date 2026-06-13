@@ -1,4 +1,3 @@
-import { useState } from "react";
 import BottomSheet from "./BottomSheet";
 import { useIsMobile } from "../hooks/useViewport";
 import type { SourceRef } from "../types";
@@ -16,12 +15,10 @@ type SourcePickerProps = {
  * 强制让用户显式选择视频源。
  * 硬契约：
  *   - 不允许默认选中
- *   - 「确定」按钮在用户未点击源前必须 disabled
- *   - 用户没有点选源就不能触发 onConfirm
+ *   - 点击源项立即触发 onConfirm，无需二次确认
  */
 export default function SourcePicker(props: SourcePickerProps) {
   const { sources, open, title, onCancel, onConfirm, formatSubtitle } = props;
-  const [picked, setPicked] = useState<SourceRef | null>(null);
   const isMobile = useIsMobile();
 
   if (!open) return null;
@@ -43,27 +40,19 @@ export default function SourcePicker(props: SourcePickerProps) {
       )}
       {sources.map((s) => {
         const key = `${s.site_id}-${s.original_id}`;
-        const isPicked =
-          picked != null &&
-          picked.site_id === s.site_id &&
-          picked.original_id === s.original_id;
         return (
           <li key={key}>
             <button
               type="button"
-              onClick={() => setPicked(s)}
+              onClick={() => onConfirm(s)}
               className="btn"
               style={{
                 width: "100%",
                 textAlign: "left",
                 padding: "12px 14px",
                 margin: "4px 0",
-                border: isPicked
-                  ? "1px solid var(--primary)"
-                  : "1px solid var(--glass-border)",
-                background: isPicked
-                  ? "var(--primary-dim)"
-                  : "transparent",
+                border: "1px solid var(--glass-border)",
+                background: "transparent",
                 borderRadius: 4,
                 color: "inherit",
                 cursor: "pointer",
@@ -88,20 +77,9 @@ export default function SourcePicker(props: SourcePickerProps) {
   );
 
   const actionButtons = (
-    <div
-      style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-    >
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
       <button type="button" className="btn" onClick={onCancel}>
         取消
-      </button>
-      <button
-        type="button"
-        className="btn btn-primary"
-        disabled={picked == null}
-        onClick={() => picked && onConfirm(picked)}
-        title={picked == null ? "请先选择一个源" : undefined}
-      >
-        确定
       </button>
     </div>
   );
@@ -110,7 +88,7 @@ export default function SourcePicker(props: SourcePickerProps) {
     return (
       <BottomSheet open={open} title={pickerTitle} onClose={onCancel}>
         <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
-          每个源由不同采集站提供，请显式点选一个再确认。
+          每个源由不同采集站提供，请显式点选一个。
         </p>
         {sourceList}
         {actionButtons}
