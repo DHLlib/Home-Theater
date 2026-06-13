@@ -117,8 +117,8 @@ function KpiCardSkeleton() {
 
 /* ---------- Trend Chart ---------- */
 function TrendChart({ history }: { history: HistoryPoint[] }) {
-  const W = 900, H = 220;
-  const pad = { t: 4, r: 4, b: 28, l: 50 };
+  const W = 1200, H = 240;
+  const pad = { t: 8, r: 8, b: 32, l: 56 };
   const w = W - pad.l - pad.r, h = H - pad.t - pad.b;
 
   const { totalPath, detailPath, areaPath, xLabels, gridYs } = useMemo(() => {
@@ -137,10 +137,18 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
     const ptsTotal = data.map((d, i) => `${pad.l + i * xStep},${pad.t + yScale(d.total)}`).join(" ");
     const ptsDetail = data.map((d, i) => `${pad.l + i * xStep},${pad.t + yScale(d.with_detail)}`).join(" ");
     const areaPts = `${pad.l},${pad.t + h} ${ptsTotal} ${pad.l + (data.length - 1) * xStep},${pad.t + h}`;
-    const labels = data.map((d, i) => ({
-      x: pad.l + i * xStep,
-      t: new Date(d.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }),
-    }));
+
+    // 控制 X 轴标签密度，避免重叠：最多显示 8 个
+    const maxLabels = 8;
+    const labelStep = Math.max(1, Math.floor((data.length - 1) / maxLabels));
+    const labels = data
+      .map((d, i) => ({
+        x: pad.l + i * xStep,
+        t: new Date(d.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }),
+        show: i === 0 || i === data.length - 1 || i % labelStep === 0,
+      }))
+      .filter(l => l.show);
+
     const grids = Array.from({ length: 5 }, (_, i) => {
       const r = i / 4;
       return { y: pad.t + h * (1 - r), v: Math.round(maxV * r) };
@@ -165,11 +173,11 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
       <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: 12, marginBottom: 4 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--primary)", flexShrink: 0 }} />
-          总刮削
+          总已收录数
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--text-secondary)", flexShrink: 0 }} />
-          已补全
+          总已补全数
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
