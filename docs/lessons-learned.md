@@ -730,6 +730,20 @@ const isM3u8 =
 
 ---
 
+## 28. ffmpeg 是可选依赖
+
+**说明**：
+m3u8 下载完成后，后端会尝试把 `.ts` 片段合并为 MP4。优先使用 `ffmpeg -f concat -safe 0 -i concat.txt -c copy output.mp4`，如果 ffmpeg 未安装、不在 PATH 中或执行失败，则自动降级为**按顺序直接拼接 `.ts` 文件字节**。
+
+**影响**：
+- 有 ffmpeg：合并更稳，能处理多数标准/非标准 MPEG-TS 流
+- 无 ffmpeg：仅对编码参数完全一致的 TS 片段有效；若片段间编码不同，拼出的 MP4 可能无法播放
+
+**结论**：
+ffmpeg 是**可选依赖**，不安装也能跑，但建议安装以获得最佳 m3u8 下载体验。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -759,3 +773,4 @@ const isM3u8 =
 | database is locked、sqlite | #25 SQLite 并发锁 |
 | 首页、无响应、骨架屏 | #26 导航冻结（IndexedDB） |
 | 不支持播放、格式、dytt | #27 新站点播放格式兼容 |
+| ffmpeg、m3u8、合并 | #28 ffmpeg 是可选依赖 |

@@ -71,6 +71,7 @@ export default function RecommendedCarousel({
 }: RecommendedCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
+  const [isHovered, setIsHovered] = useState(false);
   const isMobile = useIsMobile();
   const { width: viewportWidth } = useViewport();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -98,6 +99,15 @@ export default function RecommendedCarousel({
     };
   }, [isMobile, viewportWidth]);
 
+  // 自动轮播：5 秒切换一次，悬停时暂停，到最后一张后循环回第一张
+  useEffect(() => {
+    if (loading || displayVideos.length <= 1 || isHovered) return;
+    const timer = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % displayVideos.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [loading, displayVideos.length, isHovered]);
+
   // activeIndex 变化时，把新进入可见范围的图片加入加载集合
   useEffect(() => {
     const next = new Set(loadedImages);
@@ -120,7 +130,7 @@ export default function RecommendedCarousel({
     setLoadedImages(initial);
   }, [displayVideos.map((v) => `${v.title}-${v.year}`).join("|")]);
 
-  // 滚轮切换：线性，一次一张
+  // 滚轮切换：循环轮播
   const handleWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault();
@@ -136,9 +146,9 @@ export default function RecommendedCarousel({
 
       setActiveIndex((prev) => {
         if (delta > 0) {
-          return Math.min(prev + 1, displayVideos.length - 1);
+          return (prev + 1) % displayVideos.length;
         }
-        return Math.max(prev - 1, 0);
+        return (prev - 1 + displayVideos.length) % displayVideos.length;
       });
     },
     [displayVideos.length]
@@ -159,6 +169,16 @@ export default function RecommendedCarousel({
     }
   };
 
+  const goNext = useCallback(() => {
+    if (displayVideos.length <= 1) return;
+    setActiveIndex((prev) => (prev + 1) % displayVideos.length);
+  }, [displayVideos.length]);
+
+  const goPrev = useCallback(() => {
+    if (displayVideos.length <= 1) return;
+    setActiveIndex((prev) => (prev - 1 + displayVideos.length) % displayVideos.length);
+  }, [displayVideos.length]);
+
   const showSkeleton = loading || displayVideos.length === 0;
 
   return (
@@ -176,6 +196,8 @@ export default function RecommendedCarousel({
       {/* 轮播视口 */}
       <div
         ref={containerRef}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           height: imageHeight,
           position: "relative",
@@ -311,6 +333,102 @@ export default function RecommendedCarousel({
               </div>
             );
           })
+        )}
+
+        {/* 左右切换箭头 */}
+        {!showSkeleton && displayVideos.length > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="上一张"
+              onClick={goPrev}
+              style={{
+                position: "absolute",
+                left: isMobile ? 4 : 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 20,
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                border: "1px solid var(--glass-border)",
+                background: "rgba(0,0,0,0.45)",
+                color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "all var(--transition-base)",
+                backdropFilter: "blur(4px)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(0,0,0,0.7)";
+                e.currentTarget.style.color = "var(--primary)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(0,0,0,0.45)";
+                e.currentTarget.style.color = "var(--text-primary)";
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="下一张"
+              onClick={goNext}
+              style={{
+                position: "absolute",
+                right: isMobile ? 4 : 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 20,
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                border: "1px solid var(--glass-border)",
+                background: "rgba(0,0,0,0.45)",
+                color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "all var(--transition-base)",
+                backdropFilter: "blur(4px)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(0,0,0,0.7)";
+                e.currentTarget.style.color = "var(--primary)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(0,0,0,0.45)";
+                e.currentTarget.style.color = "var(--text-primary)";
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </>
         )}
       </div>
 

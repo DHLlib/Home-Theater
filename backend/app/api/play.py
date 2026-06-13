@@ -2,21 +2,25 @@ import asyncio
 import logging
 import time
 from dataclasses import replace
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import HTTP_TIMEOUT_RESOLVE
 from app.db import get_db
 from app.models import Site, VideoCache
 from app.schemas import Episode
 from app.services.parser import parse_episodes
 from app.services.resolver import resolve_feifan
-from app.services.source_client import SourceClient
+from app.services.source_client import SourceClient, _safe_int
 
 router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
+
+CACHE_TTL_SECONDS = 7 * 24 * 3600
 
 
 class PlaySourceOut(BaseModel):
@@ -101,16 +105,80 @@ async def get_episodes(
         raise HTTPException(status_code=404, detail="Site not found")
 
     logger.info("play_get_episodes site=%s original_id=%s", site.name, original_id)
-    async with SourceClient(
-        site_id=site.id, base_url=site.base_url, name=site.name
-    ) as client:
-        items = await client.videolist(ids=[original_id], op="play_resolve")
-    if not items:
-        logger.warning("play_videolist_empty site=%s original_id=%s", site.name, original_id)
-        raise HTTPException(status_code=404, detail="Video not found")
 
-    item = items[0]
-    play_raw = item.get("play_url_raw", "")
+    # 优先读 VideoCache 缓存（7 天有效期），避免每次播放/下载都实时请求资源站
+    expire_threshold = datetime.utcnow() - timedelta(seconds=CACHE_TTL_SECONDS)
+    stmt = (
+        select(VideoCache)
+        .where(
+            VideoCache.site_id == site_id,
+            VideoCache.original_id == original_id,
+            VideoCache.has_detail == True,
+            VideoCache.play_url_raw.isnot(None),
+            VideoCache.play_url_raw != "",
+            VideoCache.cached_at > expire_threshold,
+        )
+    )
+    result = await db.execute(stmt)
+    cached = result.scalar_one_or_none()
+
+    play_raw = ""
+    if cached is not None:
+        logger.info(
+            "play_episodes_cache_hit site=%s original_id=%s cached_at=%s",
+            site.name,
+            original_id,
+            cached.cached_at,
+        )
+        play_raw = cached.play_url_raw
+    else:
+        logger.info("play_episodes_cache_miss site=%s original_id=%s", site.name, original_id)
+        async with SourceClient(
+            site_id=site.id,
+            base_url=site.base_url,
+            name=site.name,
+            timeout=HTTP_TIMEOUT_RESOLVE,
+        ) as client:
+            items = await client.videolist(ids=[original_id], op="play_resolve")
+        if not items:
+            logger.warning("play_videolist_empty site=%s original_id=%s", site.name, original_id)
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        item = items[0]
+        play_raw = item.get("play_url_raw", "")
+        # 顺手把解析结果写回缓存，方便下次直接命中
+        if play_raw:
+            upsert_stmt = (
+                select(VideoCache)
+                .where(
+                    VideoCache.site_id == site_id,
+                    VideoCache.original_id == original_id,
+                )
+            )
+            upsert_result = await db.execute(upsert_stmt)
+            cache_row = upsert_result.scalar_one_or_none()
+            if cache_row is None:
+                cache_row = VideoCache(
+                    site_id=site_id,
+                    original_id=original_id,
+                    title=item.get("title", ""),
+                    year=_safe_int(item.get("year")),
+                    poster_url=item.get("poster_url"),
+                    intro=item.get("intro"),
+                    area=item.get("area"),
+                    actors=item.get("actors"),
+                    director=item.get("director"),
+                    play_url_raw=play_raw,
+                    cached_at=datetime.utcnow(),
+                    has_detail=True,
+                )
+                db.add(cache_row)
+            else:
+                cache_row.play_url_raw = play_raw
+                cache_row.cached_at = datetime.utcnow()
+                cache_row.has_detail = True
+            await db.commit()
+
     if not play_raw:
         logger.info("play_no_play_url site=%s original_id=%s", site.name, original_id)
         return []
@@ -122,8 +190,8 @@ async def get_episodes(
         logger.error("play_parse_error site=%s original_id=%s error=%s", site.name, original_id, exc)
         raise HTTPException(status_code=502, detail=f"parse error: {exc}")
 
-    # 解析 feifan / dytt 分享页获取真实 m3u8 地址
-    share_suffixes = ("feifan", "dytt")
+    # 解析 feifan / dytt / 360zy 分享页获取真实 m3u8 地址
+    share_suffixes = ("feifan", "dytt", "360zy")
     share_indices = [
         i for i, e in enumerate(episodes) if e.suffix in share_suffixes
     ]
