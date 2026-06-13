@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Home Theater Stop Script
 
@@ -32,7 +32,7 @@ function Get-ProcessIdByPort($port) {
 
 $stopped = $false
 
-# 鈹€鈹€ Stop backend by PID file 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Stop backend by PID file
 if (Test-Path $pidFile) {
     $pidValue = Get-Content $pidFile
     try {
@@ -45,7 +45,7 @@ if (Test-Path $pidFile) {
     Remove-Item $pidFile -Force
 }
 
-# 鈹€鈹€ Stop frontend dev server by PID file 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Stop frontend dev server by PID file
 if (Test-Path $pidFileFrontend) {
     $pidValue = Get-Content $pidFileFrontend
     try {
@@ -58,7 +58,7 @@ if (Test-Path $pidFileFrontend) {
     Remove-Item $pidFileFrontend -Force
 }
 
-# 鈹€鈹€ Fallback: terminate backend by port 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Fallback: terminate backend by port
 $pidOnPort = Get-ProcessIdByPort $PORT
 if ($pidOnPort) {
     try {
@@ -76,7 +76,7 @@ if ($pidOnPort) {
     }
 }
 
-# 鈹€鈹€ Fallback: terminate backend by command line matching 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Fallback: terminate backend by command line matching
 $remainingBackend = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
     try {
         $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
@@ -94,7 +94,7 @@ if ($remainingBackend) {
     }
 }
 
-# 鈹€鈹€ Fallback: terminate frontend dev server by command line 鈹€鈹€鈹€鈹€鈹€
+# Fallback: terminate frontend dev server by command line
 $remainingFrontend = Get-Process node -ErrorAction SilentlyContinue | Where-Object {
     try {
         $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
