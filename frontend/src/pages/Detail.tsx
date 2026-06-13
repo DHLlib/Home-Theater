@@ -14,12 +14,6 @@ import type {
   SourceRef,
 } from "../types";
 
-const logger = {
-  info: (...args: unknown[]) => console.info("[Detail]", ...args),
-  warn: (...args: unknown[]) => console.warn("[Detail]", ...args),
-  error: (...args: unknown[]) => console.error("[Detail]", ...args),
-};
-
 export default function Detail() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -151,31 +145,14 @@ export default function Detail() {
     indices: Set<number>,
     videoItem: AggregatedVideo
   ) => {
-    logger.info(
-      "create_tasks_start title=%s site_id=%s original_id=%s selected=%d",
-      videoItem.title,
-      source.site_id,
-      source.original_id,
-      indices.size
-    );
     setDownloading(true);
     try {
       const resolvedEps = await getEpisodes(
         source.site_id,
         source.original_id
       );
-      logger.info(
-        "create_tasks_got_episodes title=%s count=%d",
-        videoItem.title,
-        resolvedEps.length
-      );
       const selectedEps = resolvedEps.filter((e) => indices.has(e.index));
       if (selectedEps.length === 0) {
-        logger.warn(
-          "create_tasks_no_selected_episodes title=%s indices=%o",
-          videoItem.title,
-          Array.from(indices)
-        );
         toastError("未能解析选中的集数");
         return;
       }
@@ -195,14 +172,6 @@ export default function Detail() {
         episodes,
       });
 
-      logger.info(
-        "create_tasks_batch_done title=%s created=%o skipped=%o recreated=%o",
-        videoItem.title,
-        result.created,
-        result.skipped,
-        result.recreated
-      );
-
       const total = selectedEps.length;
       const createdCount = result.created.length;
       const skippedCount = result.skipped.length;
@@ -220,7 +189,6 @@ export default function Detail() {
         parts.length > 0 ? parts.join("，") : "下载任务处理完成"
       );
     } catch (err) {
-      logger.error("create_tasks_failed title=%s error=%o", videoItem.title, err);
       // ApiError already toasted by client.ts
     } finally {
       if (isMountedRef.current) {

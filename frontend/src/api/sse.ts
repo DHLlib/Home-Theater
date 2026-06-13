@@ -31,7 +31,6 @@ class SseClient {
 
     this.source.onopen = () => {
       this.connected = true;
-      console.log("[SSE] connected");
     };
 
     this.source.onmessage = (ev) => {
