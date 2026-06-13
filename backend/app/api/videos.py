@@ -951,6 +951,23 @@ async def trigger_incremental(site_id: int):
     return {"message": f"站点 {site_id} 增量更新已启动"}
 
 
+async def _get_aggregated_count(db: AsyncSession) -> int:
+    """获取聚合后视频数。优先查 aggregated_videos 表，不存在则回退到 mv_aggregated_videos 物化视图。"""
+    try:
+        result = await db.execute(select(func.count()).select_from(AggregatedVideoV3))
+        count = result.scalar_one() or 0
+        if count:
+            return count
+    except Exception:
+        pass
+    try:
+        result = await db.execute(select(func.count()).select_from(AggregatedVideoMV))
+        return result.scalar_one() or 0
+    except Exception as exc:
+        logger.warning("读取聚合视图数量失败: %s", exc)
+        return 0
+
+
 # ------------------------------------------------------------------
 # 刮削统计 API
 # ------------------------------------------------------------------
@@ -1004,10 +1021,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
             # 旧缓存可能缺少 aggregated_count，实时补一次（COUNT 很快）
             aggregated_count = data.get("aggregated_count", 0)
             if not aggregated_count:
-                aggregated_count_result = await db.execute(
-                    select(func.count()).select_from(AggregatedVideoV3)
-                )
-                aggregated_count = aggregated_count_result.scalar_one() or 0
+                aggregated_count = await _get_aggregated_count(db)
 
             return CrawlerStatsResponse(
                 total=data.get("total", 0),
@@ -1069,10 +1083,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
     )
     global_row = global_result.one()
 
-    aggregated_count_result = await db.execute(
-        select(func.count()).select_from(AggregatedVideoV3)
-    )
-    aggregated_count = aggregated_count_result.scalar_one() or 0
+    aggregated_count = await _get_aggregated_count(db)
 
     total = global_row.total or 0
     with_detail = int(global_row.with_detail or 0)
