@@ -40,7 +40,7 @@ from app.services.category_mapping import (
     load_all_site_mappings,
 )
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
-from app.services.resolver import resolve_feifan
+from app.services.resolver import resolve_share_page
 import app.services.scheduler as scheduler_module
 from app.services.source_client import SourceClient
 
@@ -225,7 +225,7 @@ async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
     if has_feifan:
         feifan_indices = [i for i, e in enumerate(eps) if e.suffix == "feifan"]
         resolved = await asyncio.gather(
-            *[resolve_feifan(eps[i].url) for i in feifan_indices],
+            *[resolve_share_page(eps[i].url) for i in feifan_indices],
             return_exceptions=True,
         )
         for idx, real_url in zip(feifan_indices, resolved):
@@ -235,7 +235,7 @@ async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
     if has_360zy:
         zy_indices = [i for i, e in enumerate(eps) if e.suffix == "360zy"]
         resolved = await asyncio.gather(
-            *[resolve_feifan(eps[i].url) for i in zy_indices],
+            *[resolve_share_page(eps[i].url) for i in zy_indices],
             return_exceptions=True,
         )
         for idx, real_url in zip(zy_indices, resolved):

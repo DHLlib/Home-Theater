@@ -14,7 +14,7 @@ from app.db import get_db
 from app.models import Site, VideoCache
 from app.schemas import Episode
 from app.services.parser import parse_episodes
-from app.services.resolver import resolve_feifan
+from app.services.resolver import resolve_share_page
 from app.services.source_client import SourceClient, _safe_int
 
 router = APIRouter(prefix="/play", tags=["play"])
@@ -198,7 +198,7 @@ async def get_episodes(
     if share_indices:
         logger.info("play_resolve_share site=%s count=%d", site.name, len(share_indices))
         resolved = await asyncio.gather(
-            *[resolve_feifan(episodes[i].url) for i in share_indices],
+            *[resolve_share_page(episodes[i].url) for i in share_indices],
             return_exceptions=True,
         )
         for idx, real_url in zip(share_indices, resolved):
