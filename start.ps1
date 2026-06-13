@@ -1,6 +1,6 @@
-﻿# Home Theater Start Script
-# Usage: .\start.ps1          鈫?Production mode (backend only, serves static frontend)
-# Usage: .\start.ps1 -Dev     鈫?Development mode (backend + frontend dev server)
+# Home Theater Start Script
+# Usage: .\start.ps1          -> Production mode (backend only, serves static frontend)
+# Usage: .\start.ps1 -Dev     -> Development mode (backend + frontend dev server)
 
 param(
     [switch]$Dev
@@ -19,7 +19,7 @@ function Test-Command($cmd) {
     return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
-# 浠?.env 璇诲彇 key=value
+# Read key=value from backend/.env
 function Get-EnvValue($key, $defaultValue) {
     $envFile = Join-Path $backendDir ".env"
     if (-not (Test-Path $envFile)) { return $defaultValue }
@@ -63,12 +63,12 @@ function Stop-ProcessByPort($port) {
     }
 }
 
-# 鈹€鈹€ PostgreSQL 杩炴帴妫€鏌?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# PostgreSQL connection check
 function Test-PostgresConnection() {
     $dbUrl = Get-EnvValue "DATABASE_URL" ""
     if ($dbUrl -eq "") { return $false }
 
-    # 瑙ｆ瀽 host:port锛屾敮鎸?IPv6銆佸煙鍚嶃€佹棤绔彛绛夊绉嶆牸寮?    $pgHost = "localhost"
+    $pgHost = "localhost"
     $pgPort = 5432
     if ($dbUrl -match "@([^:/]+)(?::(\d+))?/") {
         $pgHost = $matches[1]
@@ -87,39 +87,39 @@ function Test-PostgresConnection() {
 
 function Show-PostgresInstallGuide() {
     Write-Host ""
-    Write-Host "鈺斺晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晽" -ForegroundColor Red
-    Write-Host "鈺? PostgreSQL 鏈娴嬪埌锛岃鍏堝畨瑁呭苟閰嶇疆鏁版嵁搴?                    鈺? -ForegroundColor Red
-    Write-Host "鈺氣晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨暆" -ForegroundColor Red
+    Write-Host "==============================================" -ForegroundColor Red
+    Write-Host "  PostgreSQL not detected. Please install and configure it." -ForegroundColor Red
+    Write-Host "==============================================" -ForegroundColor Red
     Write-Host ""
-    Write-Host "銆愭柟妗堜竴銆戝畼缃戝畨瑁呭寘锛堟帹鑽愶級" -ForegroundColor Cyan
-    Write-Host "  1. 璁块棶 https://www.postgresql.org/download/windows/" -ForegroundColor White
-    Write-Host "  2. 涓嬭浇 PostgreSQL 16+ Windows 瀹夎鍖? -ForegroundColor White
-    Write-Host "  3. 瀹夎鏃惰浣忓瘑鐮侊紝绔彛淇濇寔榛樿 5432" -ForegroundColor White
-    Write-Host "  4. 瀹夎瀹屾垚鍚庢墦寮€ pgAdmin 4 鎴?psql" -ForegroundColor White
+    Write-Host "[Option 1] Official installer (recommended)" -ForegroundColor Cyan
+    Write-Host "  1. Visit https://www.postgresql.org/download/windows/" -ForegroundColor White
+    Write-Host "  2. Download PostgreSQL 16+ Windows installer" -ForegroundColor White
+    Write-Host "  3. Keep the default port 5432 and remember your password" -ForegroundColor White
+    Write-Host "  4. Open pgAdmin 4 or psql after installation" -ForegroundColor White
     Write-Host ""
-    Write-Host "銆愭柟妗堜簩銆慍hocolatey锛堝懡浠よ锛? -ForegroundColor Cyan
+    Write-Host "[Option 2] Chocolatey" -ForegroundColor Cyan
     Write-Host "  choco install postgresql" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "銆愭柟妗堜笁銆慡coop锛堝懡浠よ锛? -ForegroundColor Cyan
+    Write-Host "[Option 3] Scoop" -ForegroundColor Cyan
     Write-Host "  scoop install postgresql" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣" -ForegroundColor Gray
-    Write-Host "銆愬畨瑁呭悗鍒涘缓鏁版嵁搴撱€? -ForegroundColor Cyan
-    Write-Host "  鎵撳紑 PowerShell 鎴?cmd锛屾墽琛岋細" -ForegroundColor White
+    Write-Host "----------------------------------------------" -ForegroundColor Gray
+    Write-Host "[After installation, create the database]" -ForegroundColor Cyan
+    Write-Host "  Open PowerShell or cmd and run:" -ForegroundColor White
     Write-Host "  psql -U postgres" -ForegroundColor Yellow
     Write-Host "  CREATE DATABASE home_theater;" -ForegroundColor Yellow
     Write-Host "  CREATE USER home_theater WITH PASSWORD 'your_password';" -ForegroundColor Yellow
     Write-Host "  GRANT ALL PRIVILEGES ON DATABASE home_theater TO home_theater;" -ForegroundColor Yellow
     Write-Host "  \q" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "銆愮劧鍚庝慨鏀?.env銆? -ForegroundColor Cyan
-    Write-Host "  缂栬緫 backend/.env锛屽皢 DATABASE_URL 涓殑瀵嗙爜鏀逛负瀹為檯瀵嗙爜锛? -ForegroundColor White
+    Write-Host "[Then update backend/.env]" -ForegroundColor Cyan
+    Write-Host "  Edit backend/.env and set DATABASE_URL to your password:" -ForegroundColor White
     Write-Host "  DATABASE_URL=postgresql+asyncpg://home_theater:your_password@localhost:5432/home_theater" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣鈹佲攣" -ForegroundColor Gray
+    Write-Host "----------------------------------------------" -ForegroundColor Gray
 }
 
-# 鈹€鈹€ Environment checks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Environment checks
 if (-not (Test-Command "python")) {
     Write-Host "[ERROR] python not found in PATH" -ForegroundColor Red
     exit 1
@@ -135,7 +135,7 @@ if (-not (Test-Command "npm")) {
     exit 1
 }
 
-# 鈹€鈹€ PostgreSQL check 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# PostgreSQL check
 if (-not (Test-PostgresConnection)) {
     Show-PostgresInstallGuide
     exit 1
@@ -143,11 +143,11 @@ if (-not (Test-PostgresConnection)) {
 
 Write-Host "[OK] PostgreSQL connection verified" -ForegroundColor Green
 
-# 鈹€鈹€ Ensure logs dir exists 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Ensure logs dir exists
 $logsDir = Join-Path $backendDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir | Out-Null }
 
-# 鈹€鈹€ Clean up stale processes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Clean up stale processes
 if (Test-Path $pidFile) {
     $oldPid = Get-Content $pidFile
     try {
@@ -174,7 +174,8 @@ if (Test-Path $pidFile) {
     }
 }
 
-# 绔彛琚崰鐢ㄤ絾 .pid 涓㈠け/杩囨湡鐨勫厹搴曟竻鐞?$pidOnPort = Get-ProcessIdByPort $PORT
+# Port occupied but .pid missing/stale fallback cleanup
+$pidOnPort = Get-ProcessIdByPort $PORT
 if ($pidOnPort) {
     if (-not (Stop-ProcessByPort $PORT)) {
         Write-Host "[ERROR] Cannot start Home Theater on port $PORT because it is occupied by an external process" -ForegroundColor Red
@@ -182,7 +183,7 @@ if ($pidOnPort) {
     }
 }
 
-# 鈹€鈹€ Production: rebuild frontend every start 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Production: rebuild frontend every start
 if (-not $Dev) {
     Write-Host "[INFO] Building frontend..." -ForegroundColor Cyan
     Set-Location $frontendDir
@@ -193,7 +194,7 @@ if (-not $Dev) {
     }
 }
 
-# 鈹€鈹€ Start backend 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Start backend
 Write-Host "[INFO] Starting Home Theater$(if ($Dev) { ' [DEV MODE]' }) on port $PORT..." -ForegroundColor Cyan
 
 $backendArgs = @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT")
@@ -207,7 +208,7 @@ $procBackend = Start-Process python -ArgumentList $backendArgs `
 
 $procBackend.Id | Set-Content $pidFile
 
-# 鈹€鈹€ Dev mode: start frontend 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Dev mode: start frontend
 if ($Dev) {
     Start-Sleep -Seconds 1
     $procFrontend = Start-Process "npm" -ArgumentList "run", "dev" `
@@ -216,7 +217,7 @@ if ($Dev) {
     $procFrontend.Id | Set-Content $pidFileFrontend
 }
 
-# 鈹€鈹€ Health check 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Health check
 Start-Sleep -Seconds 3
 
 try {
