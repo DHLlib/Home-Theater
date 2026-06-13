@@ -137,6 +137,19 @@ class ProbeResult(BaseModel):
     error: str | None = None
 
 
+class SiteProbeResult(BaseModel):
+    site_id: int
+    site_name: str
+    url: str
+    ok: bool
+    latency_ms: int | None = None
+    error: str | None = None
+
+
+class ProbeSitesBatchRequest(BaseModel):
+    site_ids: list[int] | None = None
+
+
 class CategoryMapping(BaseModel):
     remote_id: str
     name: str

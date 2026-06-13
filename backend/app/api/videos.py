@@ -1124,7 +1124,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
 
 @router.get("/crawler/logs")
 async def crawler_logs() -> CrawlerLogsResponse:
-    """返回最近 50 条刮削日志。"""
+    """返回当天刮削日志（最多 50 条）。"""
     if scheduler_module.crawler is None:
         return CrawlerLogsResponse(logs=[])
     raw_logs = scheduler_module.crawler.get_logs()

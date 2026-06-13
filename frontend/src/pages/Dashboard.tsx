@@ -1,18 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getCrawlerStats } from "../api/videos";
 import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
 
 const CACHE_KEY = "dashboard_stats_cache_v3";
 const CACHE_TTL_MS = 60_000;
-
-const PALETTE = [
-  "var(--primary)",
-  "var(--text-secondary)",
-  "var(--danger)",
-  "rgba(74, 222, 128, 0.5)",
-  "rgba(163, 163, 163, 0.5)",
-  "rgba(251, 113, 133, 0.5)",
-];
 
 /* ---------- Utils ---------- */
 function loadCache(): CrawlerStatsResponse | null {
@@ -34,6 +25,9 @@ function saveCache(data: CrawlerStatsResponse) {
 
 function fmt(n: number) {
   return n.toLocaleString("zh-CN");
+}
+function fmtPct(v: number): string {
+  return `${v.toFixed(2)}%`;
 }
 function fmtAxis(v: number): string {
   if (v === 0) return "0";
@@ -208,79 +202,103 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
   );
 }
 
-/* ---------- Donut Chart ---------- */
-function DonutChart({ data, total }: { data: SiteStat[]; total: number }) {
-  const size = 320, cx = size / 2, cy = size / 2, r = 130, innerR = 78;
-  const circ = 2 * Math.PI * r;
-  const segs = useMemo(() => {
-    if (total === 0) return [];
-    const sorted = [...data].sort((a, b) => b.count - a.count);
-    const threshold = total * 0.015;
-    const big = sorted.filter(s => s.count >= threshold);
-    const smallCount = sorted.filter(s => s.count < threshold).reduce((s, x) => s + x.count, 0);
-    const items = big.map(s => ({ name: s.site_name, value: s.count }));
-    if (smallCount > 0) items.push({ name: "其他", value: smallCount });
-    let off = 0;
-    return items.map((it, i) => {
-      const pct = it.value / total;
-      const dash = pct * circ;
-      const gap = circ - dash;
-      const seg = { name: it.name, pct: Math.round(pct * 100), color: PALETTE[i % PALETTE.length], dasharray: `${dash} ${gap}`, offset: -off };
-      off += dash;
-      return seg;
-    });
-  }, [data, total, circ]);
+/* ---------- Header with tooltip ---------- */
+function HeaderWithTip({ label, tip }: { label: string; tip: string }) {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const iconRef = useRef<HTMLSpanElement>(null);
+
+  const handleEnter = () => {
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    setShow(true);
+  };
 
   return (
-    <div style={{ padding: "20px 0", borderBottom: "1px solid var(--glass-border)", flex: 1, minWidth: 280 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, letterSpacing: "0.03em" }}>站点占比</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
-        <svg viewBox={`0 0 ${size} ${size}`} style={{ width: 260, height: 260, flexShrink: 0 }}>
-          {segs.map((s, i) => (
-            <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={r - innerR} strokeDasharray={s.dasharray} strokeDashoffset={s.offset} transform={`rotate(-90 ${cx} ${cy})`} />
-          ))}
-          <text x={cx} y={cy - 4} textAnchor="middle" fontSize={24} fontWeight={700} fill="var(--text-primary)" fontFamily="monospace">{fmt(total)}</text>
-          <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="var(--text-secondary)">总已收录</text>
-        </svg>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140 }}>
-          {segs.slice(0, 8).map((s, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, whiteSpace: "nowrap" }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-              <span style={{ color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", width: 80 }} title={s.name}>{s.name}</span>
-              <span style={{ color: "var(--text-muted)", fontFamily: "monospace" }}>{s.pct}%</span>
-            </div>
-          ))}
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {label}
+      <span
+        ref={iconRef}
+        onMouseEnter={handleEnter}
+        onMouseLeave={() => setShow(false)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          border: "1px solid var(--text-muted)",
+          color: "var(--text-muted)",
+          fontSize: 9,
+          cursor: "help",
+          flexShrink: 0,
+        }}
+      >?</span>
+      {show && (
+        <div
+          style={{
+            position: "fixed",
+            top: pos.top,
+            left: pos.left,
+            transform: "translate(-50%, -100%)",
+            background: "var(--surface)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: 6,
+            padding: "6px 8px",
+            fontSize: 11,
+            fontWeight: 400,
+            color: "var(--text-primary)",
+            whiteSpace: "nowrap",
+            zIndex: 100,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          {tip}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 /* ---------- Site Table ---------- */
-function SiteTable({ data }: { data: SiteStat[] }) {
+function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
   return (
     <div style={{ padding: "20px 0" }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, letterSpacing: "0.03em" }}>站点明细</div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-              {["站点", "资源数", "补全率"].map((h, i) => (
-                <th key={i} style={{ padding: "10px 12px", textAlign: i === 0 ? "left" : "right", color: "var(--text-muted)", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
-              ))}
+              <th style={{ padding: "10px 12px", textAlign: "left", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>站点</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>已收录</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>已补全</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>未补全</th>
+              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                <HeaderWithTip label="补全率" tip="已补全 / 已收录 × 100%" />
+              </th>
+              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                <HeaderWithTip label="资源占比" tip="已收录 / 总已收录 × 100%" />
+              </th>
             </tr>
           </thead>
           <tbody>
             {data.map((s) => {
-              const rate = s.count > 0 ? Math.round((s.with_detail / s.count) * 100) : 0;
-              const color = rate >= 80 ? "var(--primary)" : rate >= 50 ? "var(--text-secondary)" : "var(--danger)";
+              const completionRate = s.count > 0 ? (s.with_detail / s.count) * 100 : 0;
+              const share = total > 0 ? (s.count / total) * 100 : 0;
+              const color = completionRate >= 80 ? "var(--primary)" : completionRate >= 50 ? "var(--text-secondary)" : "var(--danger)";
               return (
                 <tr key={s.site_id} style={{ borderBottom: "1px solid var(--glass-border)" }}>
                   <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontWeight: 500, whiteSpace: "nowrap" }}>{s.site_name}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{fmt(s.count)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--primary)", fontFamily: "monospace" }}>{fmt(s.with_detail)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--danger)", fontFamily: "monospace" }}>{fmt(s.without_detail)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, fontFamily: "monospace", color }}>{rate}%</span>
+                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, fontFamily: "monospace", color }}>{fmtPct(completionRate)}</span>
                   </td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{fmtPct(share)}</td>
                 </tr>
               );
             })}
@@ -345,17 +363,14 @@ export default function Dashboard() {
         <div style={{ marginBottom: 16 }}><TrendChart history={stats.history || []} /></div>
       ) : null}
 
-      {/* Donut + Table */}
+      {/* Site Table */}
       {loading ? (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          <div style={{ flex: 1, minWidth: 280 }}><SkeletonBar w={120} h={14} /><div style={{ height: 260, marginTop: 16 }}><SkeletonBar w="100%" h={260} /></div></div>
-          <div style={{ flex: 1, minWidth: 280 }}><SkeletonBar w={120} h={14} /><div style={{ height: 260, marginTop: 16 }}><SkeletonBar w="100%" h={260} /></div></div>
+        <div style={{ marginBottom: 16 }}>
+          <SkeletonBar w={120} h={14} />
+          <div style={{ height: 260, marginTop: 16 }}><SkeletonBar w="100%" h={260} /></div>
         </div>
       ) : stats && sortedBySite.length > 0 ? (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          <DonutChart data={sortedBySite} total={stats.total} />
-          <SiteTable data={sortedBySite} />
-        </div>
+        <div style={{ marginBottom: 16 }}><SiteTable data={sortedBySite} total={stats.total} /></div>
       ) : null}
     </div>
   );

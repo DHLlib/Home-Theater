@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from app.models import _utcnow
 from typing import Any
@@ -206,7 +206,7 @@ class Crawler:
         }
 
     def get_logs(self) -> list[dict]:
-        """返回最近 50 条刮削日志。"""
+        """返回当天刮削日志（最多 50 条）。"""
         return list(self._logs)
 
     async def stop(self):
@@ -827,7 +827,7 @@ class Crawler:
         update_count: int,
         duration_ms: int,
     ):
-        """记录单页刮削日志，内存保留最近 50 条。"""
+        """记录单页刮削日志，仅保留当天日志，最多 50 条。"""
         # 解析分类名称（中间表优先）
         type_name = "全部"
         if category is not None:
@@ -851,6 +851,17 @@ class Crawler:
             "update_count": update_count,
             "duration_ms": duration_ms,
         })
+
+        # 仅保留当天日志
+        today = date.today()
+        self._logs = deque(
+            [
+                log
+                for log in self._logs
+                if datetime.fromisoformat(log["timestamp"]).astimezone().date() == today
+            ],
+            maxlen=50,
+        )
 
     # ------------------------------------------------------------------
     # 状态持久化
