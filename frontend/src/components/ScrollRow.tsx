@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 function ChevronLeftIcon({ size = 20 }: { size?: number }) {
   return (
@@ -44,6 +44,28 @@ interface ScrollRowProps {
 
 function ScrollRow({ title, titleColor, children }: ScrollRowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const updateScrollState = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    setAtStart(el.scrollLeft <= 1);
+    setAtEnd(maxScroll <= 0 || el.scrollLeft >= maxScroll - 1);
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, []);
 
   const scroll = (dir: "left" | "right") => {
     const el = scrollRef.current;
@@ -52,8 +74,16 @@ function ScrollRow({ title, titleColor, children }: ScrollRowProps) {
     el.scrollBy({ left: dir === "left" ? -amount : amount, behavior: "smooth" });
   };
 
+  const wrapClass = [
+    "scroll-row-wrap",
+    atStart ? "at-start" : "",
+    atEnd ? "at-end" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className="scroll-row-wrap">
+    <div className={wrapClass}>
       <div className="section-title">
         <span className="section-title-bar" style={{ background: titleColor }} />
         {title}

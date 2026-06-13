@@ -557,6 +557,12 @@ textarea:focus {
   width: 80px;
   z-index: 2;
   pointer-events: none;
+  transition: opacity var(--transition-base);
+}
+
+.scroll-row-wrap.at-start::before,
+.scroll-row-wrap.at-end::after {
+  opacity: 0;
 }
 
 .scroll-row-wrap::before {
