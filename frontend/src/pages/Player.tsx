@@ -369,7 +369,7 @@ export default function Player() {
             src={current?.url || ""}
             suffix={current?.suffix || ""}
             autoplay
-            onError={(msg) => console.error("播放错误:", msg)}
+            onError={() => {}}
             onEnded={handleEnded}
           />
         </div>

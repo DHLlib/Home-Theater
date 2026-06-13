@@ -62,13 +62,11 @@ export function useFullscreen(): UseFullscreenReturn {
   useEffect(() => {
     const handler = () => {
       const next = fullscreen.isFullscreen();
-      console.log("[fullscreen] change event:", next);
       setIsFullscreen(next);
       if (next) {
         if (!needsFakeLandscape()) {
           fullscreen.lockOrientation().catch(() => {});
         } else if (isPortrait()) {
-          console.log("[fullscreen] event: setting fake landscape");
           setIsFakeLandscape(true);
         }
       } else {
@@ -87,20 +85,17 @@ export function useFullscreen(): UseFullscreenReturn {
       // 夸克/微信等浏览器可能不触发 fullscreenchange，延迟主动检查
       setTimeout(() => {
         const now = fullscreen.isFullscreen();
-        console.log("[fullscreen] delayed check after enter:", now);
         if (now) {
           setIsFullscreen(true);
           if (!needsFakeLandscape()) {
             fullscreen.lockOrientation().catch(() => {});
           } else if (isPortrait()) {
-            console.log("[fullscreen] setting fake landscape");
             setIsFakeLandscape(true);
           }
         }
       }, 500);
     } catch {
       // 全屏 API 不支持或失败，使用 CSS 模拟全屏
-      console.log("[fullscreen] API failed, using simulated fullscreen");
       setIsSimulatedFullscreen(true);
       if (needsFakeLandscape() && isPortrait()) {
         setIsFakeLandscape(true);
