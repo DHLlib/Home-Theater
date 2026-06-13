@@ -77,7 +77,7 @@ function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
             boxShadow: "0 10px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(255, 255, 255, 0.03)",
           }}
         >
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, textAlign: "center" }}>
             {c.label}
           </div>
           <div
@@ -87,6 +87,7 @@ function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
               color: "var(--text-primary)",
               fontFamily: "monospace",
               lineHeight: 1,
+              textAlign: "center",
             }}
           >
             {fmt(c.value)}
