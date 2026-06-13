@@ -137,6 +137,19 @@ class ProbeResult(BaseModel):
     error: str | None = None
 
 
+class SiteProbeResult(BaseModel):
+    site_id: int
+    site_name: str
+    url: str
+    ok: bool
+    latency_ms: int | None = None
+    error: str | None = None
+
+
+class ProbeSitesBatchRequest(BaseModel):
+    site_ids: list[int] | None = None
+
+
 class CategoryMapping(BaseModel):
     remote_id: str
     name: str
@@ -227,6 +240,8 @@ class CrawlerStatsResponse(BaseModel):
     total: int
     by_site: list[SiteStat]
     with_detail: int
+    without_detail: int
+    aggregated_count: int
     last_updated_at: str | None = None
     history: list[HistoryPoint] = Field(default_factory=list)
     computed_at: str | None = None
