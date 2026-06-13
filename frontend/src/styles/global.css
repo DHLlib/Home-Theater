@@ -546,6 +546,12 @@ textarea:focus {
 .scroll-row-wrap {
   position: relative;
   margin-bottom: 48px;
+  margin-left: -24px;
+  margin-right: -24px;
+}
+
+.scroll-row-wrap .section-title {
+  padding-left: 10px;
 }
 
 .scroll-row-wrap::before,
@@ -581,8 +587,7 @@ textarea:focus {
   overflow-x: auto;
   scroll-behavior: smooth;
   scroll-snap-type: x mandatory;
-  padding: 8px 80px 24px 80px;
-  margin: 0 -80px;
+  padding: 8px 10px 24px 10px;
 }
 
 .scroll-row::-webkit-scrollbar {
@@ -807,6 +812,11 @@ textarea:focus {
     padding: 10px 12px;
   }
 
+  .scroll-row-wrap {
+    margin-left: -12px;
+    margin-right: -12px;
+  }
+
   .scroll-row-wrap::before,
   .scroll-row-wrap::after {
     width: 40px;
@@ -814,8 +824,7 @@ textarea:focus {
 
   .scroll-row {
     gap: 12px;
-    padding: 4px 40px 16px 40px;
-    margin: 0 -40px;
+    padding: 4px 10px 16px 10px;
   }
 
   .scroll-arrow {
