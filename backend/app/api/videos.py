@@ -1005,6 +1005,10 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
                 total=data.get("total", 0),
                 by_site=by_site,
                 with_detail=data.get("with_detail", 0),
+                without_detail=data.get(
+                    "without_detail", data.get("total", 0) - data.get("with_detail", 0)
+                ),
+                aggregated_count=data.get("aggregated_count", 0),
                 last_updated_at=data.get("last_updated_at"),
                 history=history,
                 computed_at=data.get("computed_at"),
@@ -1057,6 +1061,15 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
     )
     global_row = global_result.one()
 
+    aggregated_count_result = await db.execute(
+        select(func.count()).select_from(AggregatedVideoV3)
+    )
+    aggregated_count = aggregated_count_result.scalar_one() or 0
+
+    total = global_row.total or 0
+    with_detail = int(global_row.with_detail or 0)
+    without_detail = total - with_detail
+
     # fallback 时也尝试读取历史数据
     history_result = await db.execute(
         select(AppConfig).where(AppConfig.key == "crawler_stats_history")
@@ -1075,9 +1088,11 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
             pass
 
     return CrawlerStatsResponse(
-        total=global_row.total or 0,
+        total=total,
         by_site=by_site,
-        with_detail=int(global_row.with_detail or 0),
+        with_detail=with_detail,
+        without_detail=without_detail,
+        aggregated_count=aggregated_count,
         last_updated_at=global_row.last_updated,
         history=history,
         computed_at=datetime.now(timezone.utc).isoformat(),

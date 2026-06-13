@@ -214,6 +214,8 @@ export interface CrawlerStatsResponse {
   total: number;
   by_site: SiteStat[];
   with_detail: number;
+  without_detail: number;
+  aggregated_count: number;
   last_updated_at: string | null;
   history: HistoryPoint[];
   computed_at: string | null;

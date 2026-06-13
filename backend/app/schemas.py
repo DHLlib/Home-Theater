@@ -227,6 +227,8 @@ class CrawlerStatsResponse(BaseModel):
     total: int
     by_site: list[SiteStat]
     with_detail: int
+    without_detail: int
+    aggregated_count: int
     last_updated_at: str | None = None
     history: list[HistoryPoint] = Field(default_factory=list)
     computed_at: str | None = None

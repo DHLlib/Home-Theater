@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCrawlerStats } from "../api/videos";
 import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
 
-const CACHE_KEY = "dashboard_stats_cache_v2";
+const CACHE_KEY = "dashboard_stats_cache_v3";
 const CACHE_TTL_MS = 60_000;
 
 const PALETTE = [
@@ -44,6 +44,56 @@ function fmtAxis(v: number): string {
 /* ---------- Skeleton ---------- */
 function SkeletonBar({ w, h = 12 }: { w: number | string; h?: number }) {
   return <div className="skeleton" style={{ width: w, height: h, borderRadius: 4 }} />;
+}
+
+/* ---------- KPI Cards ---------- */
+function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
+  const cards = [
+    { label: "总已收录数", value: stats.total, color: "var(--primary)" },
+    { label: "总已补全数", value: stats.with_detail, color: "var(--text-secondary)" },
+    { label: "总未补全", value: stats.without_detail, color: "var(--danger)" },
+    { label: "已聚合数", value: stats.aggregated_count, color: "var(--warning)" },
+  ];
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        gap: 12,
+        marginBottom: 24,
+      }}
+      className="dashboard-kpi-grid"
+    >
+      {cards.map((c, i) => (
+        <div
+          key={i}
+          style={{
+            background: "var(--glass-bg)",
+            border: "1px solid var(--glass-border)",
+            borderTop: `3px solid ${c.color}`,
+            borderRadius: 8,
+            padding: "16px 14px",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
+            {c.label}
+          </div>
+          <div
+            style={{
+              fontSize: 28,
+              fontWeight: 700,
+              color: "var(--text-primary)",
+              fontFamily: "monospace",
+              lineHeight: 1,
+            }}
+          >
+            {fmt(c.value)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /* ---------- Trend Chart ---------- */
@@ -159,7 +209,7 @@ function DonutChart({ data, total }: { data: SiteStat[]; total: number }) {
             <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={r - innerR} strokeDasharray={s.dasharray} strokeDashoffset={s.offset} transform={`rotate(-90 ${cx} ${cy})`} />
           ))}
           <text x={cx} y={cy - 4} textAnchor="middle" fontSize={24} fontWeight={700} fill="var(--text-primary)" fontFamily="monospace">{fmt(total)}</text>
-          <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="var(--text-secondary)">总资源</text>
+          <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="var(--text-secondary)">总已收录</text>
         </svg>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 140 }}>
           {segs.slice(0, 8).map((s, i) => (
@@ -232,8 +282,6 @@ export default function Dashboard() {
     return [...stats.by_site].sort((a, b) => b.count - a.count);
   }, [stats]);
 
-  const coverage = stats && stats.total > 0 ? Math.round((stats.with_detail / stats.total) * 100) : 0;
-
   return (
     <div style={{ minHeight: "100vh", margin: "-16px", padding: "32px 24px 48px" }}>
       {/* Header */}
@@ -246,20 +294,14 @@ export default function Dashboard() {
 
       {/* KPIs */}
       {loading ? (
-        <div style={{ display: "flex", gap: 24, marginBottom: 24 }}>
-          <SkeletonBar w={80} /><SkeletonBar w={60} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
+          <SkeletonBar w="100%" h={72} />
+          <SkeletonBar w="100%" h={72} />
+          <SkeletonBar w="100%" h={72} />
+          <SkeletonBar w="100%" h={72} />
         </div>
       ) : stats ? (
-        <div style={{ display: "flex", gap: 32, marginBottom: 24, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>总资源</div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--primary)", fontFamily: "monospace", lineHeight: 1 }}>{fmt(stats.total)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>补全率</div>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "var(--primary)", fontFamily: "monospace", lineHeight: 1 }}>{coverage}%</div>
-          </div>
-        </div>
+        <KpiCards stats={stats} />
       ) : null}
 
       {/* Trend */}

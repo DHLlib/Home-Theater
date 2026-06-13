@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from app.models import _utcnow
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.dialects.postgresql import insert as insert_cls
@@ -33,7 +33,7 @@ from app.constants import (
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
 )
-from app.models import AppConfig, Site, VideoCache
+from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
 from app.services.aggregator import normalize_title, refresh_aggregated_view
 from app.services.category_mapping import get_site_category_mappings
 from app.services.source_client import SourceClient
@@ -937,10 +937,22 @@ class Crawler:
             )
             global_row = global_result.one()
 
+            # 聚合后视频数
+            aggregated_count_result = await db.execute(
+                select(func.count()).select_from(AggregatedVideoV3)
+            )
+            aggregated_count = aggregated_count_result.scalar_one() or 0
+
+            total = global_row.total or 0
+            with_detail = int(global_row.with_detail or 0)
+            without_detail = total - with_detail
+
             stats = {
-                "total": global_row.total or 0,
+                "total": total,
                 "by_site": by_site,
-                "with_detail": int(global_row.with_detail or 0),
+                "with_detail": with_detail,
+                "without_detail": without_detail,
+                "aggregated_count": aggregated_count,
                 "last_updated_at": global_row.last_updated,
                 "computed_at": datetime.now(timezone.utc).isoformat(),
             }
