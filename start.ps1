@@ -1,4 +1,4 @@
-﻿# Home Theater Start Script
+# Home Theater Start Script
 # Usage: .\start.ps1          → Production mode (backend only, serves static frontend)
 # Usage: .\start.ps1 -Dev     → Development mode (backend + frontend dev server)
 
@@ -32,6 +32,36 @@ function Get-EnvValue($key, $defaultValue) {
 }
 
 $PORT = [int](Get-EnvValue "PORT" "8000")
+
+function Get-ProcessIdByPort($port) {
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
+        return $conn.OwningProcess
+    } catch {
+        return $null
+    }
+}
+
+function Stop-ProcessByPort($port) {
+    $pidOnPort = Get-ProcessIdByPort $port
+    if (-not $pidOnPort) { return $false }
+
+    try {
+        $proc = Get-Process -Id $pidOnPort -ErrorAction Stop
+        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$pidOnPort").CommandLine
+        if ($proc.ProcessName -eq "python" -and $cmd -like "*uvicorn*") {
+            Write-Host "[WARN] Stale backend detected on port $port (PID: $pidOnPort), terminating..." -ForegroundColor Yellow
+            Stop-Process -Id $pidOnPort -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            return $true
+        } else {
+            Write-Host "[WARN] Port $port is already used by a non-Home Theater process (PID: $pidOnPort)" -ForegroundColor Yellow
+            return $false
+        }
+    } catch {
+        return $false
+    }
+}
 
 # ── PostgreSQL 连接检查 ─────────────────────────────────────────
 function Test-PostgresConnection() {
@@ -118,9 +148,7 @@ Write-Host "[OK] PostgreSQL connection verified" -ForegroundColor Green
 $logsDir = Join-Path $backendDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir | Out-Null }
 
-# ── Check if already running ────────────────────────────────────
-$alreadyRunning = $false
-
+# ── Clean up stale processes ────────────────────────────────────
 if (Test-Path $pidFile) {
     $oldPid = Get-Content $pidFile
     try {
@@ -129,7 +157,9 @@ if (Test-Path $pidFile) {
             try {
                 $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/api/health" -TimeoutSec 3 -ErrorAction Stop
                 Write-Host "[INFO] Already running (PID: $oldPid, port: $PORT)" -ForegroundColor Cyan
-                $alreadyRunning = $true
+                Write-Host "[INFO] URLs:"
+                Write-Host "  http://localhost:$PORT  (or http://<lan-ip>:$PORT)" -ForegroundColor Green
+                exit 0
             } catch {
                 Write-Host "[WARN] Stale process detected (PID: $oldPid), terminating..." -ForegroundColor Yellow
                 Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
@@ -145,18 +175,13 @@ if (Test-Path $pidFile) {
     }
 }
 
-if (-not $alreadyRunning) {
-    try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$PORT/api/health" -TimeoutSec 2 -ErrorAction Stop
-        Write-Host "[INFO] Service already running on port $PORT (.pid file missing or stale)" -ForegroundColor Cyan
-        $alreadyRunning = $true
-    } catch {}
-}
-
-if ($alreadyRunning) {
-    Write-Host "[INFO] URLs:"
-    Write-Host "  http://localhost:$PORT  (or http://<lan-ip>:$PORT)" -ForegroundColor Green
-    exit 0
+# 端口被占用但 .pid 丢失/过期的兜底清理
+$pidOnPort = Get-ProcessIdByPort $PORT
+if ($pidOnPort) {
+    if (-not (Stop-ProcessByPort $PORT)) {
+        Write-Host "[ERROR] Cannot start Home Theater on port $PORT because it is occupied by an external process" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # ── Production: rebuild frontend every start ────────────────────
