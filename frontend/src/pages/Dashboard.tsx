@@ -130,7 +130,16 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
       const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (!seen.has(k)) { seen.add(k); deduped.unshift(history[i]); }
     }
-    const data = deduped.slice(-30);
+    // 排除今天，取最近 7 天
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+    const data = deduped
+      .filter(d => {
+        const dk = new Date(d.ts);
+        return `${dk.getFullYear()}-${dk.getMonth()}-${dk.getDate()}` !== todayKey;
+      })
+      .slice(-7);
+    if (data.length < 2) return { totalPath: "", detailPath: "", areaPath: "", xLabels: [] as { x: number; t: string }[], gridYs: [] as { y: number; v: number }[] };
     const maxV = Math.max(...data.map(d => d.total), 1) * 1.08;
     const xStep = w / (data.length - 1 || 1);
     const yScale = (v: number) => h - (v / maxV) * h;
@@ -138,16 +147,11 @@ function TrendChart({ history }: { history: HistoryPoint[] }) {
     const ptsDetail = data.map((d, i) => `${pad.l + i * xStep},${pad.t + yScale(d.with_detail)}`).join(" ");
     const areaPts = `${pad.l},${pad.t + h} ${ptsTotal} ${pad.l + (data.length - 1) * xStep},${pad.t + h}`;
 
-    // 控制 X 轴标签密度，避免重叠：最多显示 8 个
-    const maxLabels = 8;
-    const labelStep = Math.max(1, Math.floor((data.length - 1) / maxLabels));
-    const labels = data
-      .map((d, i) => ({
-        x: pad.l + i * xStep,
-        t: new Date(d.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }),
-        show: i === 0 || i === data.length - 1 || i % labelStep === 0,
-      }))
-      .filter(l => l.show);
+    // 7 天全显示
+    const labels = data.map((d, i) => ({
+      x: pad.l + i * xStep,
+      t: new Date(d.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }),
+    }));
 
     const grids = Array.from({ length: 5 }, (_, i) => {
       const r = i / 4;
