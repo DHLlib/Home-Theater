@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   listDownloads,
   pauseDownload,
@@ -6,18 +6,20 @@ import {
   deleteDownload,
 } from "../api/downloads";
 import { onSseEvent } from "../api/sse";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { toast, toastSuccess } from "../utils/toast";
 import type { DownloadTask } from "../types";
 
 const statusText: Record<string, string> = {
   queued: "排队中",
   downloading: "下载中",
   paused: "已暂停",
-  done: "完成",
+  done: "已完成",
   error: "错误",
 };
 
 const statusColor: Record<string, string> = {
-  queued: "var(--text-secondary)",
+  queued: "var(--text-muted)",
   downloading: "var(--primary)",
   paused: "var(--warning)",
   done: "var(--success)",
@@ -43,15 +45,652 @@ function parseErrorType(error?: string | null) {
   return { type: "unknown", message: error, retryable: false };
 }
 
+function TerminalIcon({ size = 72 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m6 8 4 4-4 4" />
+      <line x1="13" y1="16" x2="18" y2="16" />
+    </svg>
+  );
+}
+
+function StatusLed({ status }: { status: string }) {
+  const active = status === "downloading" || status === "error";
+  const color = statusColor[status] || "var(--text-muted)";
+  return (
+    <span
+      className="status-led"
+      style={{
+        display: "inline-block",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: color,
+        boxShadow: `0 0 8px ${color}`,
+      }}
+      data-active={active}
+    />
+  );
+}
+
+function TaskProgress({ t }: { t: DownloadTask }) {
+  const totalSegments = t.total_segments ?? 0;
+  const hasSegmentProgress = totalSegments > 0;
+  const progress = hasSegmentProgress
+    ? Math.round((t.downloaded_segments / totalSegments) * 100)
+    : t.total_bytes && t.total_bytes > 0
+    ? Math.round((t.downloaded_bytes / t.total_bytes) * 100)
+    : 0;
+
+  return (
+    <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="progress-bar-track" style={{ height: 3 }}>
+        <div
+          className={`progress-bar-fill${t.status === "paused" ? " paused" : ""}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontSize: 11,
+          color: "var(--text-muted)",
+          fontFamily: "monospace",
+          letterSpacing: "0.02em",
+        }}
+      >
+        <span>
+          {hasSegmentProgress
+            ? `${t.downloaded_segments} / ${totalSegments} 片段`
+            : `${formatBytes(t.downloaded_bytes)} / ${
+                t.total_bytes != null ? formatBytes(t.total_bytes) : "-"
+              }`}
+        </span>
+        <span style={{ color: "var(--text-secondary)" }}>{progress}%</span>
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({
+  t,
+  selected,
+  onToggleSelect,
+  onPause,
+  onResume,
+  onDeleteRequest,
+}: {
+  t: DownloadTask;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  onPause: (id: number) => void;
+  onResume: (id: number) => void;
+  onDeleteRequest: (id: number) => void;
+}) {
+  const errorInfo = parseErrorType(t.error);
+
+  return (
+    <div
+      className={`task-row${selected ? " selected" : ""}`}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        borderBottom: "1px solid var(--glass-border)",
+        transition: "background var(--transition-base)",
+      }}
+      onClick={(e) => {
+        // 点击行空白处切换选中，但排除按钮、复选框、链接等交互元素
+        const target = e.target as HTMLElement;
+        if (
+          target.tagName === "BUTTON" ||
+          target.tagName === "INPUT" ||
+          target.closest("button") ||
+          target.closest("label")
+        ) {
+          return;
+        }
+        onToggleSelect?.();
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          padding: "14px 18px 14px 22px",
+        }}
+      >
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 18,
+            height: 18,
+            flexShrink: 0,
+            cursor: "pointer",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            style={{
+              width: 16,
+              height: 16,
+              accentColor: "var(--primary)",
+              cursor: "pointer",
+            }}
+          />
+        </label>
+
+        <div
+          style={{
+            flex: "0 0 180px",
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span
+            style={{
+              padding: "3px 8px",
+              borderRadius: 4,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--glass-border)",
+              fontSize: 11,
+              color: "var(--text-secondary)",
+              fontFamily: "monospace",
+              letterSpacing: "0.02em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            站点{t.source_site_id}
+          </span>
+          <span
+            style={{
+              fontSize: 13,
+              color: "var(--text-primary)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={t.episode_name}
+          >
+            {t.episode_name}
+          </span>
+        </div>
+
+        <TaskProgress t={t} />
+
+        <div
+          style={{
+            flex: "0 0 auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 10px",
+              borderRadius: 100,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid var(--glass-border)",
+              fontSize: 11,
+              color: statusColor[t.status] || "var(--text-secondary)",
+              fontWeight: 500,
+            }}
+          >
+            <StatusLed status={t.status} />
+            <span>{statusText[t.status] || t.status}</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {t.status === "downloading" && (
+              <button
+                className="btn"
+                aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPause(t.id);
+                }}
+                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+              >
+                暂停
+              </button>
+            )}
+            {t.status === "paused" && (
+              <button
+                className="btn btn-primary"
+                aria-label={`继续下载 ${t.title} ${t.episode_name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResume(t.id);
+                }}
+                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+              >
+                继续
+              </button>
+            )}
+            {t.status === "error" && errorInfo.retryable && (
+              <button
+                className="btn btn-primary"
+                aria-label={`重试下载 ${t.title} ${t.episode_name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResume(t.id);
+                }}
+                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+              >
+                重试
+              </button>
+            )}
+            <button
+              className="btn"
+              aria-label={`删除下载任务 ${t.title} ${t.episode_name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteRequest(t.id);
+              }}
+              style={{
+                minWidth: 60,
+                fontSize: 11,
+                minHeight: 30,
+                padding: "5px 10px",
+                color: "var(--danger)",
+                borderColor: "rgba(251,113,133,0.25)",
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {t.status === "error" && (
+        <div style={{ padding: "0 18px 12px 22px" }}>
+          <div
+            style={{
+              padding: "8px 12px",
+              borderRadius: 4,
+              background: "var(--danger-dim)",
+              border: "1px solid rgba(251,113,133,0.15)",
+              fontSize: 11,
+              color: "var(--danger)",
+              lineHeight: 1.5,
+            }}
+          >
+            {errorInfo.type === "site_unavailable" && <>站点不可用，请前往设置检查</>}
+            {errorInfo.type === "file_removed" && <>资源已失效</>}
+            {errorInfo.type !== "site_unavailable" &&
+              errorInfo.type !== "file_removed" &&
+              errorInfo.message}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilmStripEdge() {
+  return (
+    <div
+      className="film-strip-edge"
+      style={{
+        width: 18,
+        flexShrink: 0,
+        alignSelf: "stretch",
+        background: "rgba(255,255,255,0.02)",
+        borderRight: "1px solid var(--glass-border)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "space-around",
+        padding: "10px 0",
+        gap: 8,
+      }}
+    >
+      {Array.from({ length: 8 }).map((_, i) => (
+        <span
+          key={i}
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 1,
+            background: "var(--text-muted)",
+            opacity: 0.35,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function VideoDownloadCard({
+  title,
+  items,
+  stats,
+  expanded,
+  onToggle,
+  selectedIds,
+  onToggleTask,
+  onPause,
+  onResume,
+  onDeleteRequest,
+  onBatchResume,
+  onBatchPause,
+  onBatchDelete,
+}: {
+  title: string;
+  items: DownloadTask[];
+  stats: { total: number; downloading: number; paused: number; done: number; error: number };
+  expanded: boolean;
+  onToggle: () => void;
+  selectedIds: Set<number>;
+  onToggleTask: (taskId: number) => void;
+  onPause: (id: number) => void;
+  onResume: (id: number) => void;
+  onDeleteRequest: (id: number) => void;
+  onBatchResume: (title: string) => void;
+  onBatchPause: (title: string) => void;
+  onBatchDelete: (title: string) => void;
+}) {
+  const totalBytes = useMemo(
+    () => items.reduce((sum, t) => sum + (t.total_bytes ?? 0), 0),
+    [items]
+  );
+  const downloadedBytes = useMemo(
+    () => items.reduce((sum, t) => sum + t.downloaded_bytes, 0),
+    [items]
+  );
+  const byteProgress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+  const doneProgress = Math.round((stats.done / stats.total) * 100);
+  const progress = totalBytes > 0 ? byteProgress : doneProgress;
+
+  const activeStatus = stats.error > 0 ? "error" : stats.downloading > 0 ? "downloading" : "queued";
+
+  return (
+    <article
+      className="video-card card-elevated"
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          background:
+            activeStatus === "downloading"
+              ? "var(--primary)"
+              : activeStatus === "error"
+              ? "var(--danger)"
+              : stats.done === stats.total
+              ? "var(--success)"
+              : "transparent",
+          boxShadow:
+            activeStatus === "downloading"
+              ? "0 0 14px var(--primary-glow)"
+              : activeStatus === "error"
+              ? "0 0 14px rgba(251,113,133,0.35)"
+              : "none",
+          transition: "all var(--transition-base)",
+        }}
+      />
+
+      <div
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <FilmStripEdge />
+
+        <div
+          style={{
+            flex: 1,
+            padding: "18px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            minWidth: 0,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 16,
+            }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  lineHeight: 1.3,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={title}
+              >
+                {title}
+              </h3>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px 14px",
+                  alignItems: "center",
+                }}
+              >
+                <span>{stats.total} 个传输任务</span>
+                <span style={{ color: "var(--text-muted)" }}>·</span>
+                <span style={{ fontFamily: "monospace" }}>{progress}% 总进度</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "6px 12px",
+                  borderRadius: 100,
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid var(--glass-border)",
+                }}
+              >
+                {stats.downloading > 0 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--primary)" }}>
+                    <StatusLed status="downloading" /> {stats.downloading}
+                  </span>
+                )}
+                {stats.paused > 0 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--warning)" }}>
+                    <StatusLed status="paused" /> {stats.paused}
+                  </span>
+                )}
+                {stats.done > 0 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--success)" }}>
+                    <StatusLed status="done" /> {stats.done}
+                  </span>
+                )}
+                {stats.error > 0 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--danger)" }}>
+                    <StatusLed status="error" /> {stats.error}
+                  </span>
+                )}
+              </div>
+
+              <div
+                className="batch-actions"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  className="btn btn-primary"
+                  aria-label={`继续下载 ${title} 下可继续的任务`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBatchResume(title);
+                  }}
+                  style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                >
+                  继续
+                </button>
+                <button
+                  className="btn"
+                  aria-label={`暂停下载 ${title} 下可暂停的任务`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBatchPause(title);
+                  }}
+                  style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                >
+                  暂停
+                </button>
+                <button
+                  className="btn"
+                  aria-label={`删除 ${title} 下选中的任务`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBatchDelete(title);
+                  }}
+                  style={{
+                    fontSize: 12,
+                    minHeight: 32,
+                    padding: "5px 12px",
+                    color: "var(--danger)",
+                    borderColor: "rgba(251,113,133,0.25)",
+                  }}
+                >
+                  删除
+                </button>
+              </div>
+
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  transition: "transform var(--transition-base)",
+                  transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                  width: 24,
+                  height: 24,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid var(--glass-border)",
+                }}
+              >
+                ▼
+              </span>
+            </div>
+          </div>
+
+          <div className="progress-bar-track" style={{ height: 4 }}>
+            <div
+              className="progress-bar-fill"
+              style={{
+                width: `${progress}%`,
+                transition: "width 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className={`expand-wrapper${expanded ? " open" : ""}`}>
+        <div className="expand-inner">
+          <div
+            style={{
+              borderTop: "1px solid var(--glass-border)",
+              background: "rgba(0,0,0,0.25)",
+            }}
+          >
+            {items.map((t, idx) => (
+              <div
+                key={t.id}
+                className="task-row-outer"
+                style={{ animationDelay: `${idx * 40}ms` }}
+              >
+                <TaskRow
+                  t={t}
+                  selected={selectedIds.has(t.id)}
+                  onToggleSelect={() => onToggleTask(t.id)}
+                  onPause={onPause}
+                  onResume={onResume}
+                  onDeleteRequest={onDeleteRequest}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function Downloads() {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
+  const [loading, setLoading] = useState(true);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [deleteFileMap, setDeleteFileMap] = useState<Record<number, boolean>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [selectedMap, setSelectedMap] = useState<Record<string, Set<number>>>({});
+  const [batchDelete, setBatchDelete] = useState<{ title: string; ids: number[] } | null>(null);
+  const [batchDeleteFile, setBatchDeleteFile] = useState(false);
 
   const refresh = () => listDownloads().then(setTasks);
 
   useEffect(() => {
-    refresh();
+    setLoading(true);
+    listDownloads()
+      .then(setTasks)
+      .catch(() => setTasks([]))
+      .finally(() => setLoading(false));
 
     const unsubProgress = onSseEvent<{
       task_id: number;
@@ -99,7 +738,9 @@ export default function Downloads() {
                   status: ev.status,
                   error: ev.error ?? t.error,
                   downloaded_bytes:
-                    ev.status === "done" ? t.total_bytes ?? t.downloaded_bytes : t.downloaded_bytes,
+                    ev.status === "done"
+                      ? t.total_bytes ?? t.downloaded_bytes
+                      : t.downloaded_bytes,
                 }
               : t
           );
@@ -138,224 +779,530 @@ export default function Downloads() {
     };
   }, []);
 
-  const handleDelete = async (id: number) => {
-    const res = await deleteDownload(id, deleteFileMap[id]);
-    if (res.file_error) {
-      alert(res.file_error);
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const downloading = tasks.filter((t) => t.status === "downloading").length;
+    const paused = tasks.filter((t) => t.status === "paused").length;
+    const done = tasks.filter((t) => t.status === "done").length;
+    const error = tasks.filter((t) => t.status === "error").length;
+    return { total, downloading, paused, done, error };
+  }, [tasks]);
+
+  type GroupStats = { total: number; downloading: number; paused: number; done: number; error: number };
+  const groups = useMemo(() => {
+    const map = new Map<string, DownloadTask[]>();
+    for (const t of tasks) {
+      if (!map.has(t.title)) map.set(t.title, []);
+      map.get(t.title)!.push(t);
     }
-    setConfirmingId(null);
-    refresh();
+    return Array.from(map.entries()).map(([title, items]) => {
+      const groupStats: GroupStats = {
+        total: items.length,
+        downloading: items.filter((t) => t.status === "downloading").length,
+        paused: items.filter((t) => t.status === "paused").length,
+        done: items.filter((t) => t.status === "done").length,
+        error: items.filter((t) => t.status === "error").length,
+      };
+      return { title, items, stats: groupStats };
+    });
+  }, [tasks]);
+
+  useEffect(() => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      for (const g of groups) {
+        if (!(g.title in next)) next[g.title] = true;
+      }
+      return next;
+    });
+  }, [groups]);
+
+  const activeItem = useMemo(
+    () => tasks.find((t) => t.id === confirmingId),
+    [tasks, confirmingId]
+  );
+
+  const handlePause = (id: number) => {
+    pauseDownload(id).then(refresh);
+  };
+
+  const handleResume = (id: number) => {
+    resumeDownload(id).then(refresh);
+  };
+
+  const handleDeleteRequest = (id: number) => {
+    setConfirmingId(id);
+    setDeleteFileMap((prev) => ({ ...prev, [id]: false }));
+  };
+
+  const handleConfirmDelete = () => {
+    if (confirmingId == null) return;
+    const deleteFile = deleteFileMap[confirmingId] || false;
+    deleteDownload(confirmingId, deleteFile)
+      .then((res) => {
+        if (res.file_error) {
+          alert(res.file_error);
+        }
+      })
+      .catch(() => alert("删除失败"))
+      .finally(() => {
+        setConfirmingId(null);
+        refresh();
+      });
+  };
+
+  const getSelectedIds = (title: string) => selectedMap[title] ?? new Set<number>();
+
+  const getBatchTargets = (title: string, items: DownloadTask[]) => {
+    const selected = getSelectedIds(title);
+    if (selected.size > 0) return items.filter((t) => selected.has(t.id));
+    return items;
+  };
+
+  const handleToggleTaskSelection = (title: string, taskId: number) => {
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      const set = new Set(next[title] ?? []);
+      if (set.has(taskId)) set.delete(taskId);
+      else set.add(taskId);
+      next[title] = set;
+      return next;
+    });
+  };
+
+  const handleBatchResume = (title: string) => {
+    const group = groups.find((g) => g.title === title);
+    if (!group) return;
+    const targets = getBatchTargets(title, group.items).filter(
+      (t) => t.status !== "downloading" && t.status !== "done"
+    );
+    if (targets.length === 0) {
+      toast("info", "没有可继续的任务");
+      return;
+    }
+    Promise.all(targets.map((t) => resumeDownload(t.id))).then(() => {
+      refresh();
+      toastSuccess(`已继续 ${targets.length} 个任务`);
+    });
+  };
+
+  const handleBatchPause = (title: string) => {
+    const group = groups.find((g) => g.title === title);
+    if (!group) return;
+    const targets = getBatchTargets(title, group.items).filter(
+      (t) => t.status !== "paused" && t.status !== "done"
+    );
+    if (targets.length === 0) {
+      toast("info", "没有可暂停的任务");
+      return;
+    }
+    Promise.all(targets.map((t) => pauseDownload(t.id))).then(() => {
+      refresh();
+      toastSuccess(`已暂停 ${targets.length} 个任务`);
+    });
+  };
+
+  const handleBatchDeleteRequest = (title: string) => {
+    const group = groups.find((g) => g.title === title);
+    if (!group) return;
+    const targets = getBatchTargets(title, group.items);
+    if (targets.length === 0) return;
+    setBatchDeleteFile(false);
+    setBatchDelete({ title, ids: targets.map((t) => t.id) });
+  };
+
+  const handleConfirmBatchDelete = () => {
+    if (batchDelete == null) return;
+    Promise.all(
+      batchDelete.ids.map((id) =>
+        deleteDownload(id, batchDeleteFile).then((res) => ({ id, res }))
+      )
+    )
+      .then((results) => {
+        const errors = results.filter(({ res }) => res.file_error);
+        if (errors.length > 0) {
+          alert(`部分文件删除失败：${errors.map(({ res }) => res.file_error).join("、")}`);
+        }
+      })
+      .catch(() => alert("删除失败"))
+      .finally(() => {
+        setBatchDelete(null);
+        setBatchDeleteFile(false);
+        setSelectedMap((prev) => {
+          const next = { ...prev };
+          delete next[batchDelete.title];
+          return next;
+        });
+        refresh();
+      });
   };
 
   return (
-    <div className="col">
-      <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>下载任务</h2>
-      <div className="downloads-list" style={{ marginTop: 16 }}>
-      {tasks.map((t) => {
-        const totalSegments = t.total_segments ?? 0;
-        const hasSegmentProgress = totalSegments > 0;
-        const progress = hasSegmentProgress
-          ? Math.round((t.downloaded_segments / totalSegments) * 100)
-          : t.total_bytes && t.total_bytes > 0
-          ? Math.round((t.downloaded_bytes / t.total_bytes) * 100)
-          : 0;
-        const errorInfo = parseErrorType(t.error);
-        const showProgress =
-          t.status === "downloading" ||
-          t.status === "paused" ||
-          t.status === "queued";
+    <div
+      style={{
+        minHeight: "100vh",
+        margin: "-16px",
+        padding: "32px 24px 48px",
+      }}
+    >
+      <style>{`
+        @keyframes ledPulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
+          50% { opacity: 0.45; box-shadow: 0 0 2px currentColor; }
+        }
+        @keyframes vaultReveal {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes taskReveal {
+          from { opacity: 0; transform: translateX(-12px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        .status-led[data-active="true"] {
+          animation: ledPulse 1.6s ease-in-out infinite;
+        }
+        .video-card {
+          animation: vaultReveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .expand-wrapper {
+          display: grid;
+          grid-template-rows: 0fr;
+          transition: grid-template-rows 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .expand-wrapper.open {
+          grid-template-rows: 1fr;
+        }
+        .expand-inner {
+          overflow: hidden;
+        }
+        .task-row:hover {
+          background: rgba(255,255,255,0.025);
+        }
+        .task-row.selected {
+          background: rgba(74,222,128,0.05);
+        }
+        .task-row-outer {
+          animation: taskReveal 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .task-row-outer:last-child .task-row {
+          border-bottom: none;
+        }
+        .film-strip-edge span {
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+        }
+        .video-list {
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+        @media (max-width: 767px) {
+          .video-list {
+            gap: 14px;
+          }
+          .batch-actions {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+          }
+          .batch-actions button {
+            min-width: 56px;
+            padding: 5px 8px;
+          }
+          .task-row > div:first-child {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+          }
+          .task-row > div:first-child > label {
+            align-self: flex-start;
+          }
+          .task-row > div:first-child > div {
+            width: 100%;
+            flex: none !important;
+            min-width: 0;
+          }
+          .task-row > div:first-child > div:last-child {
+            justify-content: space-between;
+          }
+        }
+      `}</style>
 
-        return (
-          <div key={t.id}>
-            <div
-              className="row"
-              style={{
-                justifyContent: "space-between",
-                padding: "16px 0",
-                borderBottom: "1px solid rgba(255,255,255,0.04)",
-                transition: "background var(--transition-fast)",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14, color: "var(--text-primary)" }}>
-                  {t.title} · {t.episode_name}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                  <span style={{ color: statusColor[t.status] || "inherit" }}>
-                    {statusText[t.status] || t.status}
-                  </span>
-                  {" · "}
-                  {hasSegmentProgress
-                    ? `${t.downloaded_segments} / ${t.total_segments} 片段`
-                    : `${formatBytes(t.downloaded_bytes)} / ${
-                        t.total_bytes != null ? formatBytes(t.total_bytes) : "-"
-                      }`}
-                </div>
-                {showProgress && (
-                  <div style={{ marginTop: 8, maxWidth: 400 }}>
-                    <div className="progress-bar-track">
-                      <div
-                        className={`progress-bar-fill${t.status === "paused" ? " paused" : ""}`}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        textAlign: "right",
-                        marginTop: 4,
-                        color: "var(--text-muted)",
-                      }}
-                    >
-                      {progress}%
-                    </div>
-                  </div>
-                )}
-                {t.status === "error" && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 12px",
-                      background: "var(--danger-dim)",
-                      borderRadius: 4,
-                      fontSize: 12,
-                      color: "var(--danger)",
-                    }}
-                  >
-                    {errorInfo.type === "site_unavailable" && (
-                      <div>站点不可用，请前往设置检查</div>
-                    )}
-                    {errorInfo.type === "file_removed" && (
-                      <div>资源已失效</div>
-                    )}
-                    {errorInfo.type !== "site_unavailable" &&
-                      errorInfo.type !== "file_removed" && (
-                        <div>{errorInfo.message}</div>
-                      )}
-                  </div>
-                )}
-              </div>
-              <div className="row" style={{ marginLeft: 12, flexShrink: 0, gap: 6 }}>
-                {t.status === "downloading" && (
-                  <button
-                    className="btn"
-                    aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
-                    onClick={() => pauseDownload(t.id).then(refresh)}
-                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
-                  >
-                    暂停
-                  </button>
-                )}
-                {t.status === "paused" && (
-                  <button
-                    className="btn"
-                    aria-label={`继续下载 ${t.title} ${t.episode_name}`}
-                    onClick={() => resumeDownload(t.id).then(refresh)}
-                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
-                  >
-                    继续
-                  </button>
-                )}
-                {t.status === "error" && errorInfo.retryable && (
-                  <button
-                    className="btn"
-                    aria-label={`重试下载 ${t.title} ${t.episode_name}`}
-                    onClick={() => resumeDownload(t.id).then(refresh)}
-                    style={{ padding: "6px 12px", fontSize: 12, minHeight: 32 }}
-                  >
-                    重试
-                  </button>
-                )}
-                <button
-                  className="btn"
-                  aria-label={`删除下载任务 ${t.title} ${t.episode_name}`}
-                  onClick={() => {
-                    setConfirmingId(t.id);
-                    setDeleteFileMap((prev) => ({ ...prev, [t.id]: false }));
-                  }}
-                  style={{ padding: "6px 12px", fontSize: 12, minHeight: 32, color: "var(--danger)" }}
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-            {confirmingId === t.id && (
+      <header
+        style={{
+          marginBottom: 28,
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h1
+            className="font-display"
+            style={{
+              margin: 0,
+              fontSize: 26,
+              fontWeight: 700,
+              color: "var(--text-primary)",
+              letterSpacing: "0.04em",
+            }}
+          >
+            下载中心
+          </h1>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 13,
+              color: "var(--text-muted)",
+            }}
+          >
+            {loading
+              ? "加载中..."
+              : tasks.length > 0
+              ? `共 ${tasks.length} 个传输任务`
+              : "传输队列空闲"}
+          </div>
+        </div>
+
+        {!loading && tasks.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+            }}
+          >
+            {[
+              { label: "总数", value: stats.total, color: "var(--text-secondary)" },
+              { label: "下载中", value: stats.downloading, color: "var(--primary)" },
+              { label: "已暂停", value: stats.paused, color: "var(--warning)" },
+              { label: "已完成", value: stats.done, color: "var(--success)" },
+              { label: "错误", value: stats.error, color: "var(--danger)" },
+            ].map((s) => (
               <div
+                key={s.label}
                 style={{
-                  padding: 16,
-                  background: "var(--bg-elevated)",
-                  borderRadius: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  borderRadius: 100,
+                  background: "rgba(255,255,255,0.03)",
                   border: "1px solid var(--glass-border)",
-                  marginBottom: 12,
-                  marginTop: 4,
+                  fontSize: 12,
                 }}
               >
-                <div style={{ fontSize: 14, marginBottom: 8, color: "var(--text-primary)" }}>
-                  确定删除此下载任务？
-                </div>
-                <label
+                <span style={{ color: "var(--text-muted)" }}>{s.label}</span>
+                <span
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 13,
-                    marginBottom: 10,
-                    cursor: "pointer",
-                    color: "var(--text-secondary)",
+                    color: s.color,
+                    fontWeight: 600,
+                    fontFamily: "monospace",
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={deleteFileMap[t.id] || false}
-                    onChange={(e) =>
-                      setDeleteFileMap((prev) => ({
-                        ...prev,
-                        [t.id]: e.target.checked,
-                      }))
-                    }
-                  />
-                  同时删除本地源文件
-                </label>
-                <div className="row" style={{ gap: 8 }}>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => handleDelete(t.id)}
-                    style={{ padding: "6px 16px", fontSize: 12, minHeight: 32 }}
-                  >
-                    确定删除
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => setConfirmingId(null)}
-                    style={{ padding: "6px 16px", fontSize: 12, minHeight: 32 }}
-                  >
-                    取消
-                  </button>
-                </div>
+                  {s.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </header>
+
+      <ConfirmDialog
+        open={confirmingId != null}
+        title="删除传输任务"
+        message={
+          <div className="col" style={{ gap: 12 }}>
+            <div>
+              确定要删除
+              <strong style={{ color: "var(--text-primary)" }}>
+                「{activeItem?.title} · {activeItem?.episode_name}」
+              </strong>
+              吗？
+            </div>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                cursor: "pointer",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={confirmingId != null ? deleteFileMap[confirmingId] || false : false}
+                onChange={(e) => {
+                  if (confirmingId != null) {
+                    setDeleteFileMap((prev) => ({
+                      ...prev,
+                      [confirmingId]: e.target.checked,
+                    }));
+                  }
+                }}
+              />
+              同时删除本地源文件
+            </label>
+          </div>
+        }
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          setConfirmingId(null);
+          setDeleteFileMap((prev) =>
+            confirmingId != null ? { ...prev, [confirmingId]: false } : prev
+          );
+        }}
+      />
+
+      <ConfirmDialog
+        open={batchDelete != null}
+        title="批量删除传输任务"
+        message={
+          <div className="col" style={{ gap: 12 }}>
+            <div>
+              确定要删除
+              <strong style={{ color: "var(--text-primary)" }}>
+                「{batchDelete?.title}」
+              </strong>
+              下的 <strong style={{ color: "var(--text-primary)" }}>{batchDelete?.ids.length}</strong>{" "}
+              个任务吗？
+            </div>
+            {batchDelete && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.6,
+                  maxHeight: 120,
+                  overflow: "auto",
+                }}
+              >
+                {(() => {
+                  const names = tasks
+                    .filter((t) => batchDelete.ids.includes(t.id))
+                    .map((t) => `站点${t.source_site_id}：${t.episode_name}`);
+                  const visible = names.slice(0, 3);
+                  const rest = names.length - visible.length;
+                  return (
+                    <>
+                      {visible.join("、")}
+                      {rest > 0 && <span style={{ color: "var(--text-muted)" }}>（等共 {names.length} 项）</span>}
+                    </>
+                  );
+                })()}
               </div>
             )}
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                cursor: "pointer",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={batchDeleteFile}
+                onChange={(e) => setBatchDeleteFile(e.target.checked)}
+              />
+              同时删除本地源文件
+            </label>
           </div>
-        );
-      })}
-      {tasks.length === 0 && (
-        <div className="empty" style={{ padding: "80px 16px" }}>
-          <svg
-            className="breathing-icon"
-            width="48"
-            height="48"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            style={{ opacity: 0.2, marginBottom: 16 }}
+        }
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onConfirm={handleConfirmBatchDelete}
+        onCancel={() => {
+          setBatchDelete(null);
+          setBatchDeleteFile(false);
+        }}
+      />
+
+      {loading ? (
+        <div className="video-list">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="skeleton"
+              style={{
+                height: 120,
+                borderRadius: 8,
+                animationDelay: `${i * 80}ms`,
+              }}
+            />
+          ))}
+        </div>
+      ) : tasks.length === 0 ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "72px 24px",
+            color: "var(--text-secondary)",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: "var(--text-muted)", animation: "breathe-rotate 8s linear infinite" }}>
+            <TerminalIcon size={72} />
+          </div>
+          <div
+            style={{
+              marginTop: 20,
+              fontSize: 16,
+              fontWeight: 500,
+              color: "var(--text-primary)",
+            }}
           >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          <p style={{ color: "var(--text-muted)" }}>暂无下载任务</p>
+            传输队列空闲
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 13,
+              color: "var(--text-muted)",
+              maxWidth: 320,
+            }}
+          >
+            从详情页发起下载后，任务会在这里显示实时进度
+          </div>
+        </div>
+      ) : (
+        <div className="video-list">
+          {groups.map((g) => (
+            <VideoDownloadCard
+              key={g.title}
+              title={g.title}
+              items={g.items}
+              stats={g.stats}
+              expanded={expandedGroups[g.title] !== false}
+              onToggle={() =>
+                setExpandedGroups((prev) => ({
+                  ...prev,
+                  [g.title]: !prev[g.title],
+                }))
+              }
+              selectedIds={selectedMap[g.title] ?? new Set()}
+              onToggleTask={(taskId) => handleToggleTaskSelection(g.title, taskId)}
+              onPause={handlePause}
+              onResume={handleResume}
+              onDeleteRequest={handleDeleteRequest}
+              onBatchResume={handleBatchResume}
+              onBatchPause={handleBatchPause}
+              onBatchDelete={handleBatchDeleteRequest}
+            />
+          ))}
         </div>
       )}
-      </div>
     </div>
   );
 }

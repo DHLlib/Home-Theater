@@ -75,6 +75,27 @@ export interface DownloadTaskCreate {
   year?: number | null;
 }
 
+export interface DownloadBatchItem {
+  episode_index: number;
+  episode_name: string;
+  url: string;
+  suffix: string;
+}
+
+export interface DownloadBatchCreate {
+  site_id: number;
+  original_id: string;
+  title: string;
+  year?: number | null;
+  episodes: DownloadBatchItem[];
+}
+
+export interface DownloadBatchResult {
+  created: number[];
+  skipped: number[];
+  recreated: number[];
+}
+
 export interface DownloadTask {
   id: number;
   title: string;

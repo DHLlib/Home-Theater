@@ -8,9 +8,15 @@ import {
   batchProbe,
   probeSitesBatch,
 } from "../api/sites";
-import { getDownloadRoot, setDownloadRoot } from "../api/settings";
+import {
+  getDownloadRoot,
+  setDownloadRoot,
+  getMaxConcurrentDownloads,
+  setMaxConcurrentDownloads,
+} from "../api/settings";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import CategorySettings from "../components/category-settings/CategorySettings";
+import ConfirmDialog from "../components/ConfirmDialog";
 import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult, SiteProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
@@ -169,7 +175,7 @@ type TabKey = "sites" | "categories" | "download" | "logs";
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
-  { key: "download", label: "下载根目录", icon: <FolderIcon size={14} /> },
+  { key: "download", label: "下载设置", icon: <FolderIcon size={14} /> },
   { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
 ];
 
@@ -189,6 +195,8 @@ export default function Settings() {
   const [sites, setSites] = useState<Site[]>([]);
   const [root, setRoot] = useState("");
   const [savedRoot, setSavedRoot] = useState<string | null>(null);
+  const [maxConcurrent, setMaxConcurrent] = useState(10);
+  const [savedMaxConcurrent, setSavedMaxConcurrent] = useState(10);
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
   >({});
@@ -216,12 +224,17 @@ export default function Settings() {
 
   /* ---- batch detect existing sites state ---- */
   const [batchDetectLoading, setBatchDetectLoading] = useState(false);
+  const [showBatchDetectDialog, setShowBatchDetectDialog] = useState(false);
 
   useEffect(() => {
     listSites().then(setSites);
     getDownloadRoot().then((r) => {
       setSavedRoot(r);
       if (r) setRoot(r);
+    });
+    getMaxConcurrentDownloads().then((v) => {
+      setSavedMaxConcurrent(v);
+      setMaxConcurrent(v);
     });
   }, []);
 
@@ -331,7 +344,11 @@ export default function Settings() {
 
   const handleBatchDetect = () => {
     if (sites.length === 0) return;
-    if (!confirm(`确定要批量检测全部 ${sites.length} 个资源站吗？`)) return;
+    setShowBatchDetectDialog(true);
+  };
+
+  const confirmBatchDetect = () => {
+    setShowBatchDetectDialog(false);
     setBatchDetectLoading(true);
     probeSitesBatch()
       .then((results) => {
@@ -348,6 +365,16 @@ export default function Settings() {
   const saveRoot = () => {
     if (!root.trim()) return;
     setDownloadRoot(root.trim()).then((r) => setSavedRoot(r.value));
+  };
+
+  const saveMaxConcurrent = () => {
+    const value = Math.max(1, Math.min(50, Math.round(maxConcurrent)));
+    setMaxConcurrentDownloads(value)
+      .then((r) => {
+        setSavedMaxConcurrent(r.value);
+        setMaxConcurrent(r.value);
+      })
+      .catch(() => alert("保存同时下载任务数失败"));
   };
 
   const rowBaseStyle: React.CSSProperties = {
@@ -922,7 +949,7 @@ export default function Settings() {
         </section>
       )}
 
-      {/* 下载根目录 */}
+      {/* 下载设置 */}
       {activeTab === "download" && (
         <section
           style={{
@@ -945,32 +972,76 @@ export default function Settings() {
                 letterSpacing: 0.3,
               }}
             >
-              下载根目录
+              下载设置
             </h3>
           </div>
-          <div className="col" style={{ gap: 8 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <input
-                type="text"
-                value={root}
-                onChange={(e) => setRoot(e.target.value)}
-                placeholder="例如 D:/Downloads"
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  borderRadius: 6,
-                  border: "1px solid var(--glass-border)",
-                  background: "var(--bg)",
-                  color: "var(--text-primary)",
-                  fontSize: 14,
-                  fontFamily: "inherit",
-                }}
-              />
-              <button className="btn btn-primary" onClick={saveRoot}>
-                保存
-              </button>
+          <div className="col" style={{ gap: 16 }}>
+            <div className="col" style={{ gap: 8 }}>
+              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                下载根目录
+              </label>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  type="text"
+                  value={root}
+                  onChange={(e) => setRoot(e.target.value)}
+                  placeholder="例如 D:/Downloads"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--glass-border)",
+                    background: "var(--bg)",
+                    color: "var(--text-primary)",
+                    fontSize: 14,
+                    fontFamily: "inherit",
+                  }}
+                />
+                <button className="btn btn-primary" onClick={saveRoot}>
+                  保存
+                </button>
+              </div>
+              {savedRoot && (
+                <div
+                  className="row"
+                  style={{
+                    gap: 6,
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <CheckIcon size={12} />
+                  当前配置：{savedRoot}
+                </div>
+              )}
             </div>
-            {savedRoot && (
+
+            <div className="col" style={{ gap: 8 }}>
+              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                同时下载任务数（1–50）
+              </label>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConcurrent}
+                  onChange={(e) => setMaxConcurrent(Number(e.target.value))}
+                  style={{
+                    width: 120,
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--glass-border)",
+                    background: "var(--bg)",
+                    color: "var(--text-primary)",
+                    fontSize: 14,
+                    fontFamily: "inherit",
+                  }}
+                />
+                <button className="btn btn-primary" onClick={saveMaxConcurrent}>
+                  保存
+                </button>
+              </div>
               <div
                 className="row"
                 style={{
@@ -980,9 +1051,9 @@ export default function Settings() {
                 }}
               >
                 <CheckIcon size={12} />
-                当前配置：{savedRoot}
+                当前配置：{savedMaxConcurrent}
               </div>
-            )}
+            </div>
           </div>
         </section>
       )}
@@ -1225,6 +1296,15 @@ export default function Settings() {
         </section>
       )}
 
+      <ConfirmDialog
+        open={showBatchDetectDialog}
+        title="批量检测资源站"
+        message={`确定要批量检测全部 ${sites.length} 个资源站吗？`}
+        confirmText="开始检测"
+        cancelText="取消"
+        onConfirm={confirmBatchDetect}
+        onCancel={() => setShowBatchDetectDialog(false)}
+      />
     </div>
   );
 }

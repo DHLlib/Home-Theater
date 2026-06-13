@@ -1,6 +1,7 @@
 """事件发送封装：通过 PostgreSQL NOTIFY 发送事件。"""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ class NotifySender:
 
     def __init__(self):
         self._conn = None
+        self._lock = asyncio.Lock()
 
     async def send(self, channel: str, event: Event) -> None:
         """发送事件到指定 channel。"""
@@ -30,13 +32,25 @@ class NotifySender:
         try:
             import asyncpg
 
-            if self._conn is None or self._conn.is_closed():
-                self._conn = await asyncpg.connect(dsn=self._dsn_for_asyncpg())
-            await self._conn.execute(f"NOTIFY {channel}, $1", payload)
+            async with self._lock:
+                if self._conn is None or self._conn.is_closed():
+                    self._conn = await asyncpg.connect(dsn=self._dsn_for_asyncpg())
+                # PostgreSQL NOTIFY 不支持参数占位符，使用 dollar-quoting 安全嵌入 payload
+                await self._conn.execute(
+                    f"NOTIFY {channel}, {self._dollar_quote(payload)}"
+                )
         except Exception:
             logger.exception("NOTIFY 发送失败 channel=%s", channel)
             # 标记连接失效，下次发送时重建
             self._conn = None
+
+    @staticmethod
+    def _dollar_quote(s: str) -> str:
+        """使用 PostgreSQL dollar-quoting 避免字符串转义问题。"""
+        tag = "notify"
+        while f"${tag}$" in s:
+            tag += "x"
+        return f"${tag}${s}${tag}$"
 
     def _dsn_for_asyncpg(self) -> str:
         """将 SQLAlchemy async URL 转换为 asyncpg DSN。"""

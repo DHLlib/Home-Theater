@@ -12,3 +12,17 @@ export const getDownloadRoot = async (): Promise<string | null> => {
 
 export const setDownloadRoot = (path: string) =>
   put<{ value: string }>("/api/settings/download-root", { value: path });
+
+export const getMaxConcurrentDownloads = async (): Promise<number> => {
+  try {
+    const data = await get<{ value: number }>(
+      "/api/settings/max-concurrent-downloads"
+    );
+    return data.value;
+  } catch {
+    return 10;
+  }
+};
+
+export const setMaxConcurrentDownloads = (value: number) =>
+  put<{ value: number }>("/api/settings/max-concurrent-downloads", { value });

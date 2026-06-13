@@ -62,13 +62,9 @@ function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
       {cards.map((c, i) => (
         <div
           key={i}
+          className="card-kpi"
           style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
             borderTop: `3px solid ${c.color}`,
-            borderRadius: 10,
-            padding: "16px 14px",
-            boxShadow: "0 10px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(255, 255, 255, 0.03)",
           }}
         >
           <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, textAlign: "center" }}>
@@ -94,15 +90,7 @@ function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
 
 function KpiCardSkeleton() {
   return (
-    <div
-      style={{
-        background: "var(--bg-elevated)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 10,
-        padding: "16px 14px",
-        boxShadow: "0 10px 24px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(255, 255, 255, 0.03)",
-      }}
-    >
+    <div className="card-kpi">
       <SkeletonBar w={60} h={12} />
       <div style={{ marginTop: 12 }}><SkeletonBar w="80%" h={28} /></div>
     </div>

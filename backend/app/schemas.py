@@ -71,6 +71,27 @@ class DownloadTaskCreate(BaseModel):
     year: int | None = None
 
 
+class DownloadBatchItem(BaseModel):
+    episode_index: int
+    episode_name: str
+    url: str
+    suffix: str
+
+
+class DownloadBatchCreate(BaseModel):
+    site_id: int
+    original_id: str
+    title: str
+    year: int | None = None
+    episodes: list[DownloadBatchItem]
+
+
+class DownloadBatchResult(BaseModel):
+    created: list[int] = Field(default_factory=list)
+    skipped: list[int] = Field(default_factory=list)
+    recreated: list[int] = Field(default_factory=list)
+
+
 class DownloadTaskOut(BaseModel):
     id: int
     title: str

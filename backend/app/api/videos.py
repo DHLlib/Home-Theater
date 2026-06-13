@@ -232,6 +232,18 @@ async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
             if isinstance(real_url, str) and real_url:
                 eps[idx] = replace(eps[idx], url=real_url, suffix="ffm3u8")
 
+    if has_360zy:
+        zy_indices = [i for i, e in enumerate(eps) if e.suffix == "360zy"]
+        resolved = await asyncio.gather(
+            *[resolve_feifan(eps[i].url) for i in zy_indices],
+            return_exceptions=True,
+        )
+        for idx, real_url in zip(zy_indices, resolved):
+            if isinstance(real_url, str) and real_url:
+                eps[idx] = replace(eps[idx], url=real_url, suffix="ffm3u8")
+            elif isinstance(real_url, Exception):
+                logger.warning("360zy_resolve_failed url=%s error=%s", eps[idx].url, real_url)
+
     for i, e in enumerate(eps):
         if e.suffix == "360zy":
             eps[i] = replace(eps[i], suffix="ffm3u8")
