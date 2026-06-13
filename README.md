@@ -35,7 +35,7 @@
 | 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), asyncpg |
 | 前端 | React 18, Vite, TypeScript, react-router-dom |
 | 播放器 | xgplayer v3 + xgplayer-hls.js |
-| 数据库 | PostgreSQL 16+ |
+| 数据库 | SQLite（默认）/ PostgreSQL 16+（可选） |
 | 部署 | uvicorn + FastAPI 静态托管前端构建产物 / Docker |
 
 ---
@@ -46,10 +46,10 @@
 
 - Python 3.11+（推荐 3.13）
 - Node.js 18+ 及 npm
-- PostgreSQL 16+（见下方安装教程）
+- 数据库：SQLite 为默认零配置方案；PostgreSQL 16+ 为可选高性能方案（见下方安装教程）
 - **ffmpeg（可选）**：用于 m3u8 下载后的 TS 片段合并为 MP4；未安装时会自动降级为直接字节拼接，部分编码可能不兼容
 
-### 1. 安装 PostgreSQL
+### 1. 安装 PostgreSQL（可选）
 
 **Windows（PowerShell）**
 
@@ -125,7 +125,12 @@ copy .env.example .env
 
 编辑 `.env`：
 ```env
+# PostgreSQL（推荐用于大数据量）
 DATABASE_URL=postgresql+asyncpg://home_theater:your_password@localhost:5432/home_theater
+
+# 或 SQLite（零配置，适合个人本机使用）
+# DATABASE_URL=sqlite+aiosqlite:///data/app.db
+
 PORT=8000
 LOG_LEVEL=INFO
 DEFAULT_DOWNLOAD_ROOT=D:\Downloads
