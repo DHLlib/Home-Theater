@@ -819,6 +819,7 @@ textarea:focus {
   gap: 16px;
   align-items: stretch;
   padding: 0 24px;
+  height: calc(100dvh - 80px);
 }
 
 .player-main {
@@ -854,6 +855,34 @@ textarea:focus {
   min-height: 0;
   overflow-y: auto;
   margin-top: 8px;
+}
+
+/* === 移动端选集抽屉 === */
+.episode-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: calc(var(--z-modal) - 1);
+}
+
+.episode-drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 60vh;
+  background: var(--bg-elevated);
+  border-radius: 16px 16px 0 0;
+  border-top: 1px solid var(--glass-border);
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 250ms ease-out;
+}
+
+.episode-drawer.open {
+  transform: translateY(0);
 }
 
 /* === 进度条 === */
@@ -928,6 +957,23 @@ textarea:focus {
   .section-title {
     font-size: 16px;
     margin-bottom: 16px;
+  }
+
+  /* 播放器移动端布局 */
+  .player-layout {
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 12px;
+    height: calc(100dvh - 56px);
+  }
+
+  .player-main {
+    min-height: 0;
+  }
+
+  .player-video-wrap {
+    min-height: 200px;
+    border-radius: 4px;
   }
 }
 
@@ -1152,8 +1198,21 @@ textarea:focus {
 
 :fullscreen .episode-sidebar,
 :-webkit-full-screen .episode-sidebar,
-:-moz-full-screen .episode-sidebar {
+:-moz-full-screen .episode-sidebar,
+:fullscreen .episode-drawer,
+:-webkit-full-screen .episode-drawer,
+:-moz-full-screen .episode-drawer,
+:fullscreen .episode-drawer-backdrop,
+:-webkit-full-screen .episode-drawer-backdrop,
+:-moz-full-screen .episode-drawer-backdrop {
   display: none;
+}
+
+.simulated-fullscreen ~ .episode-drawer,
+.simulated-fullscreen ~ .episode-drawer-backdrop,
+.fake-landscape ~ .episode-drawer,
+.fake-landscape ~ .episode-drawer-backdrop {
+  display: none !important;
 }
 
 .simulated-fullscreen {

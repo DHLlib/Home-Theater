@@ -337,7 +337,6 @@ export default function Player() {
       tabIndex={0}
       className="player-layout"
       style={{
-        height: "calc(100dvh - 80px)",
         minHeight: 0,
         position: "relative",
       }}
