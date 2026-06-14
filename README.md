@@ -14,11 +14,12 @@
 - **播放**：xgplayer 播放（支持 HLS/m3u8、MP4），内置手势控制、自动隐藏控件，播放进度自动保存
 - **下载**：HTTP Range 断点续传，支持暂停/继续，m3u8 下载完成后可选 ffmpeg 合并为 MP4，下载根目录一次性配置
 - **收藏**：单用户收藏列表，保留来源信息
-- **站点管理**：采集站 CRUD、连通性探测、远程分类抓取
-- **分类映射**：将各站点的子分类映射到统一的扁平系统分类
+- **站点管理**：采集站 CRUD、连通性探测、远程分类抓取、批量嗅探添加、站点健康自动禁用/恢复
+- **数据完整性**：站点删除时级联清理关联数据，支持手动/每日定时批量补全缺失的 videolist 详情
+- **分类映射**：将各站点的子分类映射到统一的层级系统分类，支持禁用/启用
 - **本地聚合数据库**：后台自动刮削资源站数据到 VideoCache，首页/搜索纯本地查询
-- **预聚合缓存**：PostgreSQL 物化视图（MATERIALIZED VIEW），首页查询从 ~8s 降至 ~26ms
-- **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，状态持久化
+- **预聚合缓存**：PostgreSQL 物化视图（MATERIALIZED VIEW）/ SQLite 双缓冲表，首页查询从 ~8s 降至 ~26ms
+- **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，每日 04:00 自动全量补 videolist，状态持久化
 - **播放器格式兼容**：支持 M3U8/MP4/WebM，自动归一化 dytt/xlyun/155m3u8 等后缀
 - **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
 - **分类禁用**：系统分类和站点映射支持单独禁用，禁用后首页自动过滤
@@ -314,7 +315,7 @@ Home Theater/
 │   │   ├── config.py         # 配置读取（Pydantic Settings，从 .env 加载）
 │   │   ├── logging_config.py # 日志分类路由（api/source/crawler/download）
 │   │   ├── api/              # 路由：sites / videos / play / downloads / progress / favorites / settings / sse / system_categories
-│   │   ├── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver / listen_manager / notify_sender
+│   │   ├── services/         # 业务逻辑：source_client / parser / aggregator / downloader / health / crawler / scheduler / resolver / listen_manager / notify_sender / site_deleter
 │   │   └── sql/              # PostgreSQL 初始化脚本（物化视图、全文搜索）
 │   ├── .env.example          # 环境变量示例
 │   └── pyproject.toml
@@ -322,7 +323,7 @@ Home Theater/
 │   ├── src/
 │   │   ├── api/              # fetch 封装 + 各模块 API
 │   │   ├── pages/            # Home / Search / Detail / Player / Downloads / Favorites / Progress / Settings
-│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout / BottomNav / CategoryBar
+│   │   ├── components/       # VideoCard / EpisodeList / SourcePicker / VideoPlayer / CategorySettings / Layout / BottomNav / CategoryBar / AddSiteDialog / BatchSniffDialog / SiteHealthDrawer
 │   │   ├── utils/            # cache（IndexedDB）/ toast
 │   │   └── types.ts          # TypeScript 类型
 │   └── vite.config.ts
@@ -331,6 +332,7 @@ Home Theater/
 ├── start.ps1                 # Windows 一键启动
 ├── stop.ps1                  # Windows 一键停止
 ├── docs/
+│   ├── crawler-flow.html     # 刮削/数据完整性/站点健康业务流程图
 │   ├── lessons-learned.md    # 排错/踩坑记录
 │   └── superpowers/          # 设计规格与实施计划
 └── CLAUDE.md                 # 项目硬规范（资源站参数、播放地址解析、分类映射）
@@ -354,6 +356,9 @@ Home Theater/
 | 分类禁用过滤 | `backend/app/api/videos.py` `_video_has_enabled_source` |
 | 主题系统（深黑影院，CSS 变量） | `frontend/src/styles/global.css` + `frontend/src/App.tsx` |
 | 刮削逻辑（全量/增量/状态持久化） | `backend/app/services/crawler.py` + `scheduler.py` |
+| 站点删除与级联清理 | `backend/app/services/site_deleter.py` |
+| 批量补 videolist / 每日定时补全 | `backend/app/services/crawler.py` `fill_missing_videolist` |
+| 站点健康探测与自动禁用/恢复 | `backend/app/services/scheduler.py` `_probe_loop` / `_on_probe_*` |
 | SSE 实时推送 | `backend/app/api/sse.py` + `listen_manager.py` |
 | 项目常量（禁止魔法数字） | `backend/app/constants.py` |
 

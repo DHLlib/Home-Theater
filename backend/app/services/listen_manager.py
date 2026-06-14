@@ -58,7 +58,7 @@ class ListenConnectionManager:
                 conn = await asyncpg.connect(dsn=self.dsn)
                 queue: asyncio.Queue = asyncio.Queue()
 
-                def _callback(connection, pid: int, channel: str, payload: str) -> None:
+                def _callback(_connection, pid: int, channel: str, payload: str) -> None:
                     try:
                         queue.put_nowait((pid, channel, payload))
                     except asyncio.QueueFull:
@@ -93,7 +93,7 @@ class ListenConnectionManager:
                     except Exception:
                         pass
 
-    def _on_notification(self, connection, pid: int, channel: str, payload: str) -> None:
+    def _on_notification(self, _connection, pid: int, channel: str, payload: str) -> None:
         """asyncpg 回调：收到 NOTIFY 后分发给所有 handler。"""
         try:
             data = json.loads(payload)
