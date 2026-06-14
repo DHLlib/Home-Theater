@@ -837,6 +837,8 @@ textarea:focus {
   border-radius: 4px;
   overflow: hidden;
   position: relative;
+  z-index: 1;
+  transform: translateZ(0);
   box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
 }
 
@@ -974,6 +976,8 @@ textarea:focus {
   .player-video-wrap {
     min-height: 200px;
     border-radius: 4px;
+    z-index: 1;
+    transform: translateZ(0);
   }
 }
 

@@ -27,7 +27,7 @@ export default function Player() {
   const [currentIndex, setCurrentIndex] = useState(initialEp);
   const [progressRestored, setProgressRestored] = useState(false);
   const isMobile = useIsMobile();
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sources, setSources] = useState<PlaySource[]>([]);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -43,10 +43,10 @@ export default function Player() {
   const sidebarOpenRef = useRef(sidebarOpen);
   sidebarOpenRef.current = sidebarOpen;
 
-  // 窗口从移动端变桌面端时自动展开 sidebar
+  // 进入移动端时自动收起选集，避免全屏方向变化导致选集被重新打开后遮挡视频
   useEffect(() => {
-    if (!isMobile && !sidebarOpenRef.current) {
-      setSidebarOpen(true);
+    if (isMobile && sidebarOpenRef.current) {
+      setSidebarOpen(false);
     }
   }, [isMobile]);
 
