@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
+from app.config import settings
 from app.db import async_session_factory, engine, init_db
 from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
@@ -94,11 +95,54 @@ async def _init_default_categories():
         await db.commit()
 
 
+async def _fix_postgres_sequences() -> None:
+    """修复 PostgreSQL 自增序列与表数据不同步的问题（常见于手动导入/迁移数据后）。"""
+    if "postgresql" not in settings.database_url.lower():
+        return
+
+    from sqlalchemy import text
+    from app.models import Base
+    from app.db import engine
+
+    logger = logging.getLogger(__name__)
+    fixed: list[str] = []
+    async with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if "id" not in table.columns:
+                continue
+            try:
+                seq_row = await conn.execute(
+                    text(
+                        "SELECT pg_get_serial_sequence(:table_name, 'id') AS seq_name"
+                    ),
+                    {"table_name": table.name},
+                )
+                seq_name = seq_row.scalar()
+                if not seq_name:
+                    continue
+                max_row = await conn.execute(
+                    text(f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table.name}")
+                )
+                next_val = max_row.scalar()
+                await conn.execute(
+                    text(f"SELECT setval(:seq_name, :next_val, false)"),
+                    {"seq_name": seq_name, "next_val": next_val},
+                )
+                fixed.append(f"{table.name}({seq_name}={next_val})")
+            except Exception as exc:
+                logger.warning(f"同步 {table.name} 序列失败: {exc}")
+    if fixed:
+        logger.info("PostgreSQL 自增序列已同步: " + ", ".join(fixed))
+    else:
+        logger.info("PostgreSQL 自增序列无需同步")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     await check_db_connection()
     await init_db()
+    await _fix_postgres_sequences()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)
         await migrate_video_cache_norm_title(db)

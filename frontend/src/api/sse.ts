@@ -4,6 +4,7 @@ interface EventRegistry {
   download_progress: EventCallback[];
   download_status: EventCallback[];
   site_health: EventCallback[];
+  site_delete_progress: EventCallback[];
 }
 
 class SseClient {
@@ -12,6 +13,7 @@ class SseClient {
     download_progress: [],
     download_status: [],
     site_health: [],
+    site_delete_progress: [],
   };
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private url: string;
@@ -90,7 +92,7 @@ export function disconnectSse() {
 }
 
 export function onSseEvent<T = unknown>(
-  type: "download_progress" | "download_status" | "site_health",
+  type: "download_progress" | "download_status" | "site_health" | "site_delete_progress",
   cb: (data: T) => void
 ) {
   return sseClient.on(type, cb);

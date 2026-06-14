@@ -4,19 +4,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
+from app.constants import (
+    CRAWLER_FILL_VIDEOLIST_HOUR,
+    CRAWLER_FILL_VIDEOLIST_MINUTE,
+)
 from app.db import async_session_factory
-from app.models import _utcnow
-from app.models import Site
+from app.models import Site, SiteProbeLog, _utcnow
 from app.services.crawler import Crawler
-from app.services.health import probe
+from app.services.health import ProbeResult, probe
 from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
 PROBE_INTERVAL = 600  # 每 10 分钟探测一次
+PROBE_LOG_RETENTION_DAYS = 1  # 探测日志保留 1 天
 FAIL_THRESHOLD = 3  # 连续失败 3 次自动禁用
 RECOVER_THRESHOLD = 2  # 连续成功 2 次自动恢复
 
@@ -59,9 +63,10 @@ async def _master_loop() -> None:
     probe_task = asyncio.create_task(_probe_loop())
     check_task = asyncio.create_task(_check_update_loop())
     worker_task = asyncio.create_task(_crawl_worker_loop())
+    fill_task = asyncio.create_task(_fill_videolist_loop())
 
     try:
-        await asyncio.gather(probe_task, check_task, worker_task)
+        await asyncio.gather(probe_task, check_task, worker_task, fill_task)
     finally:
         if crawler:
             await crawler.stop()
@@ -82,7 +87,7 @@ async def _probe_loop() -> None:
 
 
 async def _probe_all_sites() -> None:
-    """遍历所有站点执行探测并处理自动禁用/恢复。"""
+    """遍历所有站点执行探测并处理自动禁用/恢复，同时写入探测日志。"""
     async with async_session_factory() as session:
         result = await session.execute(select(Site).order_by(Site.sort))
         sites = result.scalars().all()
@@ -92,10 +97,32 @@ async def _probe_all_sites() -> None:
             pr = await probe(site.id, site.base_url, site.name)
         except Exception as exc:
             logger.warning("探测异常 site=%s error=%s", site.name, exc)
-            pr = None
+            pr = ProbeResult(ok=False, latency_ms=None, error=f"探测异常：{exc!s}")
         return site, pr
 
     results = await asyncio.gather(*[_probe_one(s) for s in sites])
+
+    # 持久化探测日志
+    async with async_session_factory() as session:
+        for site, pr in results:
+            session.add(
+                SiteProbeLog(
+                    site_id=site.id,
+                    ok=pr.ok,
+                    error=pr.error,
+                    response_time_ms=pr.latency_ms,
+                )
+            )
+        await session.commit()
+
+        # 清理过期探测日志，避免无限增长
+        cutoff = _utcnow() - timedelta(days=PROBE_LOG_RETENTION_DAYS)
+        del_result = await session.execute(
+            delete(SiteProbeLog).where(SiteProbeLog.created_at < cutoff)
+        )
+        if del_result.rowcount:
+            await session.commit()
+            logger.info("清理 %d 条过期探测日志（%d 天前）", del_result.rowcount, PROBE_LOG_RETENTION_DAYS)
 
     for site, pr in results:
         if pr and pr.ok:
@@ -284,3 +311,41 @@ async def _crawl_worker_loop() -> None:
             logger.exception("刮削 worker 处理站点 %s 异常", site_id)
         finally:
             _crawl_queue.task_done()
+
+
+async def _fill_videolist_loop() -> None:
+    """每日定时全量补 videolist。
+
+    默认每天 04:00（本地时间）执行一次，对全部已启用站点补全缺失的 videolist。
+    如果当前已有手动/其他 fill 任务在运行，则跳过本次定时触发。
+    """
+
+    def _seconds_until_next_run() -> float:
+        now = datetime.now()
+        target = now.replace(
+            hour=CRAWLER_FILL_VIDEOLIST_HOUR,
+            minute=CRAWLER_FILL_VIDEOLIST_MINUTE,
+            second=0,
+            microsecond=0,
+        )
+        if target <= now:
+            target += timedelta(days=1)
+        return (target - now).total_seconds()
+
+    # 首次启动后先等一轮，避免启动风暴
+    await asyncio.sleep(60)
+
+    while True:
+        sleep_seconds = _seconds_until_next_run()
+        logger.info(
+            "下次自动补 videolist 时间: %s 后",
+            timedelta(seconds=int(sleep_seconds)),
+        )
+        await asyncio.sleep(sleep_seconds)
+
+        try:
+            if crawler:
+                logger.info("定时任务：开始自动全量补 videolist")
+                await crawler.fill_missing_videolist()
+        except Exception:
+            logger.exception("定时补 videolist 任务异常")
