@@ -1,11 +1,11 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import Site, SystemCategory
+from app.models import Site, SystemCategory, SiteProbeLog, _utcnow
 import asyncio
 
 import app.services.scheduler as scheduler_module
@@ -17,7 +17,7 @@ from app.schemas import (
     SiteCreate, SitePatch, BatchProbeItem, BatchProbeResult, BatchProbeResponse,
     SmartMatchResponse,
     TemplateApplyResponse, TemplatePreviewResponse,
-    SiteProbeResult, ProbeSitesBatchRequest,
+    SiteProbeResult, ProbeSitesBatchRequest, SiteHealthOut, SiteProbeLogEntry,
 )
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
@@ -114,13 +114,16 @@ async def update_site(site_id: int, patch: SitePatch, db: AsyncSession = Depends
 
 @router.delete("/{site_id}")
 async def delete_site(site_id: int, db: AsyncSession = Depends(get_db)):
+    from app.services.site_deleter import delete_site_background
+
     db_site = await db.get(Site, site_id)
     if not db_site:
         raise HTTPException(status_code=404, detail="Site not found")
-    await db.delete(db_site)
-    await db.commit()
-    logger.info("site_deleted site_id=%d name=%s", site_id, db_site.name)
-    return {"ok": True}
+
+    # 标记为删除中并立即返回，实际删除在后台执行
+    asyncio.create_task(delete_site_background(site_id, db_site.name))
+    logger.info("site_delete_scheduled site_id=%d name=%s", site_id, db_site.name)
+    return {"ok": True, "site_id": site_id, "status": "running"}
 
 
 @router.post("/{site_id}/probe")
@@ -135,6 +138,62 @@ async def probe_site(site_id: int, db: AsyncSession = Depends(get_db)):
     )
     logger.info("site_probe site_id=%d name=%s ok=%s", db_site.id, db_site.name, result.ok)
     return result
+
+
+@router.get("/{site_id}/health", response_model=SiteHealthOut)
+async def get_site_health(site_id: int, db: AsyncSession = Depends(get_db)):
+    """获取站点健康视图：最近探测日志与 24 小时可用率。"""
+    db_site = await db.get(Site, site_id)
+    if not db_site:
+        raise HTTPException(status_code=404, detail="Site not found")
+
+    # 最近 50 条探测日志
+    logs_result = await db.execute(
+        select(SiteProbeLog)
+        .where(SiteProbeLog.site_id == site_id)
+        .order_by(desc(SiteProbeLog.created_at))
+        .limit(50)
+    )
+    logs = logs_result.scalars().all()
+
+    # 24 小时内可用率
+    since_24h = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    agg_result = await db.execute(
+        select(
+            func.count(SiteProbeLog.id).label("total"),
+            func.coalesce(
+                func.sum(cast(SiteProbeLog.ok, Integer)), 0
+            ).label("ok_count"),
+        )
+        .where(
+            SiteProbeLog.site_id == site_id,
+            SiteProbeLog.created_at >= since_24h,
+        )
+    )
+    row = agg_result.one_or_none()
+    availability = 0.0
+    if row and row.total and row.total > 0:
+        availability = round(row.ok_count / row.total * 100, 1)
+
+    def _to_entry(log: SiteProbeLog) -> SiteProbeLogEntry:
+        return SiteProbeLogEntry(
+            id=log.id,
+            site_id=log.site_id,
+            ok=log.ok,
+            error=log.error,
+            latency_ms=log.response_time_ms,
+            created_at=log.created_at.isoformat() if log.created_at else None,
+        )
+
+    return SiteHealthOut(
+        site_id=db_site.id,
+        site_name=db_site.name,
+        enabled=db_site.enabled,
+        auto_disabled_at=db_site.auto_disabled_at.isoformat() if db_site.auto_disabled_at else None,
+        latest_probe=_to_entry(logs[0]) if logs else None,
+        recent_logs=[_to_entry(log) for log in logs],
+        availability_24h=availability,
+    )
 
 
 @router.get("/{site_id}/categories")

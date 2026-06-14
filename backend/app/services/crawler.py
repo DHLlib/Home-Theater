@@ -13,6 +13,7 @@ import json
 import logging
 import time
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone, date
 
 from app.models import _utcnow
@@ -41,6 +42,13 @@ from app.services.source_client import SourceClient
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class BatchVideolistResult:
+    """批量 videolist 结果。"""
+    affected: set[str]
+    filled: int
+
+
 class Crawler:
     """资源站定时刮削器。
 
@@ -61,6 +69,7 @@ class Crawler:
         self._logs: deque[dict] = deque(maxlen=50)
         self._pending_norm_titles: set[str] = set()
         self._refresh_lock = asyncio.Lock()
+        self._fill_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -153,6 +162,102 @@ class Crawler:
             logger.warning("增量更新站点 %s 失败: %s", site_id, exc)
         finally:
             self._site_status[site_id] = "idle"
+
+    async def fill_missing_videolist(self, site_id: int | None = None) -> dict:
+        """按站点分组批量补全缺失的 videolist 详情。
+
+        只处理已启用站点；可按 site_id 指定单个站点。
+        站点间最多 2 个并发，每个站点内按 200 条/批次请求 videolist。
+        """
+        if self._fill_lock.locked():
+            logger.info("fill_missing_videolist 已有任务在运行，跳过 site_id=%s", site_id)
+            return {"site_id": site_id, "results": [], "skipped": True}
+
+        async with self._fill_lock:
+            logger.info("fill_missing_videolist started site_id=%s", site_id)
+
+            async with self._db_factory() as db:
+                if site_id is not None:
+                    site = await db.get(Site, site_id)
+                    sites = [site] if site and site.enabled else []
+                else:
+                    sites = await self._get_enabled_sites(db)
+
+            if not sites:
+                logger.info("fill_missing_videolist 无可用站点")
+                return {"site_id": site_id, "results": []}
+
+            affected_all: set[str] = set()
+            semaphore = asyncio.Semaphore(2)
+
+            async def _fill_one(site: Site) -> dict:
+                async with semaphore:
+                    entries: list[dict] = []
+                    async with self._db_factory() as db:
+                        result = await db.execute(
+                            select(
+                                VideoCache.original_id,
+                                VideoCache.type_id,
+                                VideoCache.type_name,
+                            ).where(
+                                VideoCache.site_id == site.id,
+                                VideoCache.has_detail.is_(False),
+                            )
+                        )
+                        entries = [
+                            {
+                                "original_id": str(r.original_id),
+                                "type_id": r.type_id,
+                                "type_name": r.type_name,
+                            }
+                            for r in result.all()
+                        ]
+
+                    missing = len(entries)
+                    if missing == 0:
+                        return {
+                            "site_id": site.id,
+                            "site_name": site.name,
+                            "missing": 0,
+                            "filled": 0,
+                            "failed": 0,
+                        }
+
+                    filled = 0
+                    client = SourceClient(
+                        site_id=site.id, base_url=site.base_url, name=site.name
+                    )
+                    try:
+                        for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
+                            chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
+                            res = await self._batch_videolist(
+                                site, client, chunk, op="fill_videolist"
+                            )
+                            filled += res.filled
+                            affected_all.update(res.affected)
+                    finally:
+                        await client.aclose()
+
+                    return {
+                        "site_id": site.id,
+                        "site_name": site.name,
+                        "missing": missing,
+                        "filled": filled,
+                        "failed": max(0, missing - filled),
+                    }
+
+            results = await asyncio.gather(*[_fill_one(s) for s in sites])
+
+            if affected_all:
+                async with self._db_factory() as db:
+                    await refresh_aggregated_view(db, affected_norm_titles=affected_all)
+
+            await self._update_stats_cache(force=True)
+            logger.info(
+                "fill_missing_videolist completed sites=%d affected=%d",
+                len(results), len(affected_all)
+            )
+            return {"site_id": site_id, "results": list(results)}
 
     async def check_one_site(self, site: Site) -> bool:
         """检测单个站点是否有更新。返回 True 表示需要刮削。"""
@@ -316,8 +421,8 @@ class Crawler:
                 )
 
             site_state["status"] = "idle"
-            site_state["last_full_crawl"] = datetime.now(timezone.utc).isoformat()
-            site_state["last_incremental"] = datetime.now(timezone.utc).isoformat()
+            site_state["last_full_crawl"] = _utcnow().isoformat()
+            site_state["last_incremental"] = _utcnow().isoformat()
             # 全局 last_vod_time 取各分类最大值
             all_times = [
                 cs.get("last_vod_time")
@@ -467,7 +572,7 @@ class Crawler:
                     await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
                 )
 
-            site_state["last_incremental"] = datetime.now(timezone.utc).isoformat()
+            site_state["last_incremental"] = _utcnow().isoformat()
             all_times = [
                 cs.get("last_vod_time")
                 for cs in cat_states.values()
@@ -522,36 +627,43 @@ class Crawler:
 
     async def _batch_videolist(
         self, site: Site, client: SourceClient, entries: list[dict], op: str = "unknown"
-    ) -> set[str]:
+    ) -> BatchVideolistResult:
         """批量 videolist 补充 detail 字段。"""
         affected: set[str] = set()
+        filled = 0
         for i in range(0, len(entries), self.BATCH_SIZE):
             batch = entries[i : i + self.BATCH_SIZE]
-            ids = [e["original_id"] for e in batch]
+            detail_entries: list[dict] = []
 
-            try:
-                details = await client.videolist(ids=ids, op=op)
-                detail_map = {str(d.get("original_id", "")): d for d in details}
+            # 每个 videolist 请求最多 20 个 ID，避免站点截断
+            for j in range(0, len(batch), CRAWLER_VIDEOLIST_BATCH_SIZE):
+                sub_batch = batch[j : j + CRAWLER_VIDEOLIST_BATCH_SIZE]
+                ids = [e["original_id"] for e in sub_batch]
 
-                detail_entries = []
-                for entry in batch:
-                    d = detail_map.get(entry["original_id"])
-                    if not d:
-                        continue
-                    detail_entry = self._build_detail_entry(site.id, d)
-                    # 保留 list 阶段的分类信息（videolist 接口不返回 type_id）
-                    detail_entry["type_id"] = entry.get("type_id")
-                    detail_entry["type_name"] = entry.get("type_name")
-                    detail_entries.append(detail_entry)
+                try:
+                    details = await client.videolist(ids=ids, op=op)
+                    detail_map = {str(d.get("original_id", "")): d for d in details}
 
-                if detail_entries:
-                    async with self._db_factory() as db:
-                        batch_affected = await self._batch_upsert_detail_fields(db, detail_entries)
-                        affected.update(batch_affected)
+                    for entry in sub_batch:
+                        d = detail_map.get(entry["original_id"])
+                        if not d:
+                            continue
+                        detail_entry = self._build_detail_entry(site.id, d)
+                        # 保留 list 阶段的分类信息（videolist 接口不返回 type_id）
+                        detail_entry["type_id"] = entry.get("type_id")
+                        detail_entry["type_name"] = entry.get("type_name")
+                        detail_entries.append(detail_entry)
 
-            except Exception as exc:
-                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
-        return affected
+                except Exception as exc:
+                    logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+
+            if detail_entries:
+                async with self._db_factory() as db:
+                    batch_affected = await self._batch_upsert_detail_fields(db, detail_entries)
+                    affected.update(batch_affected)
+                filled += len(detail_entries)
+
+        return BatchVideolistResult(affected=affected, filled=filled)
 
     async def _get_cached_item(
         self, db: AsyncSession, site_id: int, original_id: str
@@ -840,7 +952,7 @@ class Crawler:
                         break
 
         self._logs.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": _utcnow().isoformat(),
             "site_id": site.id,
             "site_name": site.name,
             "category": type_name,
@@ -852,13 +964,16 @@ class Crawler:
             "duration_ms": duration_ms,
         })
 
-        # 仅保留当天日志
+        # 仅保留当天日志（timestamp 为 naive UTC，按本地时区展示）
         today = date.today()
         self._logs = deque(
             [
                 log
                 for log in self._logs
-                if datetime.fromisoformat(log["timestamp"]).astimezone().date() == today
+                if (
+                    (ts := datetime.fromisoformat(log["timestamp"])).replace(tzinfo=timezone.utc)
+                    .astimezone().date() == today
+                )
             ],
             maxlen=50,
         )
@@ -877,11 +992,11 @@ class Crawler:
                 return json.loads(row.value)
             return {}
 
-    async def _update_stats_cache(self):
+    async def _update_stats_cache(self, force: bool = False):
         """将统计结果预计算并写入 AppConfig，供看板 O(1) 读取。
 
         控制策略：
-        - 每 15 分钟最多计算一次，避免频繁查询
+        - 默认每 15 分钟最多计算一次，避免频繁查询
         - 每次计算时追加一个历史快照到 crawler_stats_history
         """
         from sqlalchemy import func, case
@@ -889,20 +1004,23 @@ class Crawler:
         async with self._db_factory() as db:
             # --- 15 分钟间隔控制 ---
             MIN_INTERVAL_SECONDS = 15 * 60
-            cache_result = await db.execute(
-                select(AppConfig).where(AppConfig.key == self.STATS_KEY)
-            )
-            cache_row = cache_result.scalar_one_or_none()
-            if cache_row:
-                try:
-                    old = json.loads(cache_row.value)
-                    computed_at = old.get("computed_at")
-                    if computed_at:
-                        last = datetime.fromisoformat(computed_at)
-                        if (_utcnow() - last).total_seconds() < MIN_INTERVAL_SECONDS:
-                            return  # 不到 15 分钟，跳过
-                except (json.JSONDecodeError, ValueError):
-                    pass
+            if not force:
+                cache_result = await db.execute(
+                    select(AppConfig).where(AppConfig.key == self.STATS_KEY)
+                )
+                cache_row = cache_result.scalar_one_or_none()
+                if cache_row:
+                    try:
+                        old = json.loads(cache_row.value)
+                        computed_at = old.get("computed_at")
+                        if computed_at:
+                            last = datetime.fromisoformat(computed_at)
+                            if last.tzinfo is not None:
+                                last = last.replace(tzinfo=None)
+                            if (_utcnow() - last).total_seconds() < MIN_INTERVAL_SECONDS:
+                                return  # 不到 15 分钟，跳过
+                    except (json.JSONDecodeError, ValueError):
+                        pass
 
             # 站点分组统计
             site_result = await db.execute(
@@ -965,7 +1083,7 @@ class Crawler:
                 "without_detail": without_detail,
                 "aggregated_count": aggregated_count,
                 "last_updated_at": global_row.last_updated,
-                "computed_at": datetime.now(timezone.utc).isoformat(),
+                "computed_at": _utcnow().isoformat(),
             }
 
             # --- 保存当前 stats ---
@@ -1000,7 +1118,7 @@ class Crawler:
         MAX_HISTORY_DAYS = 30
         MAX_POINTS = MAX_HISTORY_DAYS * 24 * 4  # 30天 * 每天96个点
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = _utcnow().isoformat()
         new_point = {"ts": now_iso, "total": total, "with_detail": with_detail}
 
         # 读取现有历史
@@ -1060,6 +1178,8 @@ class Crawler:
                 if row and row.value:
                     try:
                         last = datetime.fromisoformat(row.value)
+                        if last.tzinfo is not None:
+                            last = last.replace(tzinfo=None)
                         if (_utcnow() - last).total_seconds() < MIN_REFRESH_INTERVAL:
                             return
                     except ValueError:
@@ -1067,8 +1187,11 @@ class Crawler:
 
                 to_refresh = self._pending_norm_titles
                 self._pending_norm_titles = set()
+                if not to_refresh:
+                    return
+
                 ok = await refresh_aggregated_view(
-                    db, affected_norm_titles=to_refresh if to_refresh else None
+                    db, affected_norm_titles=to_refresh
                 )
                 if ok:
                     now = _utcnow()

@@ -40,6 +40,10 @@ CRAWLER_PAGE_CONCURRENCY = 5
 CRAWLER_VIDEOLIST_BATCH_SIZE = 20
 CRAWLER_SITE_CONCURRENCY = 6
 
+# 每日自动全量补 videolist 的时间（本地时间）
+CRAWLER_FILL_VIDEOLIST_HOUR = 4
+CRAWLER_FILL_VIDEOLIST_MINUTE = 0
+
 # ------------------------------------------------------------------
 # 日志
 # ------------------------------------------------------------------
