@@ -277,6 +277,19 @@ pytest test/test_videos.py::test_list_videos
 .\stop.ps1
 ```
 
+### Docker 部署
+
+```bash
+# 一键启动（含 PostgreSQL + 应用）
+docker compose up --build -d
+
+# 查看日志
+docker compose logs -f app
+
+# 停止
+docker compose down
+```
+
 ## 数据模型变更（v1.1）
 
 ### VideoCache 表扩展字段
@@ -309,6 +322,9 @@ pytest test/test_videos.py::test_list_videos
 - **播放器后缀检测**：VideoPlayer 使用 `suffix.toLowerCase().endsWith("m3u8") || suffix.toLowerCase().endsWith("yun")` 检测 M3U8 流。新增站点后缀如 `155m3u8`、`xlyun`、`dytt` 都通过此规则覆盖，不需要逐个硬编码。
 - **预聚合缓存（SQLite）**：`_refresh_aggregated_cache` 读取阶段使用只读事务，聚合到内存后关闭；写入阶段开启新事务执行清空+插入+版本切换。不要在同一个事务中既读全表又写目标表。
 - **预聚合缓存（PostgreSQL）**：`refresh_aggregated_view()` 使用 `REFRESH MATERIALIZED VIEW CONCURRENTLY`（需唯一索引）；fallback 到普通 `REFRESH MATERIALIZED VIEW`。不要在同一个事务中既读 video_cache 全表又写 mv_aggregated_videos。
+- **分享页解析缓存**：`app/services/resolver.py` 的 `resolve_share_page` 已带 1 小时 TTL 内存缓存，避免同一分享页 URL 重复解析。解析失败时短暂缓存 30 秒防止高频重试。
+- **移动端播放器层级**：xgplayer 的 `cssFullscreen` 已禁用，避免退出全屏后残留 fixed 定位；`.player-video-wrap` 使用 `z-index: 1` + `transform: translateZ(0)` 创建层叠上下文，将 xgplayer 内部高 z-index 元素锁在播放器层内，确保选集抽屉能覆盖其上。
+- **工作目录与 worktree**：仓库使用多个 git worktree（`Home Theater` = master，`Home Theater v2` = home-theater-v2-postgresql-version）。修改文件时务必确认当前工作目录，避免改动落在非预期的 worktree。
 
 ## 排错优先顺序
 
