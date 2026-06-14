@@ -16,7 +16,7 @@ _SHARE_URL_PATTERNS = [
     re.compile(r'var\s+url\s*=\s*"([^"]+)"'),
     re.compile(r'let\s+url\s*=\s*"([^"]+)"'),
     re.compile(r'"url"\s*:\s*"([^"]+)"'),
-    re.compile(r'url\s*:\s*["\'']([^"\'']+)["\'']'),
+    re.compile(r'url\s*:\s*["\']([^"\']+)["\']'),
 ]
 
 # 内存缓存：share_url -> (resolved_url, expire_at)
