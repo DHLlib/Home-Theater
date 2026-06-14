@@ -740,7 +740,30 @@ m3u8 下载完成后，后端会尝试把 `.ts` 片段合并为 MP4。优先使�
 - 无 ffmpeg：仅对编码参数完全一致的 TS 片段有效；若片段间编码不同，拼出的 MP4 可能无法播放
 
 **结论**：
-ffmpeg 是**可选依赖**，不安装也能跑，但建议安装以获得最佳 m3u8 下载体验。
+## 29. 删除站点后聚合中间表又被全量重建
+
+**症状**：
+站点删除日志已经显示 `site_delete_completed`，但几秒后 `aggregator.py` 又打印 `开始重建聚合中间表...`，执行了一次全量重建。
+
+**原因**：
+1. `site_deleter.py` 直接调用 `refresh_aggregated_view(...affected_norm_titles=...)` 做增量刷新，但它没有更新 `AppConfig` 里的 `aggregated_cache_computed_at` 时间戳。
+2. 刮削器 `crawler._refresh_aggregated_cache()` 是周期性触发的聚合刷新入口，内部有 60 秒防抖。它会检查 `aggregated_cache_computed_at`：如果时间戳比较旧，且当前 `_pending_norm_titles` 为空，就会调用 `refresh_aggregated_view(affected_norm_titles=None)`，这等同于**全量重建**。
+3. 站点删除后，第 2 步刚好满足条件，于是 crawler 又把已经刷新好的聚合表全量重建了一遍。
+
+**解决**：
+`crawler._refresh_aggregated_cache()` 在消费 pending 集合后，如果没有任何待刷新的 `norm_title`，直接返回，不再触发全量重建。全量重建只保留给显式调用（如 `main.py` 启动时表为空、或手动清理缓存后）。
+
+```python
+to_refresh = self._pending_norm_titles
+self._pending_norm_titles = set()
+if not to_refresh:
+    return
+
+ok = await refresh_aggregated_view(db, affected_norm_titles=to_refresh)
+```
+
+**教训**：
+增量刷新入口不要把 "无增量" 默认降级为全量重建，否则任何一次空 pending 都会触发昂贵重建。全量重建必须是显式决策。
 
 ---
 
@@ -774,3 +797,4 @@ ffmpeg 是**可选依赖**，不安装也能跑，但建议安装以获得最佳
 | 首页、无响应、骨架屏 | #26 导航冻结（IndexedDB） |
 | 不支持播放、格式、dytt | #27 新站点播放格式兼容 |
 | ffmpeg、m3u8、合并 | #28 ffmpeg 是可选依赖 |
+| 删除站点、重建、聚合 | #29 删除站点后聚合中间表又被全量重建 |

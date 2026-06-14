@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, desc, func, or_, select, text
@@ -31,6 +31,8 @@ from app.schemas import (
     DetailRequest,
     DetailResponse,
     FailedSource,
+    FillVideolistRequest,
+    FillVideolistResponse,
     SiteStat,
     SourceRef,
 )
@@ -752,7 +754,7 @@ async def video_detail(
 
     # 缓存过期时间：7 天
     CACHE_TTL_DAYS = 7
-    expire_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=CACHE_TTL_DAYS)
+    expire_threshold = _utcnow() - timedelta(days=CACHE_TTL_DAYS)
 
     async def fetch_one(source_ref):
         site = sites.get(source_ref.site_id)
@@ -963,6 +965,27 @@ async def trigger_incremental(site_id: int):
     return {"message": f"站点 {site_id} 增量更新已启动"}
 
 
+@router.post("/crawler/fill-videolist")
+async def fill_videolist(
+    req: FillVideolistRequest,
+) -> FillVideolistResponse:
+    """按站点分组批量补全缺失的 videolist 详情。
+
+    后台运行，立即返回任务已启动。补全完成后会自动刷新聚合缓存与看板统计。
+    """
+    if scheduler_module.crawler is None:
+        raise HTTPException(status_code=503, detail="刮削器未启动")
+
+    site_id = req.site_id
+    asyncio.create_task(scheduler_module.crawler.fill_missing_videolist(site_id))
+    message = (
+        f"站点 {site_id} 补全任务已启动"
+        if site_id is not None
+        else "全站 videolist 补全任务已启动"
+    )
+    return FillVideolistResponse(message=message, site_id=site_id)
+
+
 async def _get_aggregated_count(db: AsyncSession) -> int:
     """获取聚合后视频数。优先查 aggregated_videos 表，不存在则回退到 mv_aggregated_videos 物化视图。"""
     try:
@@ -1126,7 +1149,7 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
         aggregated_count=aggregated_count,
         last_updated_at=global_row.last_updated,
         history=history,
-        computed_at=datetime.now(timezone.utc).isoformat(),
+        computed_at=_utcnow().isoformat(),
     )
 
 

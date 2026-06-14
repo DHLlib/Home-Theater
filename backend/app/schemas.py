@@ -167,6 +167,25 @@ class SiteProbeResult(BaseModel):
     error: str | None = None
 
 
+class SiteProbeLogEntry(BaseModel):
+    id: int
+    site_id: int
+    ok: bool
+    error: str | None = None
+    latency_ms: int | None = None
+    created_at: str | None = None
+
+
+class SiteHealthOut(BaseModel):
+    site_id: int
+    site_name: str
+    enabled: bool
+    auto_disabled_at: str | None = None
+    latest_probe: SiteProbeLogEntry | None = None
+    recent_logs: list[SiteProbeLogEntry] = Field(default_factory=list)
+    availability_24h: float = 0.0
+
+
 class ProbeSitesBatchRequest(BaseModel):
     site_ids: list[int] | None = None
 
@@ -266,6 +285,24 @@ class CrawlerStatsResponse(BaseModel):
     last_updated_at: str | None = None
     history: list[HistoryPoint] = Field(default_factory=list)
     computed_at: str | None = None
+
+
+class FillVideolistRequest(BaseModel):
+    site_id: int | None = None
+
+
+class FillVideolistSiteResult(BaseModel):
+    site_id: int
+    site_name: str
+    missing: int
+    filled: int
+    failed: int
+
+
+class FillVideolistResponse(BaseModel):
+    message: str
+    site_id: int | None = None
+    results: list[FillVideolistSiteResult] = Field(default_factory=list)
 
 
 # ===== AC-026: 智能分类映射 Schema =====

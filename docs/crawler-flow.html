@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>刮削功能全业务流程图</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #000000;
+      --text: #e5e5e5;
+      --green: #4ade80;
+      --red: #f87171;
+      --gray: #525252;
+    }
+    body {
+      margin: 0;
+      padding: 40px 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans SC", system-ui, sans-serif;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: var(--gray);
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    .legend {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 32px;
+      font-size: 14px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+    .dot.green { background: var(--green); }
+    .dot.red { background: var(--red); }
+    .section {
+      margin-bottom: 48px;
+    }
+    .section h2 {
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .mermaid {
+      background: #0a0a0a;
+      border: 1px solid #262626;
+      border-radius: 8px;
+      padding: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>刮削功能全业务流程图</h1>
+  <div class="subtitle">绿色 = 当前已实现；红色 = 当前未实现</div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <div class="dot green"></div>
+      <span>已实现</span>
+    </div>
+    <div class="legend-item">
+      <div class="dot red"></div>
+      <span>未实现</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>整体架构</h2>
+    <div class="mermaid">
+flowchart TD
+    A[系统启动] --> B[main.py lifespan 初始化]
+    B --> C[init_scheduler 启动调度器]
+    C --> D{VideoCache 为空?}
+    D -->|是| E[后台启动全量刮削]
+    D -->|否| F[跳过全量刮削]
+
+    E --> G[启动三个后台循环]
+    F --> G
+
+    G --> H[站点探测循环<br/>每 10 分钟]
+    G --> I[更新检测循环<br/>每 5 分钟]
+    G --> J[刮削执行循环]
+    G --> K[每日 04:00 补 videolist]
+
+    H --> K2[探测各站点可用性]
+    I --> L[检测各站第一页]
+    L --> M{有更新?}
+    M -->|是| N[加入刮削队列]
+    M -->|否| O[记录状态]
+
+    N --> J
+    J --> P[执行增量刮削]
+    P --> Q[刷新预聚合缓存]
+    Q --> R[保存刮削状态]
+
+    style A fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style B fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style C fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style D fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style E fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style F fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style G fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style H fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style I fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style J fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style K fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style K2 fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style L fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style M fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style N fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style O fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style P fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style Q fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style R fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>全量刮削流程</h2>
+    <div class="mermaid">
+flowchart TD
+    A[启动全量刮削] --> B[遍历所有启用站点]
+    B --> C[遍历站点所有分类]
+    C --> D[并发获取 list 多页]
+    D --> E[解析 list 数据]
+    E --> F[批量 upsert list 字段]
+    F --> G[收集 need_videolist]
+    G --> H{达到批量大小?}
+    H -->|是| I[批量请求 ac=videolist]
+    H -->|否| J[继续收集]
+    I --> K[解析详情字段]
+    K --> L[批量 upsert detail 字段]
+    L --> M{分类结束?}
+    M -->|否| C
+    M -->|是| N{所有站点结束?}
+    N -->|否| B
+    N -->|是| O[刷新预聚合缓存]
+    O --> P[保存刮削状态]
+
+    style A fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style B fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style C fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style D fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style E fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style F fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style G fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style H fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style I fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style J fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style K fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style L fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style M fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style N fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style O fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style P fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>增量刮削流程</h2>
+    <div class="mermaid">
+flowchart TD
+    A[从队列取出 site_id] --> B[加载该站状态]
+    B --> C[遍历所有分类]
+    C --> D[获取第一页 list]
+    D --> E[遇旧即停检查]
+    E --> F{vod_time <= last_vod_time?}
+    F -->|是| G[停止该分类]
+    F -->|否| H[处理该页数据]
+    H --> I{数据库中是否存在?}
+    I -->|不存在| J[新增: upsert list + videolist]
+    I -->|存在但 vod_time 变化| K[更新: upsert list + videolist]
+    I -->|存在且未变化| L[跳过]
+    J --> M[批量写入数据库]
+    K --> M
+    L --> N{还有下一页?}
+    M --> N
+    N -->|是| D
+    N -->|否| O{还有分类?}
+    O -->|是| C
+    O -->|否| P[保存 last_vod_time]
+    P --> Q[刷新预聚合缓存]
+
+    style A fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style B fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style C fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style D fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style E fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style F fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style G fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style H fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style I fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style J fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style K fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style L fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style M fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style N fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style O fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style P fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style Q fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>数据完整性保障（部分实现）</h2>
+    <div class="mermaid">
+flowchart TD
+    A[启动后 / 定时任务] --> B[扫描 has_detail=false 记录]
+    B --> C{存在 missing_detail?}
+    C -->|是| D[按站点分组批量补 videolist<br/>已实现（含每日 04:00 定时任务）]
+    C -->|否| E[结束]
+    D --> F[失败记录加入重试队列<br/>未实现]
+    F --> G{重试次数 < 3?}
+    G -->|是| H[延迟重试<br/>未实现]
+    G -->|否| I[标记永久失败<br/>未实现]
+    H --> D
+    I --> J[告警通知<br/>未实现]
+
+    style A fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style B fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style C fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style D fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style E fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style F fill:#000,stroke:#f87171,stroke-width:2px,color:#fff
+    style G fill:#000,stroke:#f87171,stroke-width:2px,color:#fff
+    style H fill:#000,stroke:#f87171,stroke-width:2px,color:#fff
+    style I fill:#000,stroke:#f87171,stroke-width:2px,color:#fff
+    style J fill:#000,stroke:#f87171,stroke-width:2px,color:#fff
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>站点健康治理（已实现）</h2>
+    <div class="mermaid">
+flowchart LR
+    A[站点探测连续失败 3 次] --> B[自动禁用该站点<br/>已实现]
+    B --> C[通知用户站点异常<br/>已实现：SSE health_events]
+    C --> D[定时尝试恢复<br/>已实现：探测循环自动恢复]
+    D --> E{恢复成功?}
+    E -->|是| F[自动重新启用<br/>已实现]
+    E -->|否| G[继续禁用]
+
+    style A fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style B fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style C fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style D fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style E fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style F fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    style G fill:#000,stroke:#4ade80,stroke-width:2px,color:#fff
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      flowchart: {
+        curve: 'basis',
+        padding: 16,
+        nodeSpacing: 40,
+        rankSpacing: 60,
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getCrawlerStats } from "../api/videos";
+import { fillMissingVideolist, getCrawlerStats } from "../api/videos";
 import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
 
 const CACHE_KEY = "dashboard_stats_cache_v3";
@@ -252,7 +252,17 @@ function HeaderWithTip({ label, tip }: { label: string; tip: string }) {
 }
 
 /* ---------- Site Table ---------- */
-function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
+function SiteTable({
+  data,
+  total,
+  onFill,
+  fillLoadingSiteId,
+}: {
+  data: SiteStat[];
+  total: number;
+  onFill?: (siteId: number) => void;
+  fillLoadingSiteId?: number | null;
+}) {
   return (
     <div style={{ padding: "20px 0" }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, letterSpacing: "0.03em" }}>站点明细</div>
@@ -270,6 +280,7 @@ function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
               <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
                 <HeaderWithTip label="资源占比" tip="已收录 / 总已收录 × 100%" />
               </th>
+              <th style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -277,6 +288,7 @@ function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
               const completionRate = s.count > 0 ? (s.with_detail / s.count) * 100 : 0;
               const share = total > 0 ? (s.count / total) * 100 : 0;
               const color = completionRate >= 80 ? "var(--primary)" : completionRate >= 50 ? "var(--text-secondary)" : "var(--danger)";
+              const isFilling = fillLoadingSiteId === s.site_id;
               return (
                 <tr key={s.site_id} style={{ borderBottom: "1px solid var(--glass-border)" }}>
                   <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontWeight: 500, whiteSpace: "nowrap" }}>{s.site_name}</td>
@@ -287,6 +299,28 @@ function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
                     <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, fontFamily: "monospace", color }}>{fmtPct(completionRate)}</span>
                   </td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{fmtPct(share)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                    {s.without_detail > 0 && onFill && (
+                      <button
+                        type="button"
+                        onClick={() => onFill(s.site_id)}
+                        disabled={isFilling}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "none",
+                          background: isFilling ? "var(--text-muted)" : "var(--primary)",
+                          color: "#000",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: isFilling ? "not-allowed" : "pointer",
+                          opacity: isFilling ? 0.7 : 1,
+                        }}
+                      >
+                        {isFilling ? "补全中..." : "补全"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -301,6 +335,12 @@ function SiteTable({ data, total }: { data: SiteStat[]; total: number }) {
 export default function Dashboard() {
   const [stats, setStats] = useState<CrawlerStatsResponse | null>(() => loadCache());
   const [loading, setLoading] = useState(!loadCache());
+  const [fillLoading, setFillLoading] = useState(false);
+  const [fillLoadingSiteId, setFillLoadingSiteId] = useState<number | null>(null);
+
+  const refreshStats = () => {
+    getCrawlerStats().then(res => { setStats(res); saveCache(res); }).catch(() => {});
+  };
 
   useEffect(() => {
     const cached = loadCache();
@@ -314,6 +354,28 @@ export default function Dashboard() {
     }
   }, []);
 
+  const handleFill = async (siteId?: number) => {
+    if (siteId != null) {
+      setFillLoadingSiteId(siteId);
+    } else {
+      setFillLoading(true);
+    }
+    try {
+      const res = await fillMissingVideolist(siteId);
+      alert(res.message);
+      // 后台任务，稍后刷新看板
+      setTimeout(() => refreshStats(), 3000);
+    } catch (e: any) {
+      alert(`启动失败：${e?.message || String(e)}`);
+    } finally {
+      if (siteId != null) {
+        setFillLoadingSiteId((prev) => (prev === siteId ? null : prev));
+      } else {
+        setFillLoading(false);
+      }
+    }
+  };
+
   const sortedBySite = useMemo(() => {
     if (!stats) return [];
     return [...stats.by_site].sort((a, b) => b.count - a.count);
@@ -322,11 +384,31 @@ export default function Dashboard() {
   return (
     <div style={{ minHeight: "100vh", margin: "-16px", padding: "32px 24px 48px" }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>数据看板</h1>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-          {stats?.computed_at ? `统计于 ${new Date(stats.computed_at).toLocaleString("zh-CN")}` : "加载中..."}
+      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>数据看板</h1>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+            {stats?.computed_at ? `统计于 ${new Date(stats.computed_at).toLocaleString("zh-CN")}` : "加载中..."}
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => handleFill()}
+          disabled={fillLoading}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: fillLoading ? "var(--text-muted)" : "var(--primary)",
+            color: "#000",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: fillLoading ? "not-allowed" : "pointer",
+            opacity: fillLoading ? 0.7 : 1,
+          }}
+        >
+          {fillLoading ? "批量补全中..." : "批量补全 videolist"}
+        </button>
       </div>
 
       {/* KPIs */}
@@ -358,7 +440,7 @@ export default function Dashboard() {
           <div style={{ height: 260, marginTop: 16 }}><SkeletonBar w="100%" h={260} /></div>
         </div>
       ) : stats && sortedBySite.length > 0 ? (
-        <div style={{ marginBottom: 16 }}><SiteTable data={sortedBySite} total={stats.total} /></div>
+        <div style={{ marginBottom: 16 }}><SiteTable data={sortedBySite} total={stats.total} onFill={handleFill} fillLoadingSiteId={fillLoadingSiteId} /></div>
       ) : null}
     </div>
   );

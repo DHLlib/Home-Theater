@@ -199,6 +199,25 @@ export interface SiteCategoriesOut {
   categories: CategoryMapping[];
 }
 
+export interface SiteProbeLogEntry {
+  id: number;
+  site_id: number;
+  ok: boolean;
+  error?: string | null;
+  latency_ms?: number | null;
+  created_at?: string | null;
+}
+
+export interface SiteHealth {
+  site_id: number;
+  site_name: string;
+  enabled: boolean;
+  auto_disabled_at?: string | null;
+  latest_probe?: SiteProbeLogEntry | null;
+  recent_logs: SiteProbeLogEntry[];
+  availability_24h: number;
+}
+
 export interface Site {
   id: number;
   name: string;
@@ -249,6 +268,20 @@ export interface CrawlerStatsResponse {
   last_updated_at: string | null;
   history: HistoryPoint[];
   computed_at: string | null;
+}
+
+export interface FillVideolistSiteResult {
+  site_id: number;
+  site_name: string;
+  missing: number;
+  filled: number;
+  failed: number;
+}
+
+export interface FillVideolistResponse {
+  message: string;
+  site_id: number | null;
+  results: FillVideolistSiteResult[];
 }
 
 export interface BatchProbeItem {

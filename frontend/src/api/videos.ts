@@ -5,6 +5,7 @@ import type {
   CrawlerStatsResponse,
   DetailRequest,
   DetailResponse,
+  FillVideolistResponse,
 } from "../types";
 
 /* ===== AC-023: 移动端检测，自动追加 device 参数 ===== */
@@ -115,3 +116,6 @@ export const getCrawlerStats = () =>
 
 export const triggerFullCrawl = () =>
   post<{ message: string }>("/api/videos/crawler/full");
+
+export const fillMissingVideolist = (siteId?: number) =>
+  post<FillVideolistResponse>("/api/videos/crawler/fill-videolist", { site_id: siteId ?? null });

@@ -23,8 +23,14 @@ from app.models import (
     VideoCache,
     _utcnow,
 )
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _is_postgres(db: AsyncSession) -> bool:
+    """判断当前数据库是否为 PostgreSQL。"""
+    return "postgresql" in settings.database_url.lower()
 
 
 def normalize_title(title: str) -> str:

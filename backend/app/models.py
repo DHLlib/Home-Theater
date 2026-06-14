@@ -48,6 +48,25 @@ class Site(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SiteProbeLog(Base):
+    """站点探测日志：记录每次健康探测的结果。"""
+
+    __tablename__ = "site_probe_logs"
+    __table_args__ = (
+        Index("ix_site_probe_logs_site_id", "site_id"),
+        Index("ix_site_probe_logs_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    ok: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class SiteCategoryMapping(Base):
     __tablename__ = "site_category_mappings"
     __table_args__ = (
@@ -90,7 +109,7 @@ class PlayProgress(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     source_site_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("sites.id"), nullable=False
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
     )
     source_video_id: Mapped[str] = mapped_column(String, nullable=False)
     episode_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -111,7 +130,7 @@ class DownloadTask(Base):
     episode_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     episode_name: Mapped[str] = mapped_column(String, default="", nullable=False)
     source_site_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("sites.id"), nullable=False
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
     )
     source_video_id: Mapped[str] = mapped_column(String, nullable=False)
     url: Mapped[str] = mapped_column(String, nullable=False)
@@ -141,7 +160,7 @@ class VideoCache(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
+    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False)
     original_id: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     norm_title: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -254,7 +273,7 @@ class AggregatedSource(Base):
         Integer, ForeignKey("aggregated_videos.id", ondelete="CASCADE"), nullable=False
     )
     site_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("sites.id"), nullable=False
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
     )
     original_id: Mapped[str] = mapped_column(String, nullable=False)
     site_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

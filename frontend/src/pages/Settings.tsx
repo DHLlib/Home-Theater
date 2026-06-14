@@ -3,9 +3,7 @@ import {
   listSites,
   createSite,
   deleteSite,
-  probeSite,
   updateSite,
-  batchProbe,
   probeSitesBatch,
 } from "../api/sites";
 import {
@@ -15,9 +13,14 @@ import {
   setMaxConcurrentDownloads,
 } from "../api/settings";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
+import { onSseEvent } from "../api/sse";
+import { toastSuccess, toastError } from "../utils/toast";
 import CategorySettings from "../components/category-settings/CategorySettings";
+import SiteHealthDrawer from "../components/SiteHealthDrawer";
+import AddSiteDialog from "../components/AddSiteDialog";
+import BatchSniffDialog from "../components/BatchSniffDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
-import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, BatchProbeResult, SiteProbeResult } from "../types";
+import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, SiteProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
   return (
@@ -207,20 +210,15 @@ export default function Settings() {
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
   const [cleaningUp, setCleaningUp] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<{ deleted: number; checked: number } | null>(null);
+  const [drawerSite, setDrawerSite] = useState<Site | null>(null);
 
   /* ---- inline edit states ---- */
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editUrl, setEditUrl] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
-  const [addName, setAddName] = useState("");
-  const [addUrl, setAddUrl] = useState("");
-
-  /* ---- batch probe states ---- */
-  const [batchJson, setBatchJson] = useState("");
-  const [batchResults, setBatchResults] = useState<BatchProbeResult[] | null>(null);
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [showBatchPanel, setShowBatchPanel] = useState(false);
+  const [deletingSiteIds, setDeletingSiteIds] = useState<Set<number>>(new Set());
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showBatchSniffDialog, setShowBatchSniffDialog] = useState(false);
 
   /* ---- batch detect existing sites state ---- */
   const [batchDetectLoading, setBatchDetectLoading] = useState(false);
@@ -252,6 +250,35 @@ export default function Settings() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    const unsubscribe = onSseEvent<{
+      site_id: number;
+      status: string;
+      progress: number;
+      message: string;
+    }>("site_delete_progress", (data) => {
+      if (!data || typeof data.site_id !== "number") return;
+      if (data.status === "completed") {
+        setDeletingSiteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(data.site_id);
+          return next;
+        });
+        setSites((prev) => prev.filter((s) => s.id !== data.site_id));
+        toastSuccess(data.message || "站点删除完成");
+      } else if (data.status === "failed") {
+        setDeletingSiteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(data.site_id);
+          return next;
+        });
+        toastError(data.message || "站点删除失败");
+        listSites().then(setSites).catch(() => {});
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   const handleCleanupExpired = () => {
     if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在，每个站点最多检查 2000 条，可能需要一些时间。")) return;
     setCleaningUp(true);
@@ -265,50 +292,11 @@ export default function Settings() {
   };
 
   /* ---- add site (inline) ---- */
-  const startAdd = () => {
-    setIsAdding(true);
-    setAddName("");
-    setAddUrl("");
-  };
-  const cancelAdd = () => {
-    setIsAdding(false);
-    setAddName("");
-    setAddUrl("");
-  };
-  const confirmAdd = () => {
-    const name = addName.trim();
-    const base_url = addUrl.trim();
-    if (!name || !base_url) return;
+  const handleAddSite = (name: string, base_url: string) => {
     createSite({ name, base_url, enabled: true, sort: 0 }).then((s) => {
       setSites((prev) => [...prev, s]);
-      cancelAdd();
+      setShowAddDialog(false);
     });
-  };
-
-  /* ---- batch probe ---- */
-  const handleBatchProbe = () => {
-    let items: { name: string; url: string }[];
-    try {
-      items = JSON.parse(batchJson.trim());
-      if (!Array.isArray(items)) throw new Error("必须是数组");
-      if (items.length === 0) throw new Error("数组不能为空");
-      if (items.length > 20) throw new Error("一次最多 20 个站点");
-    } catch (e: any) {
-      alert("JSON 格式错误: " + (e?.message || "未知错误"));
-      return;
-    }
-    setBatchLoading(true);
-    setBatchResults(null);
-    batchProbe(items)
-      .then((r) => {
-        setBatchResults(r.results);
-        // 刷新站点列表（新站点已自动添加）
-        listSites().then(setSites);
-      })
-      .catch((err) => {
-        alert("探测失败: " + (err?.message || "未知错误"));
-      })
-      .finally(() => setBatchLoading(false));
   };
 
   /* ---- edit site (inline) ---- */
@@ -334,12 +322,6 @@ export default function Settings() {
       listSites().then(setSites);
       cancelEdit();
     });
-  };
-
-  const doProbe = (id: number) => {
-    probeSite(id).then((r) =>
-      setProbeResults((prev) => ({ ...prev, [id]: r }))
-    );
   };
 
   const handleBatchDetect = () => {
@@ -459,27 +441,47 @@ export default function Settings() {
                 采集站管理
               </h3>
             </div>
-            {sites.length > 0 && (
+            <div className="row" style={{ gap: 4, alignItems: "center" }}>
+              {sites.length > 0 && (
+                <button
+                  className="btn"
+                  onClick={handleBatchDetect}
+                  disabled={batchDetectLoading}
+                  style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
+                >
+                  {batchDetectLoading ? (
+                    <span style={{ color: "var(--text-muted)" }}>检测中...</span>
+                  ) : (
+                    <>
+                      <ActivityIcon size={14} />
+                      批量检测
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowAddDialog(true)}
+                style={{ gap: 4, fontSize: 12, minHeight: 34, padding: "0 12px" }}
+              >
+                <PlusIcon size={14} />
+                添加站点
+              </button>
               <button
                 className="btn"
-                onClick={handleBatchDetect}
-                disabled={batchDetectLoading}
-                style={{ fontSize: 12, gap: 4 }}
+                onClick={() => setShowBatchSniffDialog(true)}
+                style={{ gap: 4, fontSize: 12, minHeight: 34, padding: "0 12px" }}
               >
-                {batchDetectLoading ? (
-                  <span style={{ color: "var(--text-muted)" }}>检测中...</span>
-                ) : (
-                  <>
-                    <ActivityIcon size={14} />
-                    批量检测
-                  </>
-                )}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                批量嗅探
               </button>
-            )}
+            </div>
           </div>
 
           <div className="col" style={{ gap: 10 }}>
-            {sites.length === 0 && !isAdding && (
+            {sites.length === 0 && (
               <div
                 className="empty"
                 style={{
@@ -505,6 +507,10 @@ export default function Settings() {
                       ? "1px solid transparent"
                       : "1px solid var(--glass-border)",
                     opacity: s.enabled ? 1 : 0.55,
+                    cursor: isEditing ? "default" : "pointer",
+                  }}
+                  onClick={() => {
+                    if (!isEditing) setDrawerSite(s);
                   }}
                   onMouseEnter={(e) => {
                     if (s.enabled && !isEditing) {
@@ -622,7 +628,11 @@ export default function Settings() {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  <div
+                    className="row"
+                    style={{ gap: 6, flexShrink: 0 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {isEditing ? (
                       <>
                         <button
@@ -650,19 +660,6 @@ export default function Settings() {
                       </>
                     ) : (
                       <>
-                        <button
-                          className="btn"
-                          onClick={() => doProbe(s.id)}
-                          title="检测连通性"
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
-                          }}
-                        >
-                          <ActivityIcon size={12} />
-                          检测
-                        </button>
                         {s.enabled && (
                           <button
                             className="btn"
@@ -711,35 +708,28 @@ export default function Settings() {
                         </button>
                         <button
                           className="btn"
-                          onClick={() =>
-                            updateSite(s.id, { enabled: !s.enabled }).then(() =>
-                              listSites().then(setSites)
-                            )
-                          }
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
+                          onClick={() => {
+                            if (deletingSiteIds.has(s.id)) return;
+                            setDeletingSiteIds((prev) => new Set(prev).add(s.id));
+                            deleteSite(s.id).catch(() => {
+                              setDeletingSiteIds((prev) => {
+                                const next = new Set(prev);
+                                next.delete(s.id);
+                                return next;
+                              });
+                            });
                           }}
-                        >
-                          {s.enabled ? "禁用" : "启用"}
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() =>
-                            deleteSite(s.id).then(() =>
-                              setSites((prev) => prev.filter((x) => x.id !== s.id))
-                            )
-                          }
                           title="删除"
+                          disabled={deletingSiteIds.has(s.id)}
                           style={{
                             padding: "8px 14px",
                             minHeight: 40,
                             fontSize: 12,
                             color: "var(--danger)",
+                            opacity: deletingSiteIds.has(s.id) ? 0.6 : 1,
                           }}
                         >
-                          删除
+                          {deletingSiteIds.has(s.id) ? "删除中..." : "删除"}
                         </button>
                       </>
                     )}
@@ -747,174 +737,6 @@ export default function Settings() {
                 </div>
               );
             })}
-
-            {/* 添加站点内联表单 */}
-            {isAdding && (
-              <div
-                style={{
-                  ...rowBaseStyle,
-                  border: "1px solid var(--primary)",
-                  background: "var(--bg-elevated)",
-                }}
-              >
-                <div
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: "var(--primary)",
-                    flexShrink: 0,
-                  }}
-                />
-                <div className="col" style={{ flex: 1, minWidth: 0, gap: 8 }}>
-                  <input
-                    type="text"
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    placeholder="站点名称"
-                    style={{ ...inputStyle, width: "100%" }}
-                    autoFocus
-                  />
-                  <input
-                    type="text"
-                    value={addUrl}
-                    onChange={(e) => setAddUrl(e.target.value)}
-                    placeholder="站点地址（如 http://xxx.php）"
-                    style={{ ...inputStyle, width: "100%" }}
-                  />
-                </div>
-                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={confirmAdd}
-                    style={{
-                      padding: "8px 14px",
-                      minHeight: 40,
-                      fontSize: 12,
-                    }}
-                  >
-                    保存
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={cancelAdd}
-                    style={{
-                      padding: "8px 14px",
-                      minHeight: 40,
-                      fontSize: 12,
-                    }}
-                  >
-                    取消
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {!isAdding && (
-              <div className="row" style={{ gap: 10 }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={startAdd}
-                  style={{ gap: 6 }}
-                >
-                  <PlusIcon size={16} />
-                  添加站点
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => setShowBatchPanel((v) => !v)}
-                  style={{ gap: 6 }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                  </svg>
-                  批量嗅探
-                </button>
-              </div>
-            )}
-
-            {/* 批量嗅探面板 */}
-            {showBatchPanel && (
-              <div
-                style={{
-                  border: "1px solid var(--glass-border)",
-                  borderRadius: 8,
-                  padding: 16,
-                  background: "var(--bg-elevated)",
-                  marginTop: 8,
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
-                  批量嗅探站点
-                </div>
-                <textarea
-                  value={batchJson}
-                  onChange={(e) => setBatchJson(e.target.value)}
-                  placeholder={`[\n  {"name": "站点名称", "url": "http://xxx/api.php/provide/vod"}\n]`}
-                  style={{
-                    ...inputStyle,
-                    width: "100%",
-                    minHeight: 120,
-                    fontSize: 12,
-                    fontFamily: "monospace",
-                    resize: "vertical",
-                  }}
-                />
-                <div className="row" style={{ marginTop: 10, gap: 8, justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                    {`格式: [{"name": "...", "url": "..."}]，最多 20 条`}
-                  </span>
-                  <div className="row" style={{ gap: 8 }}>
-                    <button className="btn" onClick={() => { setShowBatchPanel(false); setBatchJson(""); setBatchResults(null); }}>
-                      取消
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleBatchProbe}
-                      disabled={batchLoading}
-                    >
-                      {batchLoading ? "嗅探中..." : "嗅探并添加"}
-                    </button>
-                  </div>
-                </div>
-
-                {/* 嗅探结果 */}
-                {batchResults && (
-                  <div style={{ marginTop: 12 }}>
-                    {batchResults.map((r, i) => (
-                      <div
-                        key={i}
-                        className="row"
-                        style={{
-                          gap: 8,
-                          padding: "6px 0",
-                          borderBottom: i < batchResults.length - 1 ? "1px solid var(--glass-border)" : "none",
-                          fontSize: 13,
-                        }}
-                      >
-                        <span style={{ flexShrink: 0 }}>
-                          {r.ok ? (
-                            <span style={{ color: "var(--success)" }}>✓</span>
-                          ) : (
-                            <span style={{ color: "var(--danger)" }}>✗</span>
-                          )}
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.name}
-                        </span>
-                        <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-                          {r.ok
-                            ? r.added
-                              ? `已添加 ${r.latency_ms}ms`
-                              : `已存在 ${r.latency_ms}ms`
-                            : r.error}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </section>
       )}
@@ -1295,6 +1117,24 @@ export default function Settings() {
           )}
         </section>
       )}
+
+      <SiteHealthDrawer
+        site={drawerSite}
+        open={drawerSite !== null}
+        onClose={() => setDrawerSite(null)}
+      />
+
+      <AddSiteDialog
+        open={showAddDialog}
+        onClose={() => setShowAddDialog(false)}
+        onConfirm={handleAddSite}
+      />
+
+      <BatchSniffDialog
+        open={showBatchSniffDialog}
+        onClose={() => setShowBatchSniffDialog(false)}
+        onAdded={() => listSites().then(setSites)}
+      />
 
       <ConfirmDialog
         open={showBatchDetectDialog}

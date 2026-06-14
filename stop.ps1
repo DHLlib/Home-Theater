@@ -1,4 +1,4 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Home Theater Stop Script
 
@@ -20,100 +20,112 @@ function Get-EnvValue($key, $defaultValue) {
 }
 
 $PORT = [int](Get-EnvValue "PORT" "8000")
+$FRONTEND_DEV_PORT = 5173
+
+function Get-ProcessCommandLine($id) {
+    try {
+        return (Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue).CommandLine
+    } catch {
+        return $null
+    }
+}
+
+function Confirm-HomeTheaterProcess($id, $pattern) {
+    try {
+        $proc = Get-Process -Id $id -ErrorAction Stop
+        $cmd = Get-ProcessCommandLine $id
+        if ($proc.ProcessName -notin @("python", "python3", "node")) { return $false }
+        if ($pattern -eq "uvicorn") {
+            return ($cmd -like "*uvicorn*app.main:app*")
+        }
+        if ($pattern -eq "vite") {
+            return ($cmd -like "*vite*")
+        }
+        return $cmd -like "*$pattern*"
+    } catch {
+        return $false
+    }
+}
 
 function Get-ProcessIdByPort($port) {
     try {
         $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
+        if ($conn -is [array]) { return $conn[0].OwningProcess }
         return $conn.OwningProcess
     } catch {
         return $null
     }
 }
 
-$stopped = $false
+function Stop-IfHomeTheater($id, $pattern, $description) {
+    if (Confirm-HomeTheaterProcess $id $pattern) {
+        try {
+            Stop-Process -Id $id -Force -ErrorAction Stop
+            Write-Host "[OK] Stopped $description (PID: $id)" -ForegroundColor Green
+            return $true
+        } catch {
+            Write-Host "[WARN] Failed to stop $description (PID: $id)" -ForegroundColor Yellow
+            return $false
+        }
+    }
+    return $false
+}
 
-# Stop backend by PID file
+$stopped = @()
+
+# Stop by PID files
 if (Test-Path $pidFile) {
     $pidValue = Get-Content $pidFile
-    try {
-        Stop-Process -Id $pidValue -Force -ErrorAction Stop
-        Write-Host "[OK] Stopped backend PID $pidValue" -ForegroundColor Green
-        $stopped = $true
-    } catch {
-        Write-Host "[WARN] Backend PID $pidValue not found" -ForegroundColor Yellow
+    if (Stop-IfHomeTheater $pidValue "uvicorn" "backend") {
+        $stopped += "backend PID $pidValue"
+    } else {
+        Write-Host "[WARN] Backend .pid does not point to a Home Theater process, removing" -ForegroundColor Yellow
     }
     Remove-Item $pidFile -Force
 }
 
-# Stop frontend dev server by PID file
 if (Test-Path $pidFileFrontend) {
     $pidValue = Get-Content $pidFileFrontend
-    try {
-        Stop-Process -Id $pidValue -Force -ErrorAction Stop
-        Write-Host "[OK] Stopped frontend PID $pidValue" -ForegroundColor Green
-        $stopped = $true
-    } catch {
-        Write-Host "[WARN] Frontend PID $pidValue not found" -ForegroundColor Yellow
+    if (Stop-IfHomeTheater $pidValue "vite" "frontend dev server") {
+        $stopped += "frontend PID $pidValue"
+    } else {
+        Write-Host "[WARN] Frontend .pid does not point to a Home Theater process, removing" -ForegroundColor Yellow
     }
     Remove-Item $pidFileFrontend -Force
 }
 
-# Fallback: terminate backend by port
-$pidOnPort = Get-ProcessIdByPort $PORT
-if ($pidOnPort) {
-    try {
-        $proc = Get-Process -Id $pidOnPort -ErrorAction Stop
-        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$pidOnPort").CommandLine
-        if ($proc.ProcessName -eq "python" -and $cmd -like "*uvicorn*") {
-            Stop-Process -Id $pidOnPort -Force
-            Write-Host "[OK] Stopped orphan backend PID $pidOnPort on port $PORT" -ForegroundColor Green
-            $stopped = $true
-        } else {
-            Write-Host "[WARN] Port $PORT is occupied by a non-Home Theater process (PID: $pidOnPort), skipped" -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "[WARN] Could not stop process on port $PORT" -ForegroundColor Yellow
+# Stop by ports
+$backendPid = Get-ProcessIdByPort $PORT
+if ($backendPid -and (Stop-IfHomeTheater $backendPid "uvicorn" "backend on port $PORT")) {
+    $stopped += "backend on port $PORT (PID $backendPid)"
+}
+
+$frontendPid = Get-ProcessIdByPort $FRONTEND_DEV_PORT
+if ($frontendPid -and (Stop-IfHomeTheater $frontendPid "vite" "frontend dev server on port $FRONTEND_DEV_PORT")) {
+    $stopped += "frontend dev server on port $FRONTEND_DEV_PORT (PID $frontendPid)"
+}
+
+# Fallback: scan for orphan processes in the project directory
+$orphanBackend = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
+    Confirm-HomeTheaterProcess $_.Id "uvicorn*app.main:app"
+}
+foreach ($p in $orphanBackend) {
+    if (Stop-IfHomeTheater $p.Id "uvicorn*app.main:app" "orphan backend") {
+        $stopped += "orphan backend PID $($p.Id)"
     }
 }
 
-# Fallback: terminate backend by command line matching
-$remainingBackend = Get-Process python -ErrorAction SilentlyContinue | Where-Object {
-    try {
-        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
-        $cmd -like "*uvicorn*app.main:app*" -and $cmd -like "*$($projectRoot.Replace('\', '\\'))*"
-    } catch {
-        $false
+$orphanFrontend = Get-Process node -ErrorAction SilentlyContinue | Where-Object {
+    Confirm-HomeTheaterProcess $_.Id "vite"
+}
+foreach ($p in $orphanFrontend) {
+    if (Stop-IfHomeTheater $p.Id "vite" "orphan frontend dev server") {
+        $stopped += "orphan frontend PID $($p.Id)"
     }
 }
 
-if ($remainingBackend) {
-    foreach ($p in $remainingBackend) {
-        Stop-Process -Id $p.Id -Force
-        Write-Host "[OK] Stopped orphan backend PID $($p.Id)" -ForegroundColor Green
-        $stopped = $true
-    }
-}
-
-# Fallback: terminate frontend dev server by command line
-$remainingFrontend = Get-Process node -ErrorAction SilentlyContinue | Where-Object {
-    try {
-        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
-        $cmd -like "*vite*" -and $cmd -like "*$($projectRoot.Replace('\', '\\'))*"
-    } catch {
-        $false
-    }
-}
-
-if ($remainingFrontend) {
-    foreach ($p in $remainingFrontend) {
-        Stop-Process -Id $p.Id -Force
-        Write-Host "[OK] Stopped orphan frontend PID $($p.Id)" -ForegroundColor Green
-        $stopped = $true
-    }
-}
-
-if ($stopped) {
-    Write-Host "[OK] All processes stopped" -ForegroundColor Green
+if ($stopped.Count -gt 0) {
+    Write-Host "[OK] All Home Theater processes stopped" -ForegroundColor Green
 } else {
-    Write-Host "[INFO] No running Home Theater process" -ForegroundColor Cyan
+    Write-Host "[INFO] No running Home Theater process found" -ForegroundColor Cyan
 }
