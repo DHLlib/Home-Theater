@@ -113,7 +113,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             "webkit-playsinline": "",
           },
           playsinline: true,
-          cssFullscreen: true,
+          cssFullscreen: false,
           // xgplayer 内置手势和 autoHide，无需额外配置
         });
 
