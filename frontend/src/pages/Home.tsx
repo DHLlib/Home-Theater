@@ -34,13 +34,13 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
 /* ===== 主页面 ===== */
 
 export default function Home() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showBackTop, setShowBackTop] = useState(false);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
 
   const wdFromUrl = searchParams.get("wd") || "";
+  const activeCategory = searchParams.get("category") || null;
 
   const { data: sites = [] } = useSitesQuery();
   const { data: recommendedVideos = [], isLoading: recommendedLoading } =
@@ -196,14 +196,24 @@ export default function Home() {
 
   return (
     <div>
-      {/* ===== 移动端顶部搜索栏 ===== */}
+      {/* ===== 移动端顶部搜索栏 + 分类 ===== */}
       {isMobile && <MobileSearchBar />}
 
-      <CategoryBar
-        sites={sites}
-        activeCategory={activeCategory}
-        onSelect={(cat) => setActiveCategory(cat)}
-      />
+      {isMobile && (
+        <CategoryBar
+          sites={sites}
+          activeCategory={activeCategory}
+          onSelect={(cat) => {
+            const next = new URLSearchParams(searchParams);
+            if (cat) {
+              next.set("category", cat);
+            } else {
+              next.delete("category");
+            }
+            setSearchParams(next, { replace: true });
+          }}
+        />
+      )}
 
       {/* ===== 加载骨架屏 ===== */}
       {isLoading && (
