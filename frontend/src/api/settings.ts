@@ -26,3 +26,15 @@ export const getMaxConcurrentDownloads = async (): Promise<number> => {
 
 export const setMaxConcurrentDownloads = (value: number) =>
   put<{ value: number }>("/api/settings/max-concurrent-downloads", { value });
+
+export const getAdFilterEnabled = async (): Promise<boolean> => {
+  try {
+    const data = await get<{ value: boolean }>("/api/settings/ad-filter-enabled");
+    return data.value;
+  } catch {
+    return false;
+  }
+};
+
+export const setAdFilterEnabled = (value: boolean) =>
+  put<{ value: boolean }>("/api/settings/ad-filter-enabled", { value });

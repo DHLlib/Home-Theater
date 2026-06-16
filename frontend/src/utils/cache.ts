@@ -1,7 +1,7 @@
 /** 基于 IndexedDB 的 API 响应缓存层 */
 
 const DB_NAME = "ht-cache";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface CacheEntry<T> {
   value: T;
@@ -12,6 +12,7 @@ const TTL_MS = {
   aggregated: 5 * 60 * 1000, // 5 分钟
   detail: 10 * 60 * 1000, // 10 分钟
   episodes: 10 * 60 * 1000, // 10 分钟
+  poster_success: 7 * 24 * 60 * 60 * 1000, // 7 天
 };
 
 /* ===== 移动端检测（AC-023） ===== */
@@ -63,6 +64,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("episodes")) {
         db.createObjectStore("episodes");
+      }
+      if (!db.objectStoreNames.contains("poster_success")) {
+        db.createObjectStore("poster_success");
       }
     };
   });
@@ -168,13 +172,34 @@ export async function setCachedEpisodes<T>(site_id: number, original_id: string,
   return set<T>("episodes", cacheEpisodesKey(site_id, original_id), value);
 }
 
+/* ===== 封面成功 URL 缓存（多源 fallback） ===== */
+
+export function cachePosterSuccessKey(title: string, year?: number | null): string {
+  return `${title}::${year ?? "null"}`;
+}
+
+export async function getCachedPosterSuccess(
+  title: string,
+  year?: number | null
+): Promise<string | null> {
+  return get<string>("poster_success", cachePosterSuccessKey(title, year));
+}
+
+export async function setCachedPosterSuccess(
+  title: string,
+  year: number | null | undefined,
+  url: string
+): Promise<void> {
+  return set<string>("poster_success", cachePosterSuccessKey(title, year), url);
+}
+
 /* ===== 清理过期缓存 ===== */
 
 export async function clearExpiredCache(): Promise<number> {
   let cleared = 0;
   try {
     const db = await openDb();
-    const stores = ["aggregated", "detail", "episodes"] as const;
+    const stores = ["aggregated", "detail", "episodes", "poster_success"] as const;
     for (const storeName of stores) {
       const tx = db.transaction(storeName, "readwrite");
       const store = tx.objectStore(storeName);

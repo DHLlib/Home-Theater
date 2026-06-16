@@ -179,6 +179,37 @@ def _get_page_size(request: Request, pg_size: int | None) -> int:
     return DEFAULT_DESKTOP_PAGE_SIZE
 
 
+async def _enrich_poster_urls(
+    db: AsyncSession, items: list[AggregatedVideo]
+) -> None:
+    """为聚合结果补充多源封面 URL 列表，用于前端 fallback。"""
+    if not items:
+        return
+
+    titles = list({item.title for item in items})
+    result = await db.execute(
+        select(VideoCache.title, VideoCache.poster_url).where(
+            VideoCache.title.in_(titles),
+            VideoCache.poster_url.isnot(None),
+            VideoCache.poster_url != "",
+        )
+    )
+
+    poster_map: dict[str, list[str]] = {}
+    for title, poster_url in result.all():
+        if title not in poster_map:
+            poster_map[title] = []
+        if poster_url not in poster_map[title]:
+            poster_map[title].append(poster_url)
+
+    for item in items:
+        urls = poster_map.get(item.title, [])
+        item.poster_urls = urls
+        # 若主 poster_url 为空，取第一个可用 fallback
+        if urls and not item.poster_url:
+            item.poster_url = urls[0]
+
+
 # ------------------------------------------------------------------
 # 分类解析（复用现有逻辑）
 # ------------------------------------------------------------------
@@ -395,15 +426,19 @@ async def _query_and_aggregate(
                     "updated_at": r.source_updated_at,
                 }],
             })
-        return AggregatedListResponse(
+        response = AggregatedListResponse(
             items=[AggregatedVideo(**item) for item in raw_items],
             failed_sources=[],
         )
+        await _enrich_poster_urls(db, response.items)
+        return response
 
-    return AggregatedListResponse(
+    response = AggregatedListResponse(
         items=[AggregatedVideo(**item) for item in page_items],
         failed_sources=[],
     )
+    await _enrich_poster_urls(db, response.items)
+    return response
 
 
 # ------------------------------------------------------------------
@@ -493,7 +528,9 @@ async def _query_aggregated_cache(
             if len(items) >= per_page:
                 break
 
-        return AggregatedListResponse(items=items, failed_sources=[])
+        response = AggregatedListResponse(items=items, failed_sources=[])
+        await _enrich_poster_urls(db, response.items)
+        return response
     except Exception:
         # 表未初始化或异常时 fallback
         return None
@@ -660,7 +697,9 @@ async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedLi
                     source_count=items[i].source_count,
                 )
 
-    return AggregatedListResponse(items=items, failed_sources=[])
+    response = AggregatedListResponse(items=items, failed_sources=[])
+    await _enrich_poster_urls(db, response.items)
+    return response
 
 
 # ------------------------------------------------------------------

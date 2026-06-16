@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useIsMobile, useViewport } from "../hooks/useViewport";
+import PosterImage from "./PosterImage";
 import type { AggregatedVideo } from "../types";
 
 interface RecommendedCarouselProps {
@@ -70,7 +71,6 @@ export default function RecommendedCarousel({
   onSelect,
 }: RecommendedCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
   const [isHovered, setIsHovered] = useState(false);
   const isMobile = useIsMobile();
   const { width: viewportWidth } = useViewport();
@@ -108,26 +108,9 @@ export default function RecommendedCarousel({
     return () => clearInterval(timer);
   }, [loading, displayVideos.length, isHovered]);
 
-  // activeIndex 变化时，把新进入可见范围的图片加入加载集合
-  useEffect(() => {
-    const next = new Set(loadedImages);
-    displayVideos.forEach((video, index) => {
-      const offset = Math.abs(index - activeIndex);
-      if (offset <= VISIBLE_RADIUS && video.poster_url) {
-        next.add(video.poster_url);
-      }
-    });
-    setLoadedImages(next);
-  }, [activeIndex, displayVideos]);
-
   // 视频列表变化时重置
   useEffect(() => {
     setActiveIndex(0);
-    const initial = new Set<string>();
-    displayVideos.slice(0, VISIBLE_RADIUS + 1).forEach((v) => {
-      if (v.poster_url) initial.add(v.poster_url);
-    });
-    setLoadedImages(initial);
   }, [displayVideos.map((v) => `${v.title}-${v.year}`).join("|")]);
 
   // 滚轮切换：循环轮播
@@ -223,9 +206,10 @@ export default function RecommendedCarousel({
         ) : (
           displayVideos.map((video, index) => {
             const offset = index - activeIndex;
-            const poster = video.poster_url || "";
+            const hasPoster = Boolean(
+              video.poster_url || (video.poster_urls && video.poster_urls.length)
+            );
             const style = getSlideStyle(offset, spacing, isMobile);
-            const shouldLoad = poster && loadedImages.has(poster);
             const isVisible = Math.abs(offset) <= VISIBLE_RADIUS;
 
             return (
@@ -251,11 +235,10 @@ export default function RecommendedCarousel({
               >
                 {/* 骨架背景 / 占位 */}
                 <div
-                  className={shouldLoad ? undefined : "skeleton"}
+                  className="skeleton"
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: shouldLoad ? "var(--glass-bg)" : undefined,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -263,31 +246,21 @@ export default function RecommendedCarousel({
                     fontSize: 13,
                     textAlign: "center",
                     padding: 12,
-                    opacity: shouldLoad ? 0 : 1,
-                    transition: "opacity 0.3s ease",
                   }}
                 >
-                  {!poster && video.title}
+                  {!hasPoster && video.title}
                 </div>
 
                 {/* 实际图片：仅在可见半径内加载 */}
-                {poster && isVisible && (
-                  <img
-                    src={poster}
+                {hasPoster && isVisible && (
+                  <PosterImage
+                    title={video.title}
+                    year={video.year}
+                    posterUrl={video.poster_url}
+                    posterUrls={video.poster_urls}
                     alt={video.title}
-                    onLoad={() =>
-                      setLoadedImages((prev) => new Set(prev).add(poster))
-                    }
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      display: "block",
-                      opacity: loadedImages.has(poster) ? 1 : 0,
-                      transition: "opacity 0.35s ease",
-                    }}
+                    loading="eager"
+                    style={{ position: "absolute", inset: 0 }}
                   />
                 )}
 

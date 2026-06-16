@@ -22,7 +22,23 @@ _SHARE_URL_PATTERNS = [
 # 内存缓存：share_url -> (resolved_url, expire_at)
 _SHARE_PAGE_CACHE: dict[str, tuple[str | None, float]] = {}
 _SHARE_PAGE_CACHE_TTL_SECONDS = 3600  # 1 小时
+_SHARE_PAGE_CACHE_MAX_SIZE = 1000  # 防止极端场景下无界增长
 _SHARE_PAGE_CACHE_LOCK = asyncio.Lock()
+
+
+def _evict_expired_share_cache(now: float) -> None:
+    expired = [
+        url
+        for url, (_, expire_at) in _SHARE_PAGE_CACHE.items()
+        if expire_at <= now
+    ]
+    for url in expired:
+        _SHARE_PAGE_CACHE.pop(url, None)
+
+
+def _trim_share_cache_to_max() -> None:
+    while len(_SHARE_PAGE_CACHE) > _SHARE_PAGE_CACHE_MAX_SIZE:
+        _SHARE_PAGE_CACHE.pop(next(iter(_SHARE_PAGE_CACHE)))
 
 
 def _to_absolute_url(share_url: str, real_path: str) -> str:
@@ -74,6 +90,9 @@ async def resolve_share_page(
         if cached is not None:
             resolved, expire_at = cached
             if expire_at > now:
+                # 命中后移到 dict 末尾，使 LRU 淘汰更合理
+                _SHARE_PAGE_CACHE.pop(share_url, None)
+                _SHARE_PAGE_CACHE[share_url] = cached
                 return resolved
             _SHARE_PAGE_CACHE.pop(share_url, None)
 
@@ -95,5 +114,8 @@ async def resolve_share_page(
         # 缓存未命中但解析失败时，短暂缓存 None 避免高频重试（30 秒）
         else:
             _SHARE_PAGE_CACHE[share_url] = (None, now + 30)
+        _evict_expired_share_cache(now)
+        _trim_share_cache_to_max()
 
     return resolved
+

@@ -344,7 +344,13 @@ export default function Player() {
       {/* 返回按钮 */}
       <button
         className="btn"
-        onClick={() => navigate("/")}
+        onClick={() => {
+          if (window.history.length > 1) {
+            navigate(-1);
+          } else {
+            navigate("/");
+          }
+        }}
         style={{
           position: "absolute",
           top: 8,
@@ -355,7 +361,7 @@ export default function Player() {
           background: "var(--glass-bg)",
           backdropFilter: "blur(12px)",
         }}
-        aria-label="返回首页"
+        aria-label="返回"
       >
         ← 返回
       </button>

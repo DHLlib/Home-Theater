@@ -714,3 +714,194 @@ WHERE id = ? AND status = 'downloading'
 - 对“状态竞争”类 bug，先加可观测日志再猜测根因，能避免无效修改。
 - 批量创建的并发锁必须用独立的创建锁保护，否则 `asyncio.Lock` 本身的初始化也会竞态。
 
+---
+
+## 2026-06-15：内存增长风险审计
+
+**背景**：
+用户观察到系统内存随运行时间持续增长，询问是否缺少释放机制。对前后端做了一次内存审计，结论是**存在可优化的增长源，但大部分有边界或释放机制**。
+
+**后端风险项**：
+
+| 位置 | 类型 | 风险等级 | 说明 |
+|------|------|----------|------|
+| `app/services/resolver.py` `_SHARE_PAGE_CACHE` | 内存 dict | 中 | 分享页解析结果缓存，TTL 1 小时 / 失败 30 秒。过期项在访问时清理，但没有定时扫把或容量上限。若短时间内访问大量不同分享页，会涨到与唯一 URL 数量成正比。 |
+| `app/services/crawler.py` `_evict_if_overflow` | 数据淘汰 | 低（设计如此） | 已显式禁用 LRU 淘汰，决定完整保留 `video_cache`。这会让**数据库/磁盘**持续增长，但不会直接让进程内存无界增长。 |
+| `app/services/downloader.py` `_task_stop_events` | 内存 dict | 低 | 运行中任务注册 `asyncio.Event`，正常结束会注销。若 worker 异常退出未走清理路径，可能留下孤儿事件（极小）。 |
+| `app/api/sse.py` `_event_stream` | 连接句柄 | 低 | 每个 SSE 客户端注册一个 handler，断开时 `finally` 移除；`asyncio.Queue` 容量 100。连接数决定上限。 |
+
+**前端风险项**：
+
+| 位置 | 类型 | 风险等级 | 说明 |
+|------|------|----------|------|
+| `Home.tsx` + `useVideosInfinite` | React Query 无限分页缓存 | 高 | 用户滚动加载的每一页都会保留在 `data.pages` 和 React Query 缓存中。虽然 `VirtualGrid` 只渲染可见 DOM，但 JS 堆中保存了所有已加载视频对象（含 `poster_urls` 等多源数据）。页面挂越久、滚动越深，内存越大。 |
+| `frontend/src/utils/cache.ts` IndexedDB | 磁盘缓存 | 低 | `aggregated/detail/episodes/poster_success` 都有 TTL，启动时调用 `clearExpiredCache()` 清理一次。过期记录不会进入内存，但磁盘占用会持续增加直到手动清理。 |
+| `queryClient.ts` | 查询缓存 | 低 | 默认 `gcTime: 10 分钟`，`staleTime: 5 分钟`，组件卸载后会按策略回收。 |
+
+**已有释放/边界机制**：
+- React Query 的 `gcTime` 会在查询不再被使用时回收缓存。
+- IndexedDB 缓存读时校验 TTL，启动时批量清理过期项。
+- 后端 SSE 队列、下载停止事件、分类映射缓存、广告过滤缓存均有显式清理或容量边界。
+- 播放器实例在组件卸载时 `destroy()`，事件/timer 清理。
+
+**建议修复（按优先级）**：
+1. **前端无限分页封顶**：在 `useVideosInfinite` 或 `Home.tsx` 限制最大页数（如最多保留 20 页 / 1000 条），超出时截断旧页，避免 JS 堆无限增长。
+2. **分享页缓存加 LRU/容量上限**：给 `_SHARE_PAGE_CACHE` 增加 `maxsize`（如 1000）或定时清理任务，防止极端场景下 dict 膨胀。
+3. **IndexedDB 磁盘清理**：可在 `clearExpiredCache()` 之外，定期或在缓存写入时按总条数截断最旧记录。
+
+**验证方式**：
+- 浏览器 DevTools Memory：长时间滚动首页后抓 heap snapshot，观察 `AggregatedVideo[]` / `poster_urls` 对象数量。
+- 后端 `tracemalloc`/memory-profiler：在大量解析分享页后对比 `_SHARE_PAGE_CACHE` 大小。
+
+---
+
+## 2026-06-16：修复分类页首屏无法无限滚动
+
+**现象**：
+选择某个分类（如"悬疑片"）后，页面只显示一屏内容，无法通过滚动加载更多；后端 API 分页正常。
+
+**根因**：
+`Home.tsx` 使用一个 1px 高的 sentinel + `IntersectionObserver`（rootMargin 300px）触发 `fetchNextPage`。
+当首屏内容高度不足一屏时，sentinel 已经在视口+rootMargin 范围内，`IntersectionObserver` 在创建时**不会触发交叉事件**，导致 never 调用 `fetchNextPage`，用户也没有滚动条可触发。
+
+**修复**：
+在创建 `IntersectionObserver` 后、observe 之前，先手动计算 sentinel 的 `getBoundingClientRect()`：
+- 若 `rect.top <= window.innerHeight + rootMargin` 且 `rect.bottom >= -rootMargin`，立即调用 `fetchNextPage()`。
+- 这样首屏不足时会自动加载下一页，直到内容超过视口或没有更多数据。
+
+**相关文件**：
+- `frontend/src/pages/Home.tsx`
+
+**验证**：
+- `cd frontend && npm run typecheck` ✅
+- `cd frontend && npm test -- --run` ✅（2 files, 6 tests）
+
+**教训**：
+- 无限滚动不能只依赖 `IntersectionObserver` 的交叉事件；必须在 effect 初始化时处理 sentinel 已可见的情况。
+- 调试时先确认后端分页正常，再定位前端触发路径。
+
+---
+
+## 2026-06-16：分享页解析缓存加容量上限
+
+**背景**：
+长期部署下，`_SHARE_PAGE_CACHE` 是进程内 dict，虽有过期 TTL，但没有容量上限。若短时间内解析大量不同分享页，缓存会随唯一 URL 数量线性增长。
+
+**修复**：
+在 `backend/app/services/resolver.py` 中：
+- 新增 `_SHARE_PAGE_CACHE_MAX_SIZE = 1000`。
+- 缓存命中时把 key 移到 dict 末尾，使淘汰顺序近似 LRU。
+- 写入缓存后先清理过期项，再按容量淘汰最旧项。
+
+**相关文件**：
+- `backend/app/services/resolver.py`
+
+**验证**：
+- `python -m py_compile backend/app/services/resolver.py` ✅
+
+**教训**：
+- 任何进程内缓存都应同时有 TTL 和容量上限，避免极端场景下内存无界增长。
+
+---
+
+## 2026-06-16：详情/播放页点击【返回】回到首页而不是搜索结果页
+
+**现象**：
+从搜索结果页点击视频进入详情页，再点击页面上的【← 返回】按钮，直接回到首页，而不是回到搜索结果页。
+
+**根因**：
+`frontend/src/pages/Detail.tsx` 和 `frontend/src/pages/Player.tsx` 的返回按钮都 hardcode 了 `navigate("/")`，而不是退回历史栈。
+
+**修复**：
+把返回逻辑改为：
+```ts
+onClick={() => {
+  if (window.history.length > 1) {
+    navigate(-1);
+  } else {
+    navigate("/");
+  }
+}}
+```
+- 有历史记录时回到上一页（搜索结果页 / 详情页）。
+- 直接打开详情页等无历史场景兜底回首页。
+
+**相关文件**：
+- `frontend/src/pages/Detail.tsx`
+- `frontend/src/pages/Player.tsx`
+
+**验证**：
+- `cd frontend && npm run typecheck` ✅
+- `cd frontend && npm test -- --run` ✅（2 files / 6 tests）
+
+**教训**：
+- SPA 里的【返回】按钮要用 `navigate(-1)`（History 回退），不要直接 `navigate("/")`，否则会破坏搜索/详情/播放之间的返回路径。
+- 直接入口（分享、收藏外链）需要兜底到首页，避免 `navigate(-1)` 越界。
+
+---
+
+## 2026-06-16：xgplayer-hls.js 配置键错误导致 hls.js 参数未生效
+
+**现象**：
+在 `VideoPlayer.tsx` 里想通过 `hls: { capLevelToPlayerSize: false }` 给 hls.js 传参，但实际上没有生效。
+
+**根因**：
+`xgplayer-hls.js` 插件读取配置的路径是 `this.config.hlsOpts`，而 xgplayer 给插件传配置的 key 是插件名的驼峰小写形式 `hlsJsPlugin`。`VideoPlayer.tsx` 顶层写的 `hls` 只是一个未被读取的自定义字段。
+
+**修复**：
+把配置改为正确的插件配置键：
+```ts
+new Player({
+  plugins: isM3u8 ? [HlsJsPlugin] : [],
+  hlsJsPlugin: isM3u8
+    ? {
+        hlsOpts: {
+          capLevelToPlayerSize: false,
+        },
+      }
+    : undefined,
+  // ...
+});
+```
+
+**相关文件**：
+- `frontend/src/components/VideoPlayer.tsx`
+
+**验证**：
+- `cd frontend && npm run typecheck` ✅
+- `cd frontend && npm test -- --run` ✅（2 files / 6 tests）
+
+**教训**：
+- 给 xgplayer 插件传配置时，要用文档指定的插件配置 key（如 `hlsJsPlugin`），不要凭直觉用 `hls`。
+- `capLevelToPlayerSize` 在 hls.js 中默认值就是 `false`，所以之前没生效也看不出异常；一旦想调缓冲、码率等参数就会发现全部失效。
+
+---
+
+## 2026-06-16：HLS 预加载缓冲上限调整为 10 分钟
+
+**需求**：
+把播放器预加载缓冲上限提高到 10 分钟，减少拖拽/快进时的等待。
+
+**改动**：
+在 `frontend/src/components/VideoPlayer.tsx` 的 `hlsOpts` 中增加：
+```ts
+maxBufferLength: 600,          // 目标缓冲时长 10 分钟
+maxMaxBufferLength: 600,       // 缓冲上限 10 分钟
+maxBufferSize: 500 * 1024 * 1024, // 缓冲大小上限 500MB
+```
+
+**说明**：
+- hls.js 默认 `maxBufferSize` 只有 60MB，如果只改时长上限，高清视频很容易先触碰到大小上限而停止预加载。
+- 500MB 对 10 分钟 1080P 内容基本够用，但 4K/高码率场景仍可能提前被大小上限截断。
+
+**相关文件**：
+- `frontend/src/components/VideoPlayer.tsx`
+
+**验证**：
+- `cd frontend && npm run typecheck` ✅
+- `cd frontend && npm test -- --run` ✅（2 files / 6 tests）
+
+**教训**：
+- 调 HLS 缓冲时不能只改时长，也要同步放宽 `maxBufferSize`，否则高清流会先被大小上限拦住。
+- 缓冲越大内存占用越高，移动端/低内存设备上要谨慎。
+

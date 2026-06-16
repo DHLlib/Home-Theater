@@ -31,6 +31,7 @@ export interface AggregatedVideo {
   title: string;
   year?: number | null;
   poster_url?: string | null;
+  poster_urls?: string[] | null;
   sources: SourceRef[];
 }
 

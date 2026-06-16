@@ -4,6 +4,7 @@ import CategoryBar from "../components/CategoryBar";
 import RecommendedCarousel from "../components/RecommendedCarousel";
 import ScrollRow from "../components/ScrollRow";
 import VideoCard from "../components/VideoCard";
+import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
 import {
@@ -52,6 +53,7 @@ export default function Home() {
     hasNextPage,
     fetchNextPage,
     refetch,
+    isCapped,
   } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl });
 
   const videos = useMemo(() => {
@@ -110,22 +112,42 @@ export default function Home() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchNextPageRef = useRef(fetchNextPage);
   fetchNextPageRef.current = fetchNextPage;
+  const isCappedRef = useRef(isCapped);
+  isCappedRef.current = isCapped;
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasNextPage || isLoading) return;
+    if (!el || !hasNextPage || isLoading || isCappedRef.current) return;
+
+    const rootMargin = 300;
+    const maybeFetch = () => {
+      if (!isCappedRef.current) {
+        fetchNextPageRef.current();
+      }
+    };
+
+    // 若 sentinel 已在视口+rootMargin 范围内（常见于首屏内容不足一屏时），
+    // 立即触发加载，避免 IntersectionObserver 因无交叉事件而漏掉。
+    const rect = el.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    if (
+      rect.top <= viewportHeight + rootMargin &&
+      rect.bottom >= -rootMargin
+    ) {
+      maybeFetch();
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0].isIntersecting && !isCappedRef.current) {
           fetchNextPageRef.current();
         }
       },
-      { rootMargin: "300px" }
+      { rootMargin: `${rootMargin}px` }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isLoading, videos.length]);
+  }, [hasNextPage, isLoading, videos.length, isCapped]);
 
   if (sites.length === 0) {
     return (
@@ -339,11 +361,14 @@ export default function Home() {
                   <p>该条件下暂无更新</p>
                 </div>
               )}
-              <div className="grid">
-                {allSection.map((v) => (
-                  <VideoCard key={videoKey(v)} item={v} />
-                ))}
-              </div>
+              <VirtualGrid
+                items={allSection}
+                itemKey={videoKey}
+                renderItem={(v) => <VideoCard item={v} />}
+                minItemWidth={160}
+                gap={24}
+                overscan={3}
+              />
             </section>
           </>
         </>
@@ -367,7 +392,7 @@ export default function Home() {
         </div>
       )}
 
-      {!hasNextPage && hasContent && (
+      {(isCapped || !hasNextPage) && hasContent && (
         <div
           style={{
             textAlign: "center",
@@ -376,7 +401,7 @@ export default function Home() {
             color: "var(--text-secondary)",
           }}
         >
-          — 已加载全部内容 —
+          {isCapped ? "— 已加载最大数量，请刷新或切换分类 —" : "— 已加载全部内容 —"}
         </div>
       )}
 

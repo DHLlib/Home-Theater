@@ -1,4 +1,9 @@
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import {
+  useQuery,
+  useInfiniteQuery,
+  type InfiniteData,
+} from "@tanstack/react-query";
+import { useEffect } from "react";
 import { listSites } from "../api/sites";
 import {
   getDetail,
@@ -7,7 +12,11 @@ import {
   listVideos,
   searchVideos,
 } from "../api/videos";
-import type { SourceRef } from "../types";
+import { queryClient } from "../lib/queryClient";
+import type { AggregatedVideo, SourceRef } from "../types";
+
+/* 无限分页内存封顶：超过该数量后裁剪最旧页面，防止 JS 堆无限增长 */
+const MAX_INFINITE_ITEMS = 1000;
 
 export const queryKeys = {
   sites: ["sites"] as const,
@@ -47,7 +56,7 @@ export function useVideosInfinite(filters: {
   wd?: string;
 }) {
   const wd = filters.wd?.trim() ?? "";
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
     queryKey: queryKeys.videosInfinite(filters),
     queryFn: async ({ pageParam = 1 }) => {
       const categoryParam = filters.category
@@ -73,6 +82,44 @@ export function useVideosInfinite(filters: {
     },
     initialPageParam: 1,
   });
+
+  // 内存封顶：当缓存页累计超过阈值时，裁剪最旧的页面
+  useEffect(() => {
+    const data = query.data;
+    if (!data) return;
+    const total = data.pages.reduce((sum, page) => sum + page.length, 0);
+    if (total <= MAX_INFINITE_ITEMS) return;
+
+    queryClient.setQueryData<InfiniteData<AggregatedVideo[], number>>(
+      queryKeys.videosInfinite(filters),
+      (old) => {
+        if (!old) return old;
+        let kept = 0;
+        const newPages: AggregatedVideo[][] = [];
+        for (const page of old.pages) {
+          if (kept + page.length <= MAX_INFINITE_ITEMS) {
+            newPages.push(page);
+            kept += page.length;
+          } else {
+            const take = MAX_INFINITE_ITEMS - kept;
+            if (take > 0) newPages.push(page.slice(0, take));
+            break;
+          }
+        }
+        return {
+          ...old,
+          pages: newPages,
+          pageParams: old.pageParams.slice(0, newPages.length + 1),
+        };
+      }
+    );
+  }, [query.data, filters]);
+
+  const totalItems =
+    query.data?.pages.reduce((sum, page) => sum + page.length, 0) ?? 0;
+  const isCapped = totalItems >= MAX_INFINITE_ITEMS;
+
+  return { ...query, totalItems, isCapped, maxItems: MAX_INFINITE_ITEMS };
 }
 
 export function useSearchVideosQuery(wd: string) {

@@ -11,6 +11,8 @@ import {
   setDownloadRoot,
   getMaxConcurrentDownloads,
   setMaxConcurrentDownloads,
+  getAdFilterEnabled,
+  setAdFilterEnabled,
 } from "../api/settings";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
@@ -200,6 +202,8 @@ export default function Settings() {
   const [savedRoot, setSavedRoot] = useState<string | null>(null);
   const [maxConcurrent, setMaxConcurrent] = useState(10);
   const [savedMaxConcurrent, setSavedMaxConcurrent] = useState(10);
+  const [adFilter, setAdFilter] = useState(false);
+  const [savedAdFilter, setSavedAdFilter] = useState(false);
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
   >({});
@@ -233,6 +237,10 @@ export default function Settings() {
     getMaxConcurrentDownloads().then((v) => {
       setSavedMaxConcurrent(v);
       setMaxConcurrent(v);
+    });
+    getAdFilterEnabled().then((v) => {
+      setSavedAdFilter(v);
+      setAdFilter(v);
     });
   }, []);
 
@@ -357,6 +365,15 @@ export default function Settings() {
         setMaxConcurrent(r.value);
       })
       .catch(() => alert("保存同时下载任务数失败"));
+  };
+
+  const saveAdFilter = () => {
+    setAdFilterEnabled(adFilter)
+      .then((r) => {
+        setSavedAdFilter(r.value);
+        setAdFilter(r.value);
+      })
+      .catch(() => alert("保存去广告设置失败"));
   };
 
   const rowBaseStyle: React.CSSProperties = {
@@ -874,6 +891,49 @@ export default function Settings() {
               >
                 <CheckIcon size={12} />
                 当前配置：{savedMaxConcurrent}
+              </div>
+            </div>
+
+            <div className="col" style={{ gap: 8 }}>
+              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                m3u8 去广告（实验性）
+              </label>
+              <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                <label
+                  className="row"
+                  style={{
+                    gap: 8,
+                    alignItems: "center",
+                    cursor: "pointer",
+                    fontSize: 14,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={adFilter}
+                    onChange={(e) => setAdFilter(e.target.checked)}
+                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                  />
+                  启用后端 playlist 清洗
+                </label>
+                <button
+                  className="btn btn-primary"
+                  onClick={saveAdFilter}
+                  style={{ marginLeft: "auto" }}
+                >
+                  保存
+                </button>
+              </div>
+              <div
+                className="row"
+                style={{
+                  gap: 6,
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <CheckIcon size={12} />
+                当前配置：{savedAdFilter ? "已开启" : "已关闭"}
               </div>
             </div>
           </div>

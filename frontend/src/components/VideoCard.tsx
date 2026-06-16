@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { addFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
+import PosterImage from "./PosterImage";
 import type { AggregatedVideo } from "../types";
 
 export interface VideoCardProps {
@@ -64,10 +65,7 @@ function VideoCard({
 }: VideoCardProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [imgError, setImgError] = useState(false);
   const [favorited, setFavorited] = useState(false);
-
-  const poster = item.poster_url && !imgError ? item.poster_url : null;
 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -116,17 +114,15 @@ function VideoCard({
           position: "relative",
         }}
       >
-        {poster ? (
-          <img
-            src={poster}
-            alt={item.title}
-            loading="lazy"
-            onError={() => setImgError(true)}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <PosterPlaceholder />
-        )}
+        <PosterImage
+          title={item.title}
+          year={item.year}
+          posterUrl={item.poster_url}
+          posterUrls={item.poster_urls}
+          alt={item.title}
+          loading="lazy"
+          placeholder={<PosterPlaceholder />}
+        />
 
         {/* 悬停信息层 */}
         {showOverlay && !isMobile && (

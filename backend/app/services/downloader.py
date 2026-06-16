@@ -32,6 +32,8 @@ from app.constants import (
 )
 from app.db import async_session_factory
 from app.models import AppConfig, DownloadTask, Site
+from app.services.ad_filter import is_ad_filter_enabled
+from app.services.m3u8_sanitizer import sanitize_m3u8_text
 from app.services.notify_sender import Event, notify_sender
 from app.services.resolver import resolve_share_page
 
@@ -513,6 +515,7 @@ async def _run_m3u8_download(
 
                 # 3. 解析 master / media playlist
                 base_m3u8_url = _extract_base_url(m3u8_url)
+                sub_url = ""
 
                 if "#EXT-X-STREAM-INF" in m3u8_text:
                     sub_url = _pick_best_stream(m3u8_text, base_m3u8_url)
@@ -526,6 +529,13 @@ async def _run_m3u8_download(
                     ts_base_url = _extract_base_url(sub_url)
                 else:
                     ts_base_url = base_m3u8_url
+
+                # 若开启去广告，清洗最终 media playlist
+                if await is_ad_filter_enabled():
+                    playlist_url = sub_url or m3u8_url
+                    m3u8_text = await sanitize_m3u8_text(
+                        m3u8_text, playlist_url, site_id=site_id
+                    )
 
                 # 4. 提取 .ts 列表
                 ts_names = _extract_ts_names(m3u8_text)

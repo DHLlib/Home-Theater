@@ -25,6 +25,7 @@ class AggregatedVideo(BaseModel):
     title: str
     year: int | None = None
     poster_url: str | None = None
+    poster_urls: list[str] | None = None
     sources: list[SourceRef]
     source_count: int = 1
 

@@ -4,15 +4,18 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import quote
 
-from app.constants import HTTP_TIMEOUT_RESOLVE
+from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
 from app.db import get_db
 from app.models import Site, VideoCache
 from app.schemas import Episode
+from app.services.ad_filter import is_ad_filter_enabled
+from app.services.m3u8_sanitizer import sanitize_m3u8
 from app.services.parser import parse_episodes
 from app.services.resolver import resolve_share_page
 from app.services.source_client import SourceClient, _safe_int
@@ -47,6 +50,31 @@ def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
         if len(parts) >= 3:
             suffix = parts[-1].strip()
     return count, suffix
+
+
+@router.get("/proxy-m3u8")
+async def proxy_m3u8(url: str, site_id: int, db: AsyncSession = Depends(get_db)):
+    """代理并清洗 m3u8 playlist，供前端播放器在去广告模式下使用。"""
+    site = await db.get(Site, site_id)
+    if not site:
+        logger.warning("proxy_m3u8_site_not_found site_id=%s", site_id)
+        raise HTTPException(status_code=404, detail="Site not found")
+
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Referer": site.base_url,
+    }
+    try:
+        text = await sanitize_m3u8(url, headers=headers, site_id=site_id)
+    except Exception as exc:
+        logger.warning("proxy_m3u8_failed site=%s url=%s error=%s", site.name, url, exc)
+        raise HTTPException(status_code=502, detail=f"m3u8 清洗失败：{exc}")
+
+    return Response(
+        content=text,
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Cache-Control": "max-age=30"},
+    )
 
 
 @router.get("/sources", response_model=PlaySourcesResponse)
@@ -218,6 +246,16 @@ async def get_episodes(
             episodes[i] = replace(e, suffix="ffm3u8")
         elif suffix_lower == "360zy":
             episodes[i] = replace(e, suffix="ffm3u8")
+
+    # 若开启全局去广告，HLS 地址走后端代理清洗 playlist
+    if await is_ad_filter_enabled():
+        for i, e in enumerate(episodes):
+            if e.suffix.lower().endswith(("m3u8", "yun")):
+                proxy = (
+                    f"/api/play/proxy-m3u8?site_id={site.id}"
+                    f"&url={quote(e.url, safe='')}"
+                )
+                episodes[i] = replace(e, url=proxy)
 
     elapsed = time.monotonic() - start
     logger.info("play_return site=%s episodes=%d elapsed=%.2fs", site.name, len(episodes), elapsed)

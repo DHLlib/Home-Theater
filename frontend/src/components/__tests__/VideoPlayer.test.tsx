@@ -8,6 +8,8 @@ const mockSeek = vi.fn();
 const mockPlay = vi.fn();
 const mockPause = vi.fn();
 const mockDestroy = vi.fn();
+const mockSwitchURL = vi.fn();
+const mockPlayNext = vi.fn();
 
 function createMockPlayer() {
   return {
@@ -18,6 +20,8 @@ function createMockPlayer() {
     play: mockPlay,
     pause: mockPause,
     destroy: mockDestroy,
+    switchURL: mockSwitchURL,
+    playNext: mockPlayNext,
     on: vi.fn(),
   };
 }
@@ -38,6 +42,8 @@ describe("VideoPlayer (xgplayer)", () => {
     mockPlay.mockClear();
     mockPause.mockClear();
     mockDestroy.mockClear();
+    mockSwitchURL.mockClear();
+    mockPlayNext.mockClear();
   });
 
   afterEach(() => {

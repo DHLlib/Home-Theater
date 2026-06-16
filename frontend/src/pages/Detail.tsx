@@ -7,6 +7,7 @@ import { getEpisodes } from "../api/play";
 import { useDetailQuery } from "../hooks/useVideos";
 import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "../components/EpisodeList";
+import PosterImage from "../components/PosterImage";
 import SourcePicker from "../components/SourcePicker";
 import type {
   AggregatedVideo,
@@ -216,25 +217,34 @@ export default function Detail() {
     <div className="col">
       <button
         className="btn"
-        onClick={() => navigate("/")}
+        onClick={() => {
+          if (window.history.length > 1) {
+            navigate(-1);
+          } else {
+            navigate("/");
+          }
+        }}
         style={{ alignSelf: "flex-start", padding: "4px 12px", fontSize: 13, marginBottom: 4 }}
-        aria-label="返回首页"
+        aria-label="返回"
       >
         ← 返回
       </button>
       <div className="row detail-layout" style={{ alignItems: "flex-start" }}>
         <div className="detail-poster-wrap" style={{ width: 220, flexShrink: 0 }}>
-          {(item.poster_url || detail[0]?.poster_url) ? (
-            <img
-              src={item.poster_url || detail[0]?.poster_url || undefined}
-              alt={item.title}
-              style={{ width: "100%", borderRadius: 4, display: "block" }}
-            />
-          ) : (
-            <div className="empty" style={{ height: 300 }}>
-              无封面
-            </div>
-          )}
+          <PosterImage
+            title={item.title}
+            year={item.year}
+            posterUrl={item.poster_url || detail[0]?.poster_url}
+            posterUrls={item.poster_urls}
+            alt={item.title}
+            loading="eager"
+            style={{ width: "100%", minHeight: 300 }}
+            placeholder={
+              <div className="empty" style={{ height: "100%" }}>
+                无封面
+              </div>
+            }
+          />
         </div>
         <div className="col detail-info-wrap" style={{ flex: 1, gap: 8 }}>
           <h2 style={{ margin: 0 }}>

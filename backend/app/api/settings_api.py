@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models import AppConfig
 from app.services import downloader
+from app.services.ad_filter import is_ad_filter_enabled, set_ad_filter_enabled
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -80,3 +81,17 @@ async def set_max_concurrent_downloads(
     # 立即通知运行中的 coordinator
     actual = downloader.set_max_concurrent(value)
     return {"value": actual}
+
+
+@router.get("/ad-filter-enabled")
+async def get_ad_filter_enabled_api():
+    return {"value": await is_ad_filter_enabled()}
+
+
+@router.put("/ad-filter-enabled")
+async def set_ad_filter_enabled_api(body: dict = Body(...)):
+    raw = body.get("value")
+    if not isinstance(raw, bool):
+        raise HTTPException(status_code=400, detail="value must be a boolean")
+    await set_ad_filter_enabled(raw)
+    return {"value": raw}
