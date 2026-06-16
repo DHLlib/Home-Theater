@@ -6,13 +6,16 @@ interface CategoryBarProps {
   sites: Site[];
   activeCategory: string | null;
   onSelect: (category: string | null) => void;
+  variant?: "default" | "inline";
 }
 
 export default function CategoryBar({
   sites,
   activeCategory,
   onSelect,
+  variant = "default",
 }: CategoryBarProps) {
+  const isInline = variant === "inline";
   const [systemTree, setSystemTree] = useState<SystemCategoryTreeItem[]>([]);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,16 +81,19 @@ export default function CategoryBar({
   if (availableCategories.size === 0) return null;
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div
+      className={isInline ? "category-bar category-bar--inline" : "category-bar"}
+      style={{ marginBottom: isInline ? 0 : 16 }}
+    >
       {/* 父类导航栏 */}
       <div
-        className="row"
+        className="row category-bar-parents"
         style={{
-          gap: 0,
-          flexWrap: "wrap",
           alignItems: "center",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          paddingBottom: 1,
+          borderBottom: isInline
+            ? "none"
+            : "1px solid rgba(255,255,255,0.06)",
+          paddingBottom: isInline ? 0 : 1,
         }}
       >
         {/* 全部 */}

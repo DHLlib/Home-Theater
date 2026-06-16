@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getCachedPosterSuccess,
   setCachedPosterSuccess,
@@ -34,6 +34,8 @@ export default function PosterImage({
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const hasFiredRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +61,7 @@ export default function PosterImage({
   useEffect(() => {
     setCurrentIndex(0);
     setLoaded(false);
+    hasFiredRef.current = false;
   }, [candidates.join("|")]);
 
   if (candidates.length === 0 || currentIndex >= candidates.length) {
@@ -79,6 +82,8 @@ export default function PosterImage({
   const src = candidates[currentIndex];
 
   const handleLoad = () => {
+    if (hasFiredRef.current) return;
+    hasFiredRef.current = true;
     setLoaded(true);
     setCachedPosterSuccess(title, year, src);
     onLoaded?.(src);
@@ -88,6 +93,15 @@ export default function PosterImage({
     setLoaded(false);
     setCurrentIndex((prev) => prev + 1);
   };
+
+  useEffect(() => {
+    // 浏览器缓存命中时，图片可能在 onLoad 绑定前已完成加载，
+    // 手动检查 complete 属性避免封面一直显示占位图。
+    const img = imgRef.current;
+    if (img && img.complete && !hasFiredRef.current) {
+      handleLoad();
+    }
+  }, [src]);
 
   return (
     <div
@@ -113,6 +127,7 @@ export default function PosterImage({
         </div>
       )}
       <img
+        ref={imgRef}
         src={src}
         alt={alt}
         loading={loading}
