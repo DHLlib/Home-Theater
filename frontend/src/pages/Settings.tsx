@@ -6,14 +6,6 @@ import {
   updateSite,
   probeSitesBatch,
 } from "../api/sites";
-import {
-  getDownloadRoot,
-  setDownloadRoot,
-  getMaxConcurrentDownloads,
-  setMaxConcurrentDownloads,
-  getAdFilterEnabled,
-  setAdFilterEnabled,
-} from "../api/settings";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
@@ -22,6 +14,7 @@ import SiteHealthDrawer from "../components/SiteHealthDrawer";
 import AddSiteDialog from "../components/AddSiteDialog";
 import BatchSniffDialog from "../components/BatchSniffDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
+import DownloadSettings from "../components/DownloadSettings";
 import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, SiteProbeResult } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
@@ -198,12 +191,6 @@ const inputStyle: React.CSSProperties = {
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<TabKey>("sites");
   const [sites, setSites] = useState<Site[]>([]);
-  const [root, setRoot] = useState("");
-  const [savedRoot, setSavedRoot] = useState<string | null>(null);
-  const [maxConcurrent, setMaxConcurrent] = useState(10);
-  const [savedMaxConcurrent, setSavedMaxConcurrent] = useState(10);
-  const [adFilter, setAdFilter] = useState(false);
-  const [savedAdFilter, setSavedAdFilter] = useState(false);
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
   >({});
@@ -230,18 +217,6 @@ export default function Settings() {
 
   useEffect(() => {
     listSites().then(setSites);
-    getDownloadRoot().then((r) => {
-      setSavedRoot(r);
-      if (r) setRoot(r);
-    });
-    getMaxConcurrentDownloads().then((v) => {
-      setSavedMaxConcurrent(v);
-      setMaxConcurrent(v);
-    });
-    getAdFilterEnabled().then((v) => {
-      setSavedAdFilter(v);
-      setAdFilter(v);
-    });
   }, []);
 
   useEffect(() => {
@@ -352,29 +327,6 @@ export default function Settings() {
       .finally(() => setBatchDetectLoading(false));
   };
 
-  const saveRoot = () => {
-    if (!root.trim()) return;
-    setDownloadRoot(root.trim()).then((r) => setSavedRoot(r.value));
-  };
-
-  const saveMaxConcurrent = () => {
-    const value = Math.max(1, Math.min(50, Math.round(maxConcurrent)));
-    setMaxConcurrentDownloads(value)
-      .then((r) => {
-        setSavedMaxConcurrent(r.value);
-        setMaxConcurrent(r.value);
-      })
-      .catch(() => alert("保存同时下载任务数失败"));
-  };
-
-  const saveAdFilter = () => {
-    setAdFilterEnabled(adFilter)
-      .then((r) => {
-        setSavedAdFilter(r.value);
-        setAdFilter(r.value);
-      })
-      .catch(() => alert("保存去广告设置失败"));
-  };
 
   const rowBaseStyle: React.CSSProperties = {
     display: "flex",
@@ -789,156 +741,7 @@ export default function Settings() {
       )}
 
       {/* 下载设置 */}
-      {activeTab === "download" && (
-        <section
-          style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: 10,
-            padding: 20,
-          }}
-        >
-          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-            <span style={{ color: "var(--primary)" }}>
-              <FolderIcon size={16} />
-            </span>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 16,
-                fontWeight: 600,
-                textShadow: "0 0 12px var(--primary-glow)",
-                letterSpacing: 0.3,
-              }}
-            >
-              下载设置
-            </h3>
-          </div>
-          <div className="col" style={{ gap: 16 }}>
-            <div className="col" style={{ gap: 8 }}>
-              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                下载根目录
-              </label>
-              <div className="row" style={{ gap: 8 }}>
-                <input
-                  type="text"
-                  value={root}
-                  onChange={(e) => setRoot(e.target.value)}
-                  placeholder="例如 D:/Downloads"
-                  style={{
-                    flex: 1,
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--glass-border)",
-                    background: "var(--bg)",
-                    color: "var(--text-primary)",
-                    fontSize: 14,
-                    fontFamily: "inherit",
-                  }}
-                />
-                <button className="btn btn-primary" onClick={saveRoot}>
-                  保存
-                </button>
-              </div>
-              {savedRoot && (
-                <div
-                  className="row"
-                  style={{
-                    gap: 6,
-                    fontSize: 13,
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <CheckIcon size={12} />
-                  当前配置：{savedRoot}
-                </div>
-              )}
-            </div>
-
-            <div className="col" style={{ gap: 8 }}>
-              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                同时下载任务数（1–50）
-              </label>
-              <div className="row" style={{ gap: 8 }}>
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={maxConcurrent}
-                  onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-                  style={{
-                    width: 120,
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--glass-border)",
-                    background: "var(--bg)",
-                    color: "var(--text-primary)",
-                    fontSize: 14,
-                    fontFamily: "inherit",
-                  }}
-                />
-                <button className="btn btn-primary" onClick={saveMaxConcurrent}>
-                  保存
-                </button>
-              </div>
-              <div
-                className="row"
-                style={{
-                  gap: 6,
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <CheckIcon size={12} />
-                当前配置：{savedMaxConcurrent}
-              </div>
-            </div>
-
-            <div className="col" style={{ gap: 8 }}>
-              <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                m3u8 去广告（实验性）
-              </label>
-              <div className="row" style={{ gap: 12, alignItems: "center" }}>
-                <label
-                  className="row"
-                  style={{
-                    gap: 8,
-                    alignItems: "center",
-                    cursor: "pointer",
-                    fontSize: 14,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={adFilter}
-                    onChange={(e) => setAdFilter(e.target.checked)}
-                    style={{ width: 18, height: 18, cursor: "pointer" }}
-                  />
-                  启用后端 playlist 清洗
-                </label>
-                <button
-                  className="btn btn-primary"
-                  onClick={saveAdFilter}
-                  style={{ marginLeft: "auto" }}
-                >
-                  保存
-                </button>
-              </div>
-              <div
-                className="row"
-                style={{
-                  gap: 6,
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <CheckIcon size={12} />
-                当前配置：{savedAdFilter ? "已开启" : "已关闭"}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+      {activeTab === "download" && <DownloadSettings />}
 
       {/* 刮削日志 */}
       {activeTab === "logs" && (

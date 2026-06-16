@@ -905,3 +905,31 @@ maxBufferSize: 500 * 1024 * 1024, // 缓冲大小上限 500MB
 - 调 HLS 缓冲时不能只改时长，也要同步放宽 `maxBufferSize`，否则高清流会先被大小上限拦住。
 - 缓冲越大内存占用越高，移动端/低内存设备上要谨慎。
 
+---
+
+## 2026-06-16：重新设计【下载设置】页面
+
+**需求**：
+用圆角块区分下载设置页面的各个元素，提升深黑影院主题下的视觉层次。
+
+**改动**：
+- 新建 `frontend/src/components/DownloadSettings.tsx`，将下载设置从 `Settings.tsx` 中抽离。
+- 三个设置项分别用圆角卡片承载：
+  1. **下载根目录**：顶部强调线 + 输入框 + 保存按钮 + 当前路径 chip。
+  2. **同时下载任务数**：步进器 + 数字输入 + 可视化进度条 + 当前值 chip。
+  3. **m3u8 去广告**：自定义 toggle 开关 + 保存按钮 + 状态 chip。
+- 卡片使用渐变背景、悬停浮起与边框高亮动效，保持与现有主题一致的玻璃态风格。
+- `Settings.tsx` 移除下载相关 state 与处理函数，改为直接渲染 `<DownloadSettings />`。
+
+**相关文件**：
+- `frontend/src/components/DownloadSettings.tsx`
+- `frontend/src/pages/Settings.tsx`
+
+**验证**：
+- `cd frontend && npm run typecheck` ✅
+- `cd frontend && npm test -- --run` ✅（2 files / 6 tests）
+
+**教训**：
+- 设置页功能多时，按 Tab 拆分为独立组件可降低 `Settings.tsx` 的复杂度。
+- 圆角卡片设计要在统一主题变量（`--bg-elevated`、`--glass-border`、`--primary`）基础上做层次，避免每个卡片风格割裂。
+
