@@ -58,35 +58,198 @@
    ============================================================ */
 
 [data-theme="crimson"] {
+  /* 基底：米色纸感背景 */
+  --bg: #b7ae8f;
+  --bg-elevated: #c9c0a1;
+
+  /* 文字：深褐/黑色，确保在米色上可读 */
+  --text-primary: #1a1812;
+  --text-secondary: #4a4436;
+  --text-muted: #7a7158;
+
+  /* 强调色：绯红 */
   --primary: #f15642;
   --primary-dim: rgba(241, 86, 66, 0.15);
-  --primary-glow: rgba(241, 86, 66, 0.3);
+  --primary-glow: rgba(241, 86, 66, 0.35);
+
+  /* 功能色 */
   --danger: #ff3b3b;
   --danger-dim: rgba(255, 59, 59, 0.15);
+  --warning: #b45309;
+  --success: #2f9e44;
+
+  /* 玻璃/卡片：改用黑色半透明，避免在米色上发白 */
+  --glass-bg: rgba(0, 0, 0, 0.08);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-border-bright: rgba(0, 0, 0, 0.16);
+
+  --card-bg: #d4cbad;
+  --card-bg-hover: #ded5b7;
+  --card-border: rgba(0, 0, 0, 0.1);
+  --card-border-hover: rgba(0, 0, 0, 0.16);
+  --card-shadow-base: 0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --card-shadow-hover: 0 20px 48px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* 按钮：底色改暗、主色按钮改用白字 */
+[data-theme="crimson"] .btn {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="crimson"] .btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.22);
+  color: var(--text-primary);
+}
+
+[data-theme="crimson"] .btn-primary {
+  color: #ffffff;
 }
 
 [data-theme="crimson"] .btn-primary:hover:not(:disabled) {
   background: #ff7a6b;
   border-color: #ff7a6b;
+  color: #ffffff;
   box-shadow: 0 0 12px var(--primary-glow);
+}
+
+[data-theme="crimson"] .btn-danger {
+  color: #ffffff;
 }
 
 [data-theme="crimson"] .btn-danger:hover:not(:disabled) {
   background: #ff7a7a;
   border-color: #ff7a7a;
+  color: #ffffff;
   box-shadow: 0 0 12px rgba(255, 59, 59, 0.35);
 }
 
-[data-theme="crimson"] .toast.success {
-  border-color: rgba(241, 86, 66, 0.3);
+/* 输入框 */
+[data-theme="crimson"] input[type="text"],
+[data-theme="crimson"] input[type="search"],
+[data-theme="crimson"] select,
+[data-theme="crimson"] textarea {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: var(--text-primary);
 }
 
+[data-theme="crimson"] input[type="text"]::placeholder,
+[data-theme="crimson"] input[type="search"]::placeholder,
+[data-theme="crimson"] textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+[data-theme="crimson"] input[type="text"]:focus,
+[data-theme="crimson"] input[type="search"]:focus,
+[data-theme="crimson"] select:focus,
+[data-theme="crimson"] textarea:focus {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+/* 骨架屏 */
+[data-theme="crimson"] .skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 25%,
+    rgba(0, 0, 0, 0.08) 50%,
+    rgba(0, 0, 0, 0.04) 75%
+  );
+}
+
+/* Toast */
+[data-theme="crimson"] .toast.success {
+  border-color: rgba(47, 158, 68, 0.35);
+}
+
+[data-theme="crimson"] .toast.error {
+  border-color: rgba(255, 59, 59, 0.35);
+}
+
+/* 视频卡片 */
+[data-theme="crimson"] .video-card:hover .poster-wrap {
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="crimson"] .video-card .poster-wrap::after {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="crimson"] .video-card:hover .poster-wrap::after {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 40px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="crimson"] .video-card .card-overlay .action-btn {
+  color: #ffffff;
+}
+
+[data-theme="crimson"] .video-card .card-overlay .action-btn.secondary {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--text-primary);
+}
+
+/* 导航与通用控件 */
+[data-theme="crimson"] .nav-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+  border-color: var(--glass-border-bright);
+}
+
+[data-theme="crimson"] .category-dropdown {
+  background: var(--bg-elevated);
+}
+
+[data-theme="crimson"] .category-pill {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="crimson"] .category-pill:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="crimson"] .category-pill.active {
+  color: #ffffff;
+}
+
+[data-theme="crimson"] .progress-bar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="crimson"] .sort-toggle {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="crimson"] .sort-toggle:hover {
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="crimson"] .drawer-link:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="crimson"] .spinner-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* 进度卡片 */
 [data-theme="crimson"] .card-progress:hover {
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(241, 86, 66, 0.12), 0 4px 12px rgba(241, 86, 66, 0.04);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(241, 86, 66, 0.12), 0 4px 12px rgba(241, 86, 66, 0.04);
 }
 
 [data-theme="crimson"] .card-progress .card-shine {
   background: linear-gradient(135deg, rgba(241, 86, 66, 0.05) 0%, transparent 50%);
+}
+
+[data-theme="crimson"] .card-progress .play-badge {
+  color: #ffffff;
+}
+
+[data-theme="crimson"] .card-progress:hover .play-badge {
+  box-shadow: 0 0 16px var(--primary-glow);
 }
 
 [data-theme="crimson"] .spinner {
