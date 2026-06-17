@@ -291,6 +291,10 @@ async def _normalize_episode_suffixes(episodes: list[dict]) -> list[dict]:
 # 公共查询 + 聚合 + 分页
 # ------------------------------------------------------------------
 
+def _normalize_sort(sort: str | None) -> str:
+    return sort if sort in {"updated", "year"} else "updated"
+
+
 async def _query_and_aggregate(
     db: AsyncSession,
     filters: list[tuple[int, int | None]],
@@ -298,6 +302,7 @@ async def _query_and_aggregate(
     mode: str,
     pg: int | None = 1,
     per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
+    sort: str = "updated",
 ) -> AggregatedListResponse:
     """Query VideoCache with filters/keyword, aggregate dedup, and paginate."""
     if not filters:
@@ -317,9 +322,15 @@ async def _query_and_aggregate(
         keyword = wd.strip()
         # ILIKE 搜索：中文友好，无需 tsvector（避免 180 万条数据回填超时）
         query = query.where(VideoCache.title.ilike(f"%{keyword}%"))
-    # 按资源站实际更新时间排序（而非缓存写入时间），避免详情回源或
-    # 增量刷新导致首页顺序抖动。null 值自然排到最后。
-    query = query.order_by(desc(VideoCache.source_updated_at), desc(VideoCache.id))
+    # 按指定字段排序：更新时间（默认）或年份；null 值自然排到最后。
+    if sort == "year":
+        query = query.order_by(
+            VideoCache.year.is_(None).asc(),
+            desc(VideoCache.year),
+            desc(VideoCache.id),
+        )
+    else:
+        query = query.order_by(desc(VideoCache.source_updated_at), desc(VideoCache.id))
 
     # 限制原始记录数，避免全表加载到内存做聚合。
     # 同一视频可能在多站点出现，放大后保证聚合后有足够结果。
@@ -399,14 +410,30 @@ async def _query_and_aggregate(
             bucket[key] = item
             latest_update[key] = lu
 
-    # 按资源站最新更新时间倒序排列（与查询 ORDER BY 一致）
-    aggregated = sorted(
-        bucket.values(),
-        key=lambda item: latest_update.get(
-            (normalize_title(item["title"]), item["year"]), ""
-        ),
-        reverse=True,
-    )
+    # 按请求字段做最终排序，保证同一聚合桶内多来源合并后的顺序正确。
+    if sort == "year":
+        ordered = sorted(
+            bucket.values(),
+            key=lambda item: latest_update.get(
+                (normalize_title(item["title"]), item["year"]), ""
+            ),
+            reverse=True,
+        )
+        aggregated = sorted(
+            ordered,
+            key=lambda item: (
+                item["year"] is None,
+                -(item["year"] or 0),
+            ),
+        )
+    else:
+        aggregated = sorted(
+            bucket.values(),
+            key=lambda item: latest_update.get(
+                (normalize_title(item["title"]), item["year"]), ""
+            ),
+            reverse=True,
+        )
 
     # 聚合后取前 per_page 条即可；原始记录的分页已在查询层面完成
     page_items = aggregated[:per_page]
@@ -450,6 +477,7 @@ async def _query_aggregated_cache(
     pg: int | None = 1,
     per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
     site_id: int | None = None,
+    sort: str = "updated",
 ) -> AggregatedListResponse | None:
     """从中间表 aggregated_videos / aggregated_sources 读取预聚合缓存。
 
@@ -479,11 +507,17 @@ async def _query_aggregated_cache(
         page = pg or 1
         offset = (page - 1) * per_page
 
-        result = await db.execute(
-            base_query.order_by(
-                desc(AggregatedVideoV3.latest_updated_at),
+        if sort == "year":
+            order_by = [
+                AggregatedVideoV3.year.is_(None).asc(),
+                desc(AggregatedVideoV3.year),
                 desc(AggregatedVideoV3.id),
-            )
+            ]
+        else:
+            order_by = [desc(AggregatedVideoV3.latest_updated_at), desc(AggregatedVideoV3.id)]
+
+        result = await db.execute(
+            base_query.order_by(*order_by)
             .limit(per_page * 5)
             .offset(offset)
             .options(selectinload(AggregatedVideoV3.sources_rel))
@@ -562,17 +596,19 @@ async def list_videos(
     fields: str | None = None,
     pg_size: int | None = None,
     site_id: int | None = None,
+    sort: str = "updated",
     db: AsyncSession = Depends(get_db),
 ):
     """从本地 VideoCache 查询并按分类聚合去重。"""
+    sort = _normalize_sort(sort)
     start = time.monotonic()
     is_mobile = _detect_mobile(request)
     per_page = _get_page_size(request, pg_size)
-    logger.info("api_list_videos category=%s pg=%s mode=%s mobile=%s per_page=%s", category, pg, mode, is_mobile, per_page)
+    logger.info("api_list_videos category=%s pg=%s mode=%s sort=%s mobile=%s per_page=%s", category, pg, mode, sort, is_mobile, per_page)
 
     # 无分类 / 无 t / 聚合模式：优先走预聚合缓存表（O(1) 查询）
     if not category and t is None and mode == "aggregated":
-        agg_response = await _query_aggregated_cache(db, pg, per_page, site_id)
+        agg_response = await _query_aggregated_cache(db, pg, per_page, site_id, sort=sort)
         if agg_response is not None:
             # fields 字段过滤
             raw_items = [item.model_dump() for item in agg_response.items]
@@ -619,7 +655,7 @@ async def list_videos(
             # 不指定分类：该站点全部
             filters.append((site.id, None))
 
-    response = await _query_and_aggregate(db, filters, None, mode, pg, per_page)
+    response = await _query_and_aggregate(db, filters, None, mode, pg, per_page, sort=sort)
 
     # fields 字段过滤（AC-023）
     raw_items = [item.model_dump() for item in response.items]
@@ -715,15 +751,17 @@ async def search_videos(
     mode: str = "aggregated",
     fields: str | None = None,
     pg_size: int | None = None,
+    sort: str = "updated",
     db: AsyncSession = Depends(get_db),
 ):
     """本地 VideoCache LIKE 搜索。"""
+    sort = _normalize_sort(sort)
     start = time.monotonic()
     if not wd or not wd.strip():
         raise HTTPException(status_code=400, detail="搜索词不能为空")
 
     per_page = _get_page_size(request, pg_size)
-    logger.info("api_search_videos wd=%s category=%s pg=%s mode=%s per_page=%s", wd, category, pg, mode, per_page)
+    logger.info("api_search_videos wd=%s category=%s pg=%s mode=%s sort=%s per_page=%s", wd, category, pg, mode, sort, per_page)
 
     result = await db.execute(
         select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
@@ -742,7 +780,7 @@ async def search_videos(
         else:
             filters.append((site.id, None))
 
-    response = await _query_and_aggregate(db, filters, wd, mode, pg, per_page)
+    response = await _query_and_aggregate(db, filters, wd, mode, pg, per_page, sort=sort)
 
     # fields 字段过滤（AC-023）
     raw_items = [item.model_dump() for item in response.items]

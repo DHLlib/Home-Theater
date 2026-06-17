@@ -18,7 +18,7 @@ from app.services.ad_filter import is_ad_filter_enabled
 from app.services.m3u8_sanitizer import sanitize_m3u8
 from app.services.parser import parse_episodes
 from app.services.resolver import resolve_share_page
-from app.services.source_client import SourceClient, _safe_int
+from app.services.source_client import SourceClient, _safe_year
 
 router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
@@ -190,7 +190,7 @@ async def get_episodes(
                     site_id=site_id,
                     original_id=original_id,
                     title=item.get("title", ""),
-                    year=_safe_int(item.get("year")),
+                    year=_safe_year(item.get("year")),
                     poster_url=item.get("poster_url"),
                     intro=item.get("intro"),
                     area=item.get("area"),

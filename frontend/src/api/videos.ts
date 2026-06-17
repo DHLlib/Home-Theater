@@ -28,6 +28,7 @@ export const listVideos = (params?: {
   by?: string;
   category?: string;
   mode?: string;
+  sort?: string;
 }) => {
   const qs = new URLSearchParams();
   if (params?.t != null) qs.set("t", String(params.t));
@@ -35,16 +36,18 @@ export const listVideos = (params?: {
   if (params?.by) qs.set("by", params.by);
   if (params?.category) qs.set("category", params.category);
   if (params?.mode) qs.set("mode", params.mode);
+  if (params?.sort) qs.set("sort", params.sort);
   appendDeviceParam(qs);
   return get<AggregatedListResponse>(`/api/videos?${qs}`, 15000);
 };
 
-export const searchVideos = (params: { wd: string; pg?: number; category?: string; mode?: string }) => {
+export const searchVideos = (params: { wd: string; pg?: number; category?: string; mode?: string; sort?: string }) => {
   const qs = new URLSearchParams();
   qs.set("wd", params.wd);
   if (params.pg != null) qs.set("pg", String(params.pg));
   if (params.category) qs.set("category", params.category);
   if (params.mode) qs.set("mode", params.mode);
+  if (params.sort) qs.set("sort", params.sort);
   appendDeviceParam(qs);
   return get<AggregatedListResponse>(`/api/videos/search?${qs}`, 15000);
 };

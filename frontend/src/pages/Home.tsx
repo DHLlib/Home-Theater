@@ -31,6 +31,15 @@ function getLatestUpdatedAt(item: AggregatedVideo): string | null {
   return latest;
 }
 
+function compareByYearDescNullLast(a: AggregatedVideo, b: AggregatedVideo): number {
+  const ya = a.year ?? -Infinity;
+  const yb = b.year ?? -Infinity;
+  if (ya !== yb) return yb - ya;
+  const ta = getLatestUpdatedAt(a) || "";
+  const tb = getLatestUpdatedAt(b) || "";
+  return tb.localeCompare(ta);
+}
+
 /* ===== 主页面 ===== */
 
 export default function Home() {
@@ -41,6 +50,7 @@ export default function Home() {
 
   const wdFromUrl = searchParams.get("wd") || "";
   const activeCategory = searchParams.get("category") || null;
+  const sort = searchParams.get("sort") === "year" ? "year" : "updated";
 
   const { data: sites = [] } = useSitesQuery();
   const { data: recommendedVideos = [], isLoading: recommendedLoading } =
@@ -54,7 +64,7 @@ export default function Home() {
     fetchNextPage,
     refetch,
     isCapped,
-  } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl });
+  } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl, sort });
 
   const videos = useMemo(() => {
     return data?.pages.flat() ?? [];
@@ -74,9 +84,11 @@ export default function Home() {
 
   const allSection = useMemo(() => {
     const featured = new Set(latestSection.map((v) => videoKey(v)));
-    return [...videos]
-      .filter((v) => !featured.has(videoKey(v)))
-      .sort((a, b) => {
+    const list = [...videos].filter((v) => !featured.has(videoKey(v)));
+    if (sort === "year") {
+      list.sort(compareByYearDescNullLast);
+    } else {
+      list.sort((a, b) => {
         const ta = getLatestUpdatedAt(a);
         const tb = getLatestUpdatedAt(b);
         if (!ta && !tb) return 0;
@@ -84,7 +96,9 @@ export default function Home() {
         if (!tb) return -1;
         return tb.localeCompare(ta);
       });
-  }, [videos, latestSection]);
+    }
+    return list;
+  }, [videos, latestSection, sort]);
 
   // 返回顶部按钮显隐
   useEffect(() => {
@@ -365,6 +379,33 @@ export default function Home() {
                   style={{ background: "var(--text-secondary)" }}
                 />
                 全部视频
+                <div style={{ flex: 1 }} />
+                <div className="sort-toggle-group">
+                  <button
+                    className={`sort-toggle${
+                      sort === "updated" ? " active" : ""
+                    }`}
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.delete("sort");
+                      setSearchParams(next, { replace: true });
+                    }}
+                  >
+                    按更新时间
+                  </button>
+                  <button
+                    className={`sort-toggle${
+                      sort === "year" ? " active" : ""
+                    }`}
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.set("sort", "year");
+                      setSearchParams(next, { replace: true });
+                    }}
+                  >
+                    按年份
+                  </button>
+                </div>
               </div>
               {allSection.length === 0 && !isFetchingNextPage && (
                 <div className="empty" style={{ padding: 20 }}>
