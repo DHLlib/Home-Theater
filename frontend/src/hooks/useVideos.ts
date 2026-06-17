@@ -22,7 +22,7 @@ export const queryKeys = {
   sites: ["sites"] as const,
   recommended: ["recommendedVideos"] as const,
   crawlerStatus: ["crawlerStatus"] as const,
-  videosInfinite: (filters: { category?: string | null; wd?: string }) =>
+  videosInfinite: (filters: { category?: string | null; wd?: string; sort?: string }) =>
     ["videos", "infinite", filters] as const,
   search: (wd: string) => ["videos", "search", wd] as const,
   detail: (title: string, year?: number | null) =>
@@ -54,6 +54,7 @@ export function useCrawlerStatusQuery() {
 export function useVideosInfinite(filters: {
   category?: string | null;
   wd?: string;
+  sort?: string;
 }) {
   const wd = filters.wd?.trim() ?? "";
   const query = useInfiniteQuery({
@@ -62,17 +63,20 @@ export function useVideosInfinite(filters: {
       const categoryParam = filters.category
         ? { category: filters.category }
         : {};
+      const sortParam = filters.sort ? { sort: filters.sort } : {};
       const response = wd
         ? await searchVideos({
             wd,
             pg: pageParam,
             mode: "aggregated",
             ...categoryParam,
+            ...sortParam,
           })
         : await listVideos({
             pg: pageParam,
             mode: "aggregated",
             ...categoryParam,
+            ...sortParam,
           });
       return response.items;
     },

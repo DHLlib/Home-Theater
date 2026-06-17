@@ -239,6 +239,7 @@ class AggregatedVideoV3(Base):
     __tablename__ = "aggregated_videos"
     __table_args__ = (
         Index("ix_aggregated_videos_updated", "latest_updated_at"),
+        Index("ix_aggregated_videos_year", "year"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

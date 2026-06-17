@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -173,7 +174,7 @@ class SourceClient:
             "site_name": self.name,
             "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
             "title": raw.get("vod_name") or raw.get("name") or "",
-            "year": _safe_int(raw.get("vod_year") or raw.get("year")),
+            "year": _safe_year(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
             "type": raw.get("type_name") or raw.get("type"),
             "type_id": raw.get("type_id"),
@@ -192,7 +193,7 @@ class SourceClient:
             "site_name": self.name,
             "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
             "title": raw.get("vod_name") or raw.get("name") or "",
-            "year": _safe_int(raw.get("vod_year") or raw.get("year")),
+            "year": _safe_year(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
             "intro": raw.get("vod_content") or raw.get("vod_blurb"),
             "area": raw.get("vod_area"),
@@ -204,13 +205,27 @@ class SourceClient:
         }
 
 
-def _safe_int(v: Any) -> int | None:
+def _safe_year(v: Any) -> int | None:
+    """把资源站返回的年份字段归一化为 4 位年份整数。
+
+    部分站点会把年份拼成 "201717"（yyyy-y-d 或 yyyy-yy），
+    这里先尝试提取前 4 位合法年份；否则回退到完整整数值。
+    """
     if v is None or v == "":
         return None
+    s = str(v).strip()
+    m = re.match(r"(\d{4})", s)
+    if m:
+        year = int(m.group(1))
+        if 1900 <= year <= 2100:
+            return year
     try:
-        return int(str(v).strip())
+        year = int(s)
+        if 1900 <= year <= 2100:
+            return year
     except (TypeError, ValueError):
-        return None
+        pass
+    return None
 
 
 def _convert_play_url(raw: str, from_str: str) -> str:
