@@ -9,6 +9,7 @@ import {
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
+import { useTheme } from "../lib/theme";
 import CategorySettings from "../components/category-settings/CategorySettings";
 import SiteHealthDrawer from "../components/SiteHealthDrawer";
 import AddSiteDialog from "../components/AddSiteDialog";
@@ -168,13 +169,36 @@ function TrashIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-type TabKey = "sites" | "categories" | "download" | "logs";
+function PaletteIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="7" r="2" fill="currentColor" />
+      <circle cx="7" cy="11" r="2" fill="currentColor" />
+      <circle cx="17" cy="11" r="2" fill="currentColor" />
+      <path d="M12 21a5 5 0 0 0 0-10 5 5 0 0 0 0 10z" fill="currentColor" />
+    </svg>
+  );
+}
+
+type TabKey = "sites" | "categories" | "download" | "logs" | "appearance";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载设置", icon: <FolderIcon size={14} /> },
   { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
+  { key: "appearance", label: "外观", icon: <PaletteIcon size={14} /> },
 ];
 
 const inputStyle: React.CSSProperties = {
@@ -189,6 +213,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function Settings() {
+  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<TabKey>("sites");
   const [sites, setSites] = useState<Site[]>([]);
   const [probeResults, setProbeResults] = useState<
@@ -978,6 +1003,50 @@ export default function Settings() {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* 外观设置 */}
+      {activeTab === "appearance" && (
+        <section
+          style={{
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: 10,
+            padding: 20,
+          }}
+        >
+          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+            <span style={{ color: "var(--primary)" }}>
+              <PaletteIcon size={16} />
+            </span>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 600,
+                textShadow: "0 0 12px var(--primary-glow)",
+                letterSpacing: 0.3,
+              }}
+            >
+              主题
+            </h3>
+          </div>
+          <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+            {(["cinema", "crimson"] as const).map((t) => {
+              const active = theme === t;
+              return (
+                <button
+                  key={t}
+                  className={active ? "btn btn-primary" : "btn"}
+                  onClick={() => setTheme(t)}
+                  style={{ flex: 1, minWidth: 120, justifyContent: "center" }}
+                >
+                  {t === "cinema" ? "深黑影院" : "绯红影院"}
+                </button>
+              );
+            })}
+          </div>
         </section>
       )}
 

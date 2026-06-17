@@ -4,6 +4,7 @@ import { router } from "./router";
 import { subscribe, type ToastType } from "./utils/toast";
 import { connectSse, disconnectSse } from "./api/sse";
 import { useState } from "react";
+import { applyTheme, getStoredTheme } from "./lib/theme";
 
 interface ToastItem {
   id: number;
@@ -42,9 +43,9 @@ function PageLoading() {
 
 export default function App() {
   useEffect(() => {
-    // Cinema theme: 强制深黑主题，清除旧主题设置
-    document.documentElement.removeAttribute("data-theme");
+    // 清除旧版主题键，并应用已存储的主题（默认深黑影院）
     localStorage.removeItem("theme");
+    applyTheme(getStoredTheme());
   }, []);
 
   useEffect(() => {
