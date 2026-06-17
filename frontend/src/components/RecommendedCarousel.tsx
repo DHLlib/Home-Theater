@@ -11,11 +11,13 @@ interface RecommendedCarouselProps {
 
 const TRANSITION_DURATION = 0.45;
 const VISIBLE_RADIUS = 3;
+const CLONE_COUNT = VISIBLE_RADIUS;
 
 function getSlideStyle(
   offset: number,
   spacing: number,
-  isMobile: boolean
+  isMobile: boolean,
+  transitionEnabled: boolean
 ): React.CSSProperties {
   const absOffset = Math.abs(offset);
   const baseScale = isMobile ? 0.72 : 1;
@@ -61,7 +63,9 @@ function getSlideStyle(
     opacity,
     zIndex,
     pointerEvents: absOffset > 4 ? "none" : "auto",
-    transition: `transform ${TRANSITION_DURATION}s cubic-bezier(0.4, 0, 0.2, 1), opacity ${TRANSITION_DURATION}s ease`,
+    transition: transitionEnabled
+      ? `transform ${TRANSITION_DURATION}s cubic-bezier(0.4, 0, 0.2, 1), opacity ${TRANSITION_DURATION}s ease`
+      : "none",
   };
 }
 
@@ -70,16 +74,33 @@ export default function RecommendedCarousel({
   loading = false,
   onSelect,
 }: RecommendedCarouselProps) {
-  const [activeIndex, setActiveIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const isMobile = useIsMobile();
   const { width: viewportWidth } = useViewport();
   const containerRef = useRef<HTMLDivElement>(null);
   const wheelLockRef = useRef(false);
+  const resetTimerRef = useRef<number | null>(null);
 
   const displayVideos = useMemo(() => videos.slice(0, 15), [videos]);
 
-  // 容器与 slide 尺寸的响应式计算：容器占满父级宽度，slide 按容器比例缩放
+  // 为无缝循环，前后各复制 VISIBLE_RADIUS 张；列表过短时不需要复制
+  const { loopVideos, startOffset, realCount } = useMemo(() => {
+    const n = displayVideos.length;
+    if (n <= CLONE_COUNT * 2) {
+      return { loopVideos: displayVideos, startOffset: 0, realCount: n };
+    }
+    return {
+      loopVideos: [
+        ...displayVideos.slice(-CLONE_COUNT),
+        ...displayVideos,
+        ...displayVideos.slice(0, CLONE_COUNT),
+      ],
+      startOffset: CLONE_COUNT,
+      realCount: n,
+    };
+  }, [displayVideos]);
+
+  // 容器与 slide 尺寸的响应式计算
   const { imageHeight, spacing, slideWidth } = useMemo(() => {
     const padding = isMobile ? 24 : 64;
     const availableWidth = Math.min(viewportWidth - padding * 2, 1200);
@@ -99,25 +120,67 @@ export default function RecommendedCarousel({
     };
   }, [isMobile, viewportWidth]);
 
-  // 自动轮播：5 秒切换一次，悬停时暂停，到最后一张后循环回第一张
+  const [cursor, setCursor] = useState(startOffset);
+  const [transitionEnabled, setTransitionEnabled] = useState(true);
+
+  // 视频列表变化时重置到真实第一张
   useEffect(() => {
-    if (loading || displayVideos.length <= 1 || isHovered) return;
+    setCursor(startOffset);
+    setTransitionEnabled(true);
+  }, [startOffset]);
+
+  // 真实 active 下标，用于指示器
+  const realActiveIndex = useMemo(() => {
+    if (realCount === 0) return 0;
+    return ((cursor - startOffset) % realCount + realCount) % realCount;
+  }, [cursor, startOffset, realCount]);
+
+  // 进入复制区后，动画结束瞬间无动画跳回对应真实位置，实现无缝循环
+  useEffect(() => {
+    if (realCount === 0 || startOffset === 0) return;
+    let target: number | null = null;
+    if (cursor >= startOffset + realCount) {
+      target = startOffset + (cursor - (startOffset + realCount));
+    } else if (cursor < startOffset) {
+      target = realCount + cursor;
+    }
+    if (target === null) return;
+
+    if (resetTimerRef.current) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = window.setTimeout(() => {
+      setTransitionEnabled(false);
+      setCursor(target!);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setTransitionEnabled(true);
+          resetTimerRef.current = null;
+        });
+      });
+    }, TRANSITION_DURATION * 1000);
+
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, [cursor, realCount, startOffset]);
+
+  // 自动轮播：5 秒向前切换一次，悬停暂停
+  useEffect(() => {
+    if (loading || loopVideos.length <= 1 || isHovered) return;
     const timer = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % displayVideos.length);
+      setCursor((prev) => prev + 1);
     }, 5000);
     return () => clearInterval(timer);
-  }, [loading, displayVideos.length, isHovered]);
+  }, [loading, loopVideos.length, isHovered]);
 
-  // 视频列表变化时重置
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [displayVideos.map((v) => `${v.title}-${v.year}`).join("|")]);
-
-  // 滚轮切换：循环轮播
   const handleWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault();
-      if (wheelLockRef.current || displayVideos.length <= 1) return;
+      if (wheelLockRef.current || loopVideos.length <= 1) return;
 
       const delta = e.deltaY;
       if (Math.abs(delta) < 20) return;
@@ -127,14 +190,9 @@ export default function RecommendedCarousel({
         wheelLockRef.current = false;
       }, TRANSITION_DURATION * 1000);
 
-      setActiveIndex((prev) => {
-        if (delta > 0) {
-          return (prev + 1) % displayVideos.length;
-        }
-        return (prev - 1 + displayVideos.length) % displayVideos.length;
-      });
+      setCursor((prev) => (delta > 0 ? prev + 1 : prev - 1));
     },
-    [displayVideos.length]
+    [loopVideos.length]
   );
 
   useEffect(() => {
@@ -145,22 +203,22 @@ export default function RecommendedCarousel({
   }, [handleWheel]);
 
   const handleClick = (index: number) => {
-    if (index === activeIndex) {
-      onSelect(displayVideos[index]);
+    if (index === cursor) {
+      onSelect(loopVideos[index]);
     } else {
-      setActiveIndex(index);
+      setCursor(index);
     }
   };
 
   const goNext = useCallback(() => {
-    if (displayVideos.length <= 1) return;
-    setActiveIndex((prev) => (prev + 1) % displayVideos.length);
-  }, [displayVideos.length]);
+    if (loopVideos.length <= 1) return;
+    setCursor((prev) => prev + 1);
+  }, [loopVideos.length]);
 
   const goPrev = useCallback(() => {
-    if (displayVideos.length <= 1) return;
-    setActiveIndex((prev) => (prev - 1 + displayVideos.length) % displayVideos.length);
-  }, [displayVideos.length]);
+    if (loopVideos.length <= 1) return;
+    setCursor((prev) => prev - 1);
+  }, [loopVideos.length]);
 
   const showSkeleton = loading || displayVideos.length === 0;
 
@@ -204,12 +262,12 @@ export default function RecommendedCarousel({
             }}
           />
         ) : (
-          displayVideos.map((video, index) => {
-            const offset = index - activeIndex;
+          loopVideos.map((video, index) => {
+            const offset = index - cursor;
             const hasPoster = Boolean(
               video.poster_url || (video.poster_urls && video.poster_urls.length)
             );
-            const style = getSlideStyle(offset, spacing, isMobile);
+            const style = getSlideStyle(offset, spacing, isMobile, transitionEnabled);
             const isVisible = Math.abs(offset) <= VISIBLE_RADIUS;
 
             return (
@@ -309,7 +367,7 @@ export default function RecommendedCarousel({
         )}
 
         {/* 左右切换箭头 */}
-        {!showSkeleton && displayVideos.length > 1 && (
+        {!showSkeleton && loopVideos.length > 1 && (
           <>
             <button
               type="button"
@@ -418,7 +476,7 @@ export default function RecommendedCarousel({
           {displayVideos.map((_, index) => (
             <button
               key={index}
-              onClick={() => setActiveIndex(index)}
+              onClick={() => setCursor(startOffset + index)}
               aria-label={`切换到第 ${index + 1} 张`}
               style={{
                 width: 6,
@@ -428,7 +486,7 @@ export default function RecommendedCarousel({
                 padding: 0,
                 cursor: "pointer",
                 background:
-                  index === activeIndex
+                  index === realActiveIndex
                     ? "var(--primary)"
                     : "rgba(255,255,255,0.25)",
                 transition: "background 0.3s ease",
