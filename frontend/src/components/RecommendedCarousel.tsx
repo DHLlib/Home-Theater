@@ -10,7 +10,7 @@ interface RecommendedCarouselProps {
 }
 
 const TRANSITION_DURATION = 0.45;
-const VISIBLE_RADIUS = 2;
+const VISIBLE_RADIUS = 3;
 
 function getSlideStyle(
   offset: number,
