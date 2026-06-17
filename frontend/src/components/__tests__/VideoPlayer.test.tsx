@@ -10,6 +10,7 @@ const mockPause = vi.fn();
 const mockDestroy = vi.fn();
 const mockSwitchURL = vi.fn();
 const mockPlayNext = vi.fn();
+const mockOnce = vi.fn();
 
 function createMockPlayer() {
   return {
@@ -23,6 +24,8 @@ function createMockPlayer() {
     switchURL: mockSwitchURL,
     playNext: mockPlayNext,
     on: vi.fn(),
+    once: mockOnce,
+    off: vi.fn(),
   };
 }
 
@@ -44,6 +47,7 @@ describe("VideoPlayer (xgplayer)", () => {
     mockDestroy.mockClear();
     mockSwitchURL.mockClear();
     mockPlayNext.mockClear();
+    mockOnce.mockClear();
   });
 
   afterEach(() => {
@@ -83,5 +87,18 @@ describe("VideoPlayer (xgplayer)", () => {
       <VideoPlayer src="http://example.com/video.flv" suffix="flv" />
     );
     expect(screen.getByText(/暂不支持/)).toBeInTheDocument();
+  });
+
+  it("切换 src 时重置播放进度到 0", () => {
+    const { rerender } = render(
+      <VideoPlayer src="http://example.com/a.mp4" suffix="mp4" />
+    );
+    rerender(
+      <VideoPlayer src="http://example.com/b.mp4" suffix="mp4" />
+    );
+
+    expect(mockSwitchURL).toHaveBeenCalledWith("http://example.com/b.mp4");
+    expect(mockSeek).toHaveBeenCalledWith(0);
+    expect(mockOnce).toHaveBeenCalledWith("canplay", expect.any(Function));
   });
 });

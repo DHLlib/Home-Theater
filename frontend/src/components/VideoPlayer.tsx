@@ -82,6 +82,19 @@ function lockMaxQuality(player: Player, timerRef: React.MutableRefObject<number 
   }, 100);
 }
 
+function seekToStart(player: Player) {
+  // 切换源后立即重置一次，若此时新源尚未可播放，
+  // 则在 canplay 事件后再重置一次，确保不继承上一集的进度。
+  player.seek(0);
+  const handleCanPlay = () => {
+    player.seek(0);
+    (player as any).off?.("canplay", handleCanPlay);
+  };
+  if (typeof (player as any).once === "function") {
+    (player as any).once("canplay", handleCanPlay);
+  }
+}
+
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ({ src, suffix = "", autoplay = true, onError, onReady, onEnded }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -256,6 +269,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             autoplay,
           });
         }
+
+        seekToStart(player);
 
         if (isM3u8) {
           lockMaxQuality(player, qualityTimerRef);
