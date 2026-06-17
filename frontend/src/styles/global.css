@@ -53,6 +53,46 @@
   --card-transition: all var(--transition-base);
 }
 
+/* ============================================================
+   === Crimson Theme: 绯红影院 ===
+   ============================================================ */
+
+[data-theme="crimson"] {
+  --primary: #f15642;
+  --primary-dim: rgba(241, 86, 66, 0.15);
+  --primary-glow: rgba(241, 86, 66, 0.3);
+  --danger: #ff3b3b;
+  --danger-dim: rgba(255, 59, 59, 0.15);
+}
+
+[data-theme="crimson"] .btn-primary:hover:not(:disabled) {
+  background: #ff7a6b;
+  border-color: #ff7a6b;
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+[data-theme="crimson"] .btn-danger:hover:not(:disabled) {
+  background: #ff7a7a;
+  border-color: #ff7a7a;
+  box-shadow: 0 0 12px rgba(255, 59, 59, 0.35);
+}
+
+[data-theme="crimson"] .toast.success {
+  border-color: rgba(241, 86, 66, 0.3);
+}
+
+[data-theme="crimson"] .card-progress:hover {
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(241, 86, 66, 0.12), 0 4px 12px rgba(241, 86, 66, 0.04);
+}
+
+[data-theme="crimson"] .card-progress .card-shine {
+  background: linear-gradient(135deg, rgba(241, 86, 66, 0.05) 0%, transparent 50%);
+}
+
+[data-theme="crimson"] .spinner {
+  border-top-color: var(--primary);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
