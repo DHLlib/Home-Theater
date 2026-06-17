@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import BottomNav from "./BottomNav";
 import CategoryBar from "./CategoryBar";
 import { useSitesQuery } from "../hooks/useVideos";
+import { useTheme } from "../lib/theme";
 
 function SearchIcon({ size = 14 }: { size?: number }) {
   return (
@@ -67,6 +68,43 @@ function CloseIcon({ size = 20 }: { size?: number }) {
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
+  );
+}
+
+function ThemeIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="8" r="2" fill="currentColor" />
+      <circle cx="8" cy="13" r="2" fill="currentColor" />
+      <circle cx="16" cy="13" r="2" fill="currentColor" />
+      <path d="M12 21a5 5 0 0 0 0-10 5 5 0 0 0 0 10z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <button
+      type="button"
+      className="nav-menu-btn"
+      title={theme === "cinema" ? "切换为绯红影院" : "切换为深黑影院"}
+      onClick={() => setTheme(theme === "cinema" ? "crimson" : "cinema")}
+      style={{ marginLeft: 8 }}
+    >
+      <ThemeIcon size={18} />
+    </button>
   );
 }
 
@@ -190,6 +228,7 @@ export default function Layout() {
               }}
             />
           </div>
+          <ThemeToggle />
         </form>
       </nav>
 
