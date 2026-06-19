@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { addFavorite } from "../api/favorites";
+import { toggleFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
@@ -11,6 +12,10 @@ export interface VideoCardProps {
   width?: number;
   showOverlay?: boolean;
 }
+
+// 3D 倾斜动效参数（克制版）
+const springValues = { damping: 30, stiffness: 100, mass: 2 };
+const ROTATE_AMPLITUDE = 8;
 
 function HeartIcon({ size = 12, color = "currentColor" }: { size?: number; color?: string }) {
   return (
@@ -65,20 +70,86 @@ function VideoCard({
 }: VideoCardProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const reduceMotion = useReducedMotion();
   const [favorited, setFavorited] = useState(false);
+
+  // 仅桌面端、且用户未要求减少动效时启用 3D 倾斜
+  const tiltEnabled = !isMobile && !reduceMotion;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const rotateX = useSpring(useMotionValue(0), springValues);
+  const rotateY = useSpring(useMotionValue(0), springValues);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left - rect.width / 2;
+    const offsetY = e.clientY - rect.top - rect.height / 2;
+    rotateX.set((offsetY / (rect.height / 2)) * -ROTATE_AMPLITUDE);
+    rotateY.set((offsetX / (rect.width / 2)) * ROTATE_AMPLITUDE);
+  };
+
+  const handleMouseLeave = () => {
+    rotateX.set(0);
+    rotateY.set(0);
+  };
 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
-    addFavorite({
+    toggleFavorite({
       title: item.title,
       year: item.year,
       poster_url: item.poster_url || undefined,
       sources: item.sources,
-    }).then(() => {
-      setFavorited(true);
-      toastSuccess("已收藏");
+    }).then((res) => {
+      setFavorited(res.favorited);
+      toastSuccess(res.favorited ? "已收藏" : "已取消收藏");
     });
   };
+
+  const posterInner = (
+    <>
+      <PosterImage
+        title={item.title}
+        year={item.year}
+        posterUrl={item.poster_url}
+        posterUrls={item.poster_urls}
+        alt={item.title}
+        loading="lazy"
+        placeholder={<PosterPlaceholder />}
+      />
+
+      {/* 海报内底部信息层：标题+年份常驻，源数与操作按钮悬停浮现 */}
+      <div className="card-info">
+        {showOverlay && !isMobile && item.sources.length > 0 && (
+          <div className="card-info-meta">{`${item.sources.length} 个源`}</div>
+        )}
+        <div className="card-info-title">{item.title}</div>
+        {item.year != null && <div className="card-info-year">{item.year}</div>}
+        {showOverlay && !isMobile && (
+          <div className="card-info-actions">
+            <button
+              className="action-btn secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate("/detail", { state: item });
+              }}
+              aria-label={`查看 ${item.title} 详情`}
+            >
+              详情
+            </button>
+            <button
+              className="action-btn secondary"
+              onClick={handleFavorite}
+              aria-label={`收藏 ${item.title}`}
+            >
+              <HeartIcon size={12} color={favorited ? "var(--danger)" : "currentColor"} />
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -105,67 +176,35 @@ function VideoCard({
         }
       }}
     >
-      <div
-        className="poster-wrap"
-        style={{
-          aspectRatio: "2/3",
-          borderRadius: 4,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        <PosterImage
-          title={item.title}
-          year={item.year}
-          posterUrl={item.poster_url}
-          posterUrls={item.poster_urls}
-          alt={item.title}
-          loading="lazy"
-          placeholder={<PosterPlaceholder />}
-        />
-
-        {/* 悬停信息层 */}
-        {showOverlay && !isMobile && (
-          <div className="card-overlay">
-            <div className="card-overlay-content">
-              <div className="meta-line">
-                {item.sources.length > 1
-                  ? `${item.sources.length} 个源`
-                  : item.sources.length === 1
-                  ? "1 个源"
-                  : ""}
-              </div>
-              <div className="action-line">
-                <button
-                  className="action-btn secondary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate("/detail", { state: item });
-                  }}
-                  aria-label={`查看 ${item.title} 详情`}
-                >
-                  详情
-                </button>
-                <button
-                  className="action-btn secondary"
-                  onClick={handleFavorite}
-                  aria-label={`收藏 ${item.title}`}
-                >
-                  <HeartIcon size={12} color={favorited ? "var(--danger)" : "currentColor"} />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <div
-        className="card-title"
-      >
-        {item.title}
-      </div>
-      {item.year && (
-        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-          {item.year}
+      {tiltEnabled ? (
+        <motion.div
+          ref={wrapRef}
+          className="poster-wrap"
+          style={{
+            aspectRatio: "2/3",
+            borderRadius: 4,
+            overflow: "hidden",
+            position: "relative",
+            rotateX,
+            rotateY,
+            transformStyle: "preserve-3d",
+          }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          {posterInner}
+        </motion.div>
+      ) : (
+        <div
+          className="poster-wrap"
+          style={{
+            aspectRatio: "2/3",
+            borderRadius: 4,
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
+          {posterInner}
         </div>
       )}
     </div>
