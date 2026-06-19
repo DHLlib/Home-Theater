@@ -63,3 +63,7 @@ htmlcov/
 # Downloads / runtime data
 backend/data/
 .worktrees/
+
+# 本地保留、不入库的目录
+shared/
+test/
