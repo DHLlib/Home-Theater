@@ -125,7 +125,7 @@ async def _fix_postgres_sequences() -> None:
                 )
                 next_val = max_row.scalar()
                 await conn.execute(
-                    text(f"SELECT setval(:seq_name, :next_val, false)"),
+                    text("SELECT setval(:seq_name, :next_val, false)"),
                     {"seq_name": seq_name, "next_val": next_val},
                 )
                 fixed.append(f"{table.name}({seq_name}={next_val})")

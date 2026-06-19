@@ -296,7 +296,7 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
 
     # 2. 重建 aggregated_sources：通过 (norm_title, year) 回关联 video_cache
     await db.execute(text("SET LOCAL enable_mergejoin = off"))
-    sql_sources = text(f"""
+    sql_sources = text("""
         INSERT INTO aggregated_sources
             (aggregated_video_id, site_id, original_id, site_name, type_name, type_id, remarks, updated_at)
         WITH
