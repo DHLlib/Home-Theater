@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
 import RecommendedCarousel from "../components/RecommendedCarousel";
@@ -99,6 +99,12 @@ export default function Home() {
     }
     return list;
   }, [videos, latestSection, sort]);
+
+  // 稳定的 renderItem 引用，避免每次渲染重建所有 VideoCard 使其 React.memo 失效
+  const renderGridItem = useCallback(
+    (v: AggregatedVideo) => <VideoCard item={v} />,
+    []
+  );
 
   // 返回顶部按钮显隐
   useEffect(() => {
@@ -415,7 +421,7 @@ export default function Home() {
               <VirtualGrid
                 items={allSection}
                 itemKey={videoKey}
-                renderItem={(v) => <VideoCard item={v} />}
+                renderItem={renderGridItem}
                 minItemWidth={160}
                 gap={24}
                 overscan={3}
