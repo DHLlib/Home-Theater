@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 import aiofiles
 import httpx
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import DEFAULT_USER_AGENT
 

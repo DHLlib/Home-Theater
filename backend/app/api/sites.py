@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete, func, desc, Integer, cast
+from sqlalchemy import select, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -15,8 +15,6 @@ from app.schemas import (
     CategoryMapping, CategoryMappingWithPid, CategoryGroup, SiteCategoriesOut,
     SiteCategoriesFetchOut, SiteCategoriesUpdate,
     SiteCreate, SitePatch, BatchProbeItem, BatchProbeResult, BatchProbeResponse,
-    SmartMatchResponse,
-    TemplateApplyResponse, TemplatePreviewResponse,
     SiteProbeResult, ProbeSitesBatchRequest, SiteHealthOut, SiteProbeLogEntry,
 )
 from app.services.health import probe as health_probe

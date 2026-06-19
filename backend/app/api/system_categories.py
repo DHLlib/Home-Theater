@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.videos import _category_filter_cache, _category_filter_cache_ts
 from app.db import get_db
 from app.models import SystemCategory
 from app.schemas import SystemCategoryCreate, SystemCategoryOut, SystemCategoryTreeItem, SystemCategoryUpdate

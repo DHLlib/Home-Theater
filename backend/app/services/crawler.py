@@ -984,7 +984,7 @@ class Crawler:
                 log
                 for log in self._logs
                 if (
-                    (ts := datetime.fromisoformat(log["timestamp"])).replace(tzinfo=timezone.utc)
+                    datetime.fromisoformat(log["timestamp"]).replace(tzinfo=timezone.utc)
                     .astimezone().date() == today
                 )
             ],
@@ -1012,7 +1012,7 @@ class Crawler:
         - 默认每 15 分钟最多计算一次，避免频繁查询
         - 每次计算时追加一个历史快照到 crawler_stats_history
         """
-        from sqlalchemy import func, case
+        from sqlalchemy import case
 
         async with self._db_factory() as db:
             # --- 15 分钟间隔控制 ---
