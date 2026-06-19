@@ -59,6 +59,19 @@ _category_filter_cache_ts: float = 0.0
 _CATEGORY_FILTER_CACHE_TTL = 60  # 秒
 
 
+def invalidate_category_filter_cache() -> None:
+    """立即作废分类过滤缓存。系统分类变更后由 system_categories 调用。
+
+    注意：缓存全局变量定义在本模块，跨模块清缓存必须经由本函数（或模块引用
+    赋值），不能在其它模块用 `global _category_filter_cache` —— 那只会在该
+    模块命名空间新建同名变量，碰不到这里的真正缓存。
+    """
+    global _category_filter_cache, _category_filter_cache_ts
+    _category_filter_cache = None
+    _category_filter_cache_ts = 0.0
+
+
+
 async def _load_category_filter_maps(db: AsyncSession) -> tuple[dict, dict, dict]:
     """加载系统分类和站点分类映射数据用于首页"全部"过滤。
 

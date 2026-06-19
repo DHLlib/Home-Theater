@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.videos import invalidate_category_filter_cache
 from app.db import get_db
 from app.models import SystemCategory
 from app.schemas import SystemCategoryCreate, SystemCategoryOut, SystemCategoryTreeItem, SystemCategoryUpdate
@@ -95,9 +96,7 @@ async def update_system_category(
 
     # 如果 enabled 发生变化，立即使分类过滤缓存失效
     if "enabled" in data:
-        global _category_filter_cache, _category_filter_cache_ts
-        _category_filter_cache = None
-        _category_filter_cache_ts = 0
+        invalidate_category_filter_cache()
 
     for key, value in data.items():
         setattr(cat, key, value)
