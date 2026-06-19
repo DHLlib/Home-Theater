@@ -4,7 +4,7 @@
 1. #EXT-X-CUE-OUT / #EXT-X-CUE-IN 标记区间内的片段视为广告
 2. 片段 URL 匹配常见广告域名/路径黑名单
 3. 被 #EXT-X-DISCONTINUITY 包围且匹配黑名单的片段视为广告
-4. 被 #EXT-X-DISCONTINUITY 隔离的短 pod（总时长/片段数均小）视为广告
+4. 被 #EXT-X-DISCONTINUITY 隔离、且片段时长参差（具备真实广告特征）的短 pod 视为广告
 
 注意：
 - 仅处理 playlist 级别的广告插片；画面烧录广告、前端浮层广告无法去除
@@ -49,6 +49,13 @@ _DEFAULT_AD_PATTERNS = [
 # 基于 discontinuity 的短片段广告 pod 阈值
 _AD_POD_MAX_DURATION = 20.0  # 秒
 _AD_POD_MAX_SEGMENTS = 5
+# 短 pod 内片段时长极差（max-min）下限：真实广告由多段不同素材拼接，时长天然参差；
+# 固定 GOP 的正片切片时长高度一致（极差≈0）。极差超过此值才视为具备广告特征。
+# 代价：gghijk 类「全片均匀切片」站点的广告与正片时长无异，无法被识别（漏删，保护正片不误封）。
+_AD_POD_MIN_DURATION_SPREAD = 1.0  # 秒
+# 短 pod 启发式累计删除时长占全片比例上限。超过则几乎可断定是误判
+# （真实广告 pod 只占视频一小部分），整体放弃该启发式，只保留 CUE/URL 黑名单的明确删除。
+_AD_POD_MAX_TOTAL_RATIO = 0.5
 
 
 @dataclass
@@ -132,12 +139,27 @@ def _mark_short_discontinuity_pods(
     segments: list[_Segment],
     max_duration: float = _AD_POD_MAX_DURATION,
     max_segments: int = _AD_POD_MAX_SEGMENTS,
+    min_duration_spread: float = _AD_POD_MIN_DURATION_SPREAD,
+    max_total_ratio: float = _AD_POD_MAX_TOTAL_RATIO,
 ) -> None:
-    """被 #EXT-X-DISCONTINUITY 隔离、且总时长/片段数都很小的整组片段视为广告 pod。
+    """被 #EXT-X-DISCONTINUITY 隔离、且具备真实广告特征的整组片段视为广告 pod。
 
     只处理「后一段也有 #EXT-X-DISCONTINUITY」的 bounded pod，避免把尾部短内容误删。
     扫描时无论是否命中都一次性跳过整个 block，保证 O(n)。
+
+    广告特征判据：pod 总时长 ≤max_duration、片段数 ≤max_segments，且片段时长极差
+    （max-min）> min_duration_spread。真实广告由多段不同素材拼接，时长天然参差；
+    固定 GOP 的正片切片时长高度一致（极差≈0），不会被误判。代价是「全片均匀切片」
+    的站点广告与正片时长无异，无法靠本启发式识别（漏删，换取正片不被误封）。
+
+    熔断保护：先收集全部候选 pod 并累计其时长，若累计删除时长占全片比例超过
+    max_total_ratio，几乎可断定是误判（真实广告 pod 只占视频一小部分），整体放弃
+    本启发式的删除，只保留 CUE/URL 黑名单已标记的明确广告。
     """
+    candidates: list[tuple[int, int]] = []  # 命中的 (start, end) 闭区间
+    candidate_duration = 0.0
+    total_duration = sum(s.duration for s in segments)
+
     i = 0
     n = len(segments)
     while i < n:
@@ -157,11 +179,30 @@ def _mark_short_discontinuity_pods(
 
         block_len = j - i + 1
         if bounded and total <= max_duration and block_len <= max_segments:
-            for k in range(i, j + 1):
-                segments[k].is_ad = True
+            durations = [segments[k].duration for k in range(i, j + 1)]
+            spread = max(durations) - min(durations)
+            # 片段时长参差（极差超阈值）才视为具备广告特征
+            if block_len >= 2 and spread > min_duration_spread:
+                candidates.append((i, j))
+                candidate_duration += total
 
         # 跳转到 block 之后，不再回头检查 block 内部
         i = j + 1
+
+    if not candidates:
+        return
+
+    if total_duration > 0 and candidate_duration / total_duration > max_total_ratio:
+        logger.warning(
+            "m3u8_sanitize 短 pod 启发式删除占比 %.0f%% 超过阈值 %.0f%%，放弃该规则删除（疑似误判）",
+            candidate_duration / total_duration * 100,
+            max_total_ratio * 100,
+        )
+        return
+
+    for start, end in candidates:
+        for k in range(start, end + 1):
+            segments[k].is_ad = True
 
 
 def _mark_ad_segments(
