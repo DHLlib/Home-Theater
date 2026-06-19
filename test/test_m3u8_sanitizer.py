@@ -179,8 +179,12 @@ seg8.ts
 
 
 @pytest.mark.asyncio
-async def test_short_discontinuity_pod_removed_gghijk_style():
-    """gghijk 站点：大量 2 秒 discontinuity block，短 pod 删除、长 pod 保留。"""
+async def test_uniform_slice_pods_not_removed_gghijk_style():
+    """gghijk 站点：全片均匀 2 秒切片，广告 pod 与正片时长无异（极差≈0）。
+
+    新判据要求 pod 内片段时长参差（极差 > 1.0s）才视为广告特征，故这类站点的
+    discontinuity 短 pod 不再被删——换取「全片均匀切片」的正片绝不被误封。
+    """
     text = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:2
@@ -207,22 +211,6 @@ b5.ts
 c1.ts
 #EXTINF:2.000000,
 c2.ts
-#EXTINF:2.000000,
-c3.ts
-#EXTINF:2.000000,
-c4.ts
-#EXTINF:2.000000,
-c5.ts
-#EXTINF:2.000000,
-c6.ts
-#EXTINF:2.000000,
-c7.ts
-#EXTINF:2.000000,
-c8.ts
-#EXTINF:2.000000,
-c9.ts
-#EXTINF:2.000000,
-c10.ts
 #EXT-X-DISCONTINUITY
 #EXTINF:2.000000,
 d1.ts
@@ -236,16 +224,51 @@ e1.ts
     result = await sanitize_m3u8_text(
         text, "https://cdn.example.com/video/mixed.m3u8", site_id=1
     )
-    # b 块 5 段 10s、d 块 2 段 4s，均有后续 discontinuity，应删除
-    for seg in ("b1.ts", "b2.ts", "b3.ts", "b4.ts", "b5.ts", "d1.ts", "d2.ts"):
-        assert seg not in result
-    # c 块 10 段 20s，超过 max_segments=6，保留
-    assert "c1.ts" in result
-    assert "c10.ts" in result
-    # 开头无 discontinuity 的 a 块保留
-    assert "a1.ts" in result
-    # 尾部无后续 discontinuity 的 e 块保留，避免误删
-    assert "e1.ts" in result
+    # 均匀切片：所有片段时长一致，无广告特征，全部保留
+    for seg in ("a1.ts", "a2.ts", "a3.ts", "b1.ts", "b2.ts", "b3.ts", "b4.ts",
+                "b5.ts", "c1.ts", "c2.ts", "d1.ts", "d2.ts", "e1.ts"):
+        assert seg in result
+
+
+@pytest.mark.asyncio
+async def test_short_pod_circuit_breaker_keeps_segments_when_over_ratio():
+    """短 pod 启发式删除占比超过阈值（50%）时熔断，整体放弃删除，避免误删整集。
+
+    构造：b/c/d 三个被 discontinuity 隔离的短 pod，各 2 段、时长 1s+5s（极差 4s
+    > 1.0s，具备广告特征），且后续仍有 discontinuity（bounded），均是删除候选；
+    尾部 e 块 1 段无后续 discontinuity（unbounded），本就保留。
+    候选总时长 b+c+d = 18s / 全片 19s ≈ 95% > 50% → 熔断，候选全部保留。
+    """
+    text = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:5
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-DISCONTINUITY
+#EXTINF:1.000000,
+b1.ts
+#EXTINF:5.000000,
+b2.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:1.000000,
+c1.ts
+#EXTINF:5.000000,
+c2.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:1.000000,
+d1.ts
+#EXTINF:5.000000,
+d2.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:1.000000,
+e1.ts
+#EXT-X-ENDLIST
+"""
+    result = await sanitize_m3u8_text(
+        text, "https://cdn.example.com/video/mixed.m3u8", site_id=1
+    )
+    # 熔断生效：所有候选短 pod 片段都应保留
+    for seg in ("b1.ts", "b2.ts", "c1.ts", "c2.ts", "d1.ts", "d2.ts", "e1.ts"):
+        assert seg in result
 
 
 @pytest.mark.asyncio
