@@ -94,8 +94,9 @@ async def update_system_category(
         if not parent:
             raise HTTPException(status_code=404, detail="父分类不存在")
 
-    # 如果 enabled 发生变化，立即使分类过滤缓存失效
-    if "enabled" in data:
+    # 名称/父子关系/启用状态变更都会让分类过滤缓存的
+    # system_by_name / system_by_id / enabled 判定过期，立即作废
+    if data.keys() & {"enabled", "name", "parent_id"}:
         invalidate_category_filter_cache()
 
     for key, value in data.items():
@@ -124,5 +125,7 @@ async def delete_system_category(cat_id: int, db: AsyncSession = Depends(get_db)
     await delete_children(cat_id)
     await db.delete(cat)
     await db.commit()
+    # 删除分类会让缓存的 system_by_name / system_by_id 过期，立即作废
+    invalidate_category_filter_cache()
     logger.info("system_category_deleted id=%d name=%s", cat_id, cat.name)
     return {"ok": True}
