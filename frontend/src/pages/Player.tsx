@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { getEpisodes, getSources } from "../api/play";
 import { getProgress, upsertProgress } from "../api/progress";
-import VideoPlayer from "../components/VideoPlayer";
 import type { VideoPlayerHandle } from "../components/VideoPlayer";
 import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useIsMobile } from "../hooks/useViewport";
 import OnboardingHint from "../components/OnboardingHint";
 import type { Episode, PlayProgress, PlaySource } from "../types";
+
+// 按需加载播放器：xgplayer + xgplayer-hls.js 体积较大，仅进播放页时才加载
+const VideoPlayer = lazy(() => import("../components/VideoPlayer"));
 
 export default function Player() {
   const location = useLocation();
@@ -369,14 +371,16 @@ export default function Player() {
       {/* 左侧：播放器 + 控制条 */}
       <div className="player-main" ref={playerContainerRef}>
         <div className={`player-video-wrap ${isSimulatedFullscreen ? "simulated-fullscreen" : ""} ${isFakeLandscape ? "fake-landscape" : ""}`}>
-          <VideoPlayer
-            ref={playerRef}
-            src={current?.url || ""}
-            suffix={current?.suffix || ""}
-            autoplay
-            onError={() => {}}
-            onEnded={handleEnded}
-          />
+          <Suspense fallback={<div className="spinner" style={{ margin: "auto" }} />}>
+            <VideoPlayer
+              ref={playerRef}
+              src={current?.url || ""}
+              suffix={current?.suffix || ""}
+              autoplay
+              onError={() => {}}
+              onEnded={handleEnded}
+            />
+          </Suspense>
         </div>
 
         <div

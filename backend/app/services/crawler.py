@@ -787,6 +787,26 @@ class Crawler:
     # 批量 upsert（减少事务开销）
     # ------------------------------------------------------------------
 
+    async def _execute_upsert_with_retry(self, db: AsyncSession, stmt, label: str) -> bool:
+        """执行 upsert 语句并提交，带重试。失败时回滚并退避重试，最终失败记 error 返回 False。
+
+        统一大/小批写入路径的异常处理：单批失败不再向上抛（不阻断后续批次），
+        而是收敛为日志 + False；调用方据此跳过 commit 成功后的让出/淘汰逻辑。
+        """
+        for attempt in range(RETRY_MAX_ATTEMPTS):
+            try:
+                await db.execute(stmt)
+                await db.commit()
+                return True
+            except Exception:
+                await db.rollback()
+                if attempt < RETRY_MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
+                    continue
+                logger.error("批量写入最终失败 %s", label)
+                return False
+        return False
+
     async def _batch_upsert_list_fields(self, db: AsyncSession, entries: list[dict]) -> set[str]:
         affected: set[str] = set()
         if not entries:
@@ -797,33 +817,30 @@ class Crawler:
                 affected.add(nt)
         batch_size = 2000
         if len(entries) >= batch_size:
+            total_batches = (len(entries) + batch_size - 1) // batch_size
             for i in range(0, len(entries), batch_size):
                 batch = entries[i : i + batch_size]
-                try:
-                    stmt = insert_cls(VideoCache).values(batch)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=["site_id", "original_id"],
-                        set_={
-                            "title": stmt.excluded.title,
-                            "norm_title": stmt.excluded.norm_title,
-                            "year": stmt.excluded.year,
-                            "type_id": stmt.excluded.type_id,
-                            "type_name": stmt.excluded.type_name,
-                            "remarks": stmt.excluded.remarks,
-                            "play_from": stmt.excluded.play_from,
-                            "source_updated_at": stmt.excluded.source_updated_at,
-                            "cached_at": stmt.excluded.cached_at,
-                        },
-                    )
-                    await db.execute(stmt)
-                    await db.commit()
+                stmt = insert_cls(VideoCache).values(batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["site_id", "original_id"],
+                    set_={
+                        "title": stmt.excluded.title,
+                        "norm_title": stmt.excluded.norm_title,
+                        "year": stmt.excluded.year,
+                        "type_id": stmt.excluded.type_id,
+                        "type_name": stmt.excluded.type_name,
+                        "remarks": stmt.excluded.remarks,
+                        "play_from": stmt.excluded.play_from,
+                        "source_updated_at": stmt.excluded.source_updated_at,
+                        "cached_at": stmt.excluded.cached_at,
+                    },
+                )
+                ok = await self._execute_upsert_with_retry(
+                    db, stmt, f"列表字段 batch={i // batch_size + 1}/{total_batches}"
+                )
+                if ok:
                     await self._evict_if_overflow(db)
                     await asyncio.sleep(0)
-                except Exception:
-                    logger.exception(
-                        "列表字段批量写入失败 batch=%d/%d", i // batch_size + 1,
-                        (len(entries) + batch_size - 1) // batch_size
-                    )
             return affected
         stmt = insert_cls(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
@@ -840,11 +857,11 @@ class Crawler:
                 "cached_at": stmt.excluded.cached_at,
             },
         )
-        await db.execute(stmt)
-        await db.commit()
-        await self._evict_if_overflow(db)
-        # 主动让出，避免刮削任务独占事件循环
-        await asyncio.sleep(0)
+        ok = await self._execute_upsert_with_retry(db, stmt, "列表字段单批")
+        if ok:
+            await self._evict_if_overflow(db)
+            # 主动让出，避免刮削任务独占事件循环
+            await asyncio.sleep(0)
         return affected
 
     async def _batch_upsert_detail_fields(self, db: AsyncSession, entries: list[dict]) -> set[str]:
@@ -857,41 +874,38 @@ class Crawler:
                 affected.add(nt)
         batch_size = 2000
         if len(entries) >= batch_size:
+            total_batches = (len(entries) + batch_size - 1) // batch_size
             for i in range(0, len(entries), batch_size):
                 batch = entries[i : i + batch_size]
-                try:
-                    stmt = insert_cls(VideoCache).values(batch)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=["site_id", "original_id"],
-                        set_={
-                            "title": stmt.excluded.title,
-                            "norm_title": stmt.excluded.norm_title,
-                            "year": stmt.excluded.year,
-                            "poster_url": stmt.excluded.poster_url,
-                            "intro": stmt.excluded.intro,
-                            "area": stmt.excluded.area,
-                            "actors": stmt.excluded.actors,
-                            "director": stmt.excluded.director,
-                            "play_url_raw": stmt.excluded.play_url_raw,
-                            "has_detail": stmt.excluded.has_detail,
-                            # 保留 list 阶段分类信息（videolist 不返回 type_id）
-                            "type_id": stmt.excluded.type_id,
-                            "type_name": stmt.excluded.type_name,
-                            # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
-                            # 未返回 updated_at 时将其刷为 None
-                            "cached_at": stmt.excluded.cached_at,
-                        },
-                    )
-                    await db.execute(stmt)
-                    await db.commit()
+                stmt = insert_cls(VideoCache).values(batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["site_id", "original_id"],
+                    set_={
+                        "title": stmt.excluded.title,
+                        "norm_title": stmt.excluded.norm_title,
+                        "year": stmt.excluded.year,
+                        "poster_url": stmt.excluded.poster_url,
+                        "intro": stmt.excluded.intro,
+                        "area": stmt.excluded.area,
+                        "actors": stmt.excluded.actors,
+                        "director": stmt.excluded.director,
+                        "play_url_raw": stmt.excluded.play_url_raw,
+                        "has_detail": stmt.excluded.has_detail,
+                        # 保留 list 阶段分类信息（videolist 不返回 type_id）
+                        "type_id": stmt.excluded.type_id,
+                        "type_name": stmt.excluded.type_name,
+                        # 不覆盖 source_updated_at：list 阶段已写入，避免 videolist
+                        # 未返回 updated_at 时将其刷为 None
+                        "cached_at": stmt.excluded.cached_at,
+                    },
+                )
+                # 单 batch 失败不阻断后续批次
+                ok = await self._execute_upsert_with_retry(
+                    db, stmt, f"详情字段 batch={i // batch_size + 1}/{total_batches}"
+                )
+                if ok:
                     await self._evict_if_overflow(db)
                     await asyncio.sleep(0)
-                except Exception:
-                    logger.exception(
-                        "详情字段批量写入失败 batch=%d/%d", i // batch_size + 1,
-                        (len(entries) + batch_size - 1) // batch_size
-                    )
-                    # 单 batch 失败不阻断后续批次
             return affected
         stmt = insert_cls(VideoCache).values(entries)
         stmt = stmt.on_conflict_do_update(
@@ -915,11 +929,11 @@ class Crawler:
                 "cached_at": stmt.excluded.cached_at,
             },
         )
-        await db.execute(stmt)
-        await db.commit()
-        await self._evict_if_overflow(db)
-        # 主动让出，避免刮削任务独占事件循环
-        await asyncio.sleep(0)
+        ok = await self._execute_upsert_with_retry(db, stmt, "详情字段单批")
+        if ok:
+            await self._evict_if_overflow(db)
+            # 主动让出，避免刮削任务独占事件循环
+            await asyncio.sleep(0)
         return affected
 
     # ------------------------------------------------------------------

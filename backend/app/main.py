@@ -137,12 +137,40 @@ async def _fix_postgres_sequences() -> None:
         logger.info("PostgreSQL 自增序列无需同步")
 
 
+async def _ensure_pg_trgm_indexes() -> None:
+    """为搜索的 ILIKE 查询创建 pg_trgm GIN 索引（仅 PostgreSQL）。
+
+    搜索走 VideoCache.title.ilike('%kw%')，前置通配在大表上必然全表扫描；
+    pg_trgm + GIN 索引能让 PG 自动加速该模式。DDL 幂等，启动时执行一次即可。
+    """
+    if "postgresql" not in settings.database_url.lower():
+        return
+
+    from sqlalchemy import text
+    from app.db import engine
+
+    logger = logging.getLogger(__name__)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_video_cache_title_trgm "
+                    "ON video_cache USING gin (title gin_trgm_ops)"
+                )
+            )
+        logger.info("pg_trgm 标题索引已就绪")
+    except Exception as exc:
+        logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     await check_db_connection()
     await init_db()
     await _fix_postgres_sequences()
+    await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)
         await migrate_video_cache_norm_title(db)

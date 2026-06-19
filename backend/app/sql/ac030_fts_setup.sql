@@ -19,6 +19,10 @@ END $$;
 CREATE INDEX IF NOT EXISTS ix_video_cache_search_vector
     ON video_cache USING GIN (search_vector);
 
+-- 3b. 标题 trgm GIN 索引：加速搜索的 title ILIKE '%kw%' 前置通配查询
+CREATE INDEX IF NOT EXISTS ix_video_cache_title_trgm
+    ON video_cache USING GIN (title gin_trgm_ops);
+
 -- 4. 辅助函数：动态选择 tsvector 配置
 --    若 'chinese' 配置存在则使用，否则降级到 'simple'
 CREATE OR REPLACE FUNCTION _ht_ts_config()
