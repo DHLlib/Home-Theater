@@ -28,8 +28,8 @@
 - **日志分类**：按模块路由到独立日志文件（api/source/crawler/download）
 - **深黑影院主题（v2.1）**：强制深黑基底、Cinzel + Noto Sans SC 字体、液态玻璃导航、页面转场动画、海报悬停光晕
 - **性能优化**：
-  - 后端：下载批量 commit、物化视图预聚合、PostgreSQL 连接池、刮削并发控制
-  - 前端：IndexedDB 3 秒超时保护、API AbortController 超时、请求去重/并发限制
+  - 后端：下载批量 commit、物化视图预聚合、PostgreSQL 连接池、刮削并发控制、搜索 pg_trgm GIN 索引（启动时自动建，加速 title 模糊匹配）、刮削批量写入重试（指数退避，单批失败不阻断后续）
+  - 前端：IndexedDB 3 秒超时保护、API AbortController 超时、请求去重/并发限制、播放器按需加载（xgplayer 仅进播放页时加载）、列表卡片 memo 化
 
 ---
 
@@ -372,6 +372,7 @@ Home Theater/
 | `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000` | 后端生产 |
 | `cd frontend && npm run dev` | 前端开发 |
 | `cd frontend && npm run build` | 前端构建（产物由 FastAPI 托管） |
+| `cd backend && pip install -e ".[dev]" && pytest` | 后端测试（pytest，需测试库 `home_theater_test`） |
 | `.\start.ps1` | Windows 一键启动（生产模式） |
 | `.\start.ps1 -Dev` | Windows 一键启动（开发模式） |
 | `.\stop.ps1` | Windows 一键停止 |
