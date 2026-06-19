@@ -767,6 +767,56 @@ ok = await refresh_aggregated_view(db, affected_norm_titles=to_refresh)
 
 ---
 
+## 30. 模型/类型漏导入 —— 运行时 NameError 潜伏 + 坏类型注解
+
+**症状**：
+ruff 静态检查报出两处 `F821 Undefined name`，但服务平时运行正常：
+- `app/api/videos.py:495` 使用 `AggregatedSource`，全文件却从未导入它。
+- `app/services/downloader.py:57,981` 函数签名用 `AsyncSession` 做类型注解，却未导入。
+
+**原因**：
+1. `videos.py` 的 `select(AggregatedSource...)` 只在 `site_id is not None` 分支执行 —— 这是个不常走的路径，平时测不到，但只要触发就 **`NameError` 崩溃**。模型 `AggregatedSource` 真实存在于 `models.py:259`，纯属 `from app.models import (...)` 导入块漏写。
+2. `downloader.py` 文件头有 `from __future__ import annotations`，注解被延迟为字符串、不在运行时求值，所以漏导入 `AsyncSession` 平时不报错；但类型检查器解析注解时就会失败，IDE/类型提示是坏的。
+
+**解决**：
+两处都补齐导入即可：
+- `videos.py` models 导入块加入 `AggregatedSource`。
+- `downloader.py` 加 `from sqlalchemy.ext.asyncio import AsyncSession`。
+
+**教训**：
+- `from __future__ import annotations` 会掩盖注解里的漏导入，运行时不炸不代表正确。
+- 冷门分支（`if x is not None:` 这类）的 `NameError` 靠手测很难发现，**静态检查（ruff `--select F`）是唯一可靠的早期拦截**。项目无 CI lint 时，重构后手动跑一次 `ruff check app --select F` 成本极低，能直接抓出这类潜伏问题。
+
+---
+
+## 31. 首页下拉到底回弹 / 重复视频 —— 预聚合分页 offset 与扫描窗口步长不匹配
+
+**症状**：Ctrl+F5 冷加载后，首页下拉到底自动回弹到顶部，连续 4 次，第 5 次才稳。Console 同时刷出大量 `Encountered two children with the same key`（如 `后门-1960`、`黑江与江间-2026`），警告均发生在 `fetchNextPage` 调用栈内。
+
+**排查过程**：先怀疑前端虚拟列表 `useWindowVirtualizer` 缺 `scrollMargin`（容器 `offsetTop=990` 未传给虚拟器）。加临时日志复现后发现：滚动过程本身平滑、`scrollY` 顺利到达 `maxScroll`，**没有**在滚动中回弹；duplicate-key 警告才是真凶，且全部发生在到底触发 `fetchNextPage` 之后。`scrollMargin` 缺失只造成行定位偏差，不引发回弹。
+
+**根因**：`backend/app/api/videos.py` 的 `_query_aggregated_cache` 中，扫描窗口放大 5 倍用于分类禁用过滤缓冲（`limit(per_page*5)`），但 `offset` 只按 `per_page` 步进：
+```python
+offset = (page - 1) * per_page          # 步长 per_page
+query.limit(per_page * 5).offset(offset) # 窗口宽 per_page*5
+```
+相邻页 `[offset, offset+5*per_page)` 重叠 `4*per_page` 条 → 第 2 页重发第 1 页大部分项 → 前端 `pages.flat()` 出现重复 key。重复数据导致 React 重挂节点 + 文档高度抖动 → 浏览器把 scrollY 钳回顶部 = 回弹。重复堆叠很快逼近内存封顶 `MAX_INFINITE_ITEMS` 或 offset 越界返回空页 → `getNextPageParam` 返回 undefined → 不再 fetch → 第 5 次不再回弹。
+
+**解决**：让 offset 与扫描窗口同步步进，并去掉把输出截断到 per_page 的 `break`（截断会丢弃窗口内剩余行却不前进 offset，正是错位之源），使页与页严格不重叠：
+```python
+scan_window = per_page * 5
+offset = (page - 1) * scan_window
+query.limit(scan_window).offset(offset)
+# 不再 if len(items) >= per_page: break
+```
+
+**教训**：
+- 分页放大窗口（为过滤/去重预留缓冲）时，**offset 必须按放大后的窗口步长前进**，不能按"输出条数"前进，否则页间重叠。这是与 #20（首页排序抖动）同源的"分页一致性"问题。
+- "下拉回弹"未必是滚动/虚拟列表 bug。先用日志确认回弹发生的**时机**（滚动中 vs fetch 后），再定位——本例真凶是数据层重复，不是渲染层。
+- React 的 `duplicate key` 警告是数据重复的强信号，出现在 `fetchNextPage` 栈里即指向分页接口跨页返回重复。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -798,3 +848,5 @@ ok = await refresh_aggregated_view(db, affected_norm_titles=to_refresh)
 | 不支持播放、格式、dytt | #27 新站点播放格式兼容 |
 | ffmpeg、m3u8、合并 | #28 ffmpeg 是可选依赖 |
 | 删除站点、重建、聚合 | #29 删除站点后聚合中间表又被全量重建 |
+| NameError、F821、漏导入、annotations | #30 模型/类型漏导入 |
+| 回弹、下拉到底、duplicate key、重复视频 | #31 预聚合分页 offset 错位 |
