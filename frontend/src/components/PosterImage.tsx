@@ -64,21 +64,6 @@ export default function PosterImage({
     hasFiredRef.current = false;
   }, [candidates.join("|")]);
 
-  if (candidates.length === 0 || currentIndex >= candidates.length) {
-    onExhausted?.();
-    if (placeholder) {
-      return (
-        <div
-          className={className}
-          style={{ width: "100%", height: "100%", ...style }}
-        >
-          {placeholder}
-        </div>
-      );
-    }
-    return null;
-  }
-
   const src = candidates[currentIndex];
 
   const handleLoad = () => {
@@ -97,11 +82,29 @@ export default function PosterImage({
   useEffect(() => {
     // 浏览器缓存命中时，图片可能在 onLoad 绑定前已完成加载，
     // 手动检查 complete 属性避免封面一直显示占位图。
+    // 注意：本 effect 必须无条件调用（不能放在下方早期 return 之后），
+    // 否则候选图全部失败、currentIndex 越界触发早期 return 时，
+    // 本次渲染的 hook 数会比上次少 → React #300（见 lessons-learned #32）。
     const img = imgRef.current;
     if (img && img.complete && !hasFiredRef.current) {
       handleLoad();
     }
   }, [src]);
+
+  if (candidates.length === 0 || currentIndex >= candidates.length) {
+    onExhausted?.();
+    if (placeholder) {
+      return (
+        <div
+          className={className}
+          style={{ width: "100%", height: "100%", ...style }}
+        >
+          {placeholder}
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div

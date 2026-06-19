@@ -817,6 +817,24 @@ query.limit(scan_window).offset(offset)
 
 ---
 
+## 32. 进播放页白屏崩溃 —— React #300：早期 return 后还有 useEffect
+
+**症状**：生产构建（`npm run build` + FastAPI 静态托管）下，点击视频进播放页时整页崩溃，显示 react-router 兜底页 `Unexpected Application Error!`，错误 `Minified React error #300`。开发模式（`npm run dev`）不复现。栈帧全在压缩后的 `react-vendor`（`nu`/`oa`/`Cd`...），看不出组件。
+
+**排查过程**：先解码 #300 = "Rendered fewer hooks than expected. This may be caused by an accidental early return statement."（两次渲染 hook 数不一致）。排除多份 React 实例（`npm ls react` 全 deduped 18.3.1）。逐一审 Player 依赖链（`Player.tsx`/`useFullscreen`/`VideoPlayer`/`useIsMobile`/`App`/`router`）hooks 均规范，未中。卡点是**生产构建默认无 sourcemap**，minified 栈帧无法还原。临时给 `vite.config.ts` 加 `build.sourcemap: true` 重新构建，浏览器 Console 栈帧立刻点名 `PosterImage.tsx:94`（`handleError` 里 `setCurrentIndex`）。
+
+**根因**：`PosterImage.tsx` 在 hooks 中间夹了**早期 return**——`if (candidates.length === 0 || currentIndex >= candidates.length) return placeholder` 之后还有一个 `useEffect`（检查 `img.complete`）。正常路径渲染 9 个 hook；当所有候选封面加载失败（生产环境外链封面 `dytt-img.com`/`ddmf.net` 大量 `ERR_CONNECTION_TIMED_OUT`），`handleError` 把 `currentIndex` 自增到 `>= candidates.length`，重渲染命中早期 return，只跑了 8 个 hook → 比上次少 1 个 → #300。dev 不崩是因加载时序/缓存不同，没稳定走到候选耗尽这条路径。
+
+**解决**：把早期 return 之后的 `useEffect`（连同它依赖的 `src`/`handleLoad`/`handleError`）整体上移到早期 return **之前**，保证所有 hook 每次渲染都无条件、同序执行。effect 内部已有 `if (img && img.complete && ...)` 防护，早期 return 场景下 `imgRef` 为 null 自然跳过，行为不变。
+
+**教训**：
+- **hooks 必须全部在任何 `return` 之前无条件调用**。条件渲染的早期 return 只能放在所有 hook 之后；需要条件逻辑就放进 effect 内部，不要把 hook 留在 return 下方。
+- **这类 bug 常只在生产暴露**：触发它需要走到某条罕见渲染路径（本例是封面全部失败），dev 下时序不同往往碰不到。
+- **定位 minified React 报错的第一步是拿 sourcemap**：临时 `build.sourcemap: true` 重新构建，浏览器即可还原到真实文件行号——比逐文件盲读 hooks 高效得多。诊断完记得还原该临时配置。
+- 外链封面失败是常态（资源站图床不稳），任何"按候选列表逐个 fallback"的组件都要确保 fallback 耗尽时不破坏 hook 顺序。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -850,3 +868,4 @@ query.limit(scan_window).offset(offset)
 | 删除站点、重建、聚合 | #29 删除站点后聚合中间表又被全量重建 |
 | NameError、F821、漏导入、annotations | #30 模型/类型漏导入 |
 | 回弹、下拉到底、duplicate key、重复视频 | #31 预聚合分页 offset 错位 |
+| React error #300、白屏、播放页崩溃、hooks、sourcemap | #32 早期 return 后还有 useEffect |
