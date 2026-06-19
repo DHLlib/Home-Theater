@@ -2,10 +2,10 @@ import asyncio
 import logging
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, desc, func, or_, select, text
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +14,7 @@ from app.db import get_db
 from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.models import (
     _utcnow,
+    AggregatedSource,
     AggregatedVideo as AggregatedVideoMV,
     AggregatedVideoV3,
     AppConfig,
@@ -505,7 +506,10 @@ async def _query_aggregated_cache(
             return None
 
         page = pg or 1
-        offset = (page - 1) * per_page
+        # 扫描窗口放大 5 倍用于分类禁用过滤的缓冲；offset 必须按同一窗口步进，
+        # 否则相邻页 [offset, offset+window) 大面积重叠 → 跨页返回重复视频。
+        scan_window = per_page * 5
+        offset = (page - 1) * scan_window
 
         if sort == "year":
             order_by = [
@@ -518,7 +522,7 @@ async def _query_aggregated_cache(
 
         result = await db.execute(
             base_query.order_by(*order_by)
-            .limit(per_page * 5)
+            .limit(scan_window)
             .offset(offset)
             .options(selectinload(AggregatedVideoV3.sources_rel))
         )
@@ -559,8 +563,6 @@ async def _query_aggregated_cache(
                     source_count=len(sources),
                 )
             )
-            if len(items) >= per_page:
-                break
 
         response = AggregatedListResponse(items=items, failed_sources=[])
         await _enrich_poster_urls(db, response.items)
@@ -1089,7 +1091,6 @@ async def crawler_stats(db: AsyncSession = Depends(get_db)) -> CrawlerStatsRespo
     """返回刮削统计数据。优先读预计算缓存（O(1)），缓存不存在则实时计算。"""
     import json
 
-    from app.models import AppConfig
 
     STATS_KEY = "crawler_stats"
 

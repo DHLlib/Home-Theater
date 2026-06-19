@@ -25,6 +25,7 @@ export default function VirtualGrid<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(1);
   const [gap, setGap] = useState(fallbackGap);
+  const [scrollMargin, setScrollMargin] = useState(0);
 
   // 监听容器宽度，动态计算列数；同时读取 CSS 中实际生效的 gap
   useEffect(() => {
@@ -41,11 +42,16 @@ export default function VirtualGrid<T>({
       );
       setColumnCount(count);
       setGap(computedGap);
+      // 容器相对文档顶部的偏移，作为 window 虚拟器的 scrollMargin 基准
+      setScrollMargin(rect.top + window.scrollY);
     };
 
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    // 上方内容（轮播/「最新更新」封面懒加载）高度变化会改变容器在文档中的位置，
+    // 但不改变容器自身尺寸，ResizeObserver 观察容器捕获不到，需额外观察 body。
+    ro.observe(document.body);
     return () => ro.disconnect();
   }, [minItemWidth, fallbackGap]);
 
@@ -54,10 +60,11 @@ export default function VirtualGrid<T>({
   const virtualizer = useWindowVirtualizer({
     count: rowCount,
     estimateSize: () => {
-      // 粗略估算：海报 2:3 + 两行文字，实际行高会通过 measureElement 修正
-      return minItemWidth * 1.6 + 60;
+      // 粗略估算：海报 2:3（高≈列宽×1.5）+ 行底间距，实际行高由 measureElement 修正
+      return minItemWidth * 1.5 + gap;
     },
     overscan,
+    scrollMargin,
   });
 
   const virtualRows = virtualizer.getVirtualItems();
@@ -88,10 +95,11 @@ export default function VirtualGrid<T>({
                 top: 0,
                 left: 0,
                 width: "100%",
-                transform: `translateY(${virtualRow.start}px)`,
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
                 display: "grid",
                 gridTemplateColumns: `repeat(${columnCount}, 1fr)`,
                 gap,
+                paddingBottom: gap,
               }}
             >
               {rowItems.map((item) => (
