@@ -479,10 +479,16 @@ async def _query_aggregated_cache(
     per_page: int = DEFAULT_DESKTOP_PAGE_SIZE,
     site_id: int | None = None,
     sort: str = "updated",
+    category: str | None = None,
+    fallback_category: str | None = None,
+    sites: list[Site] | None = None,
 ) -> AggregatedListResponse | None:
     """从中间表 aggregated_videos / aggregated_sources 读取预聚合缓存。
 
     若表为空（首次启动未初始化），返回 None 让调用方 fallback。
+
+    当 category 非空时，按各站点该分类的 (site_id, type_id) 过滤；所有站点都
+    无该分类映射时返回空响应（非 None），避免误触发 fallback 到实时聚合路径。
     """
     try:
         # 加载分类禁用映射（缓存 60 秒）
@@ -499,6 +505,32 @@ async def _query_aggregated_cache(
             )
             base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
             count_query = count_query.where(AggregatedVideoV3.id.in_(subq))
+
+        # 分类过滤：把统一分类名解析为各站点的 (site_id, type_id) 对，
+        # 子分类无映射时回退父分类（与 list_videos 实时路径逻辑一致）
+        if category:
+            cat_filters: list[tuple[int, int | str]] = []
+            for site in sites or []:
+                remote_cats = await _resolve_remote_categories(db, site, category)
+                if not remote_cats and fallback_category:
+                    remote_cats = await _resolve_remote_categories(db, site, fallback_category)
+                for rid in remote_cats:
+                    tid = int(rid) if isinstance(rid, str) and rid.isdigit() else rid
+                    cat_filters.append((site.id, tid))
+            # 所有站点都无该分类映射 → 空结果（不 fallback 到实时路径）
+            if not cat_filters:
+                return AggregatedListResponse(items=[], failed_sources=[])
+            conds = [
+                (AggregatedSource.site_id == sid) & (AggregatedSource.type_id == tid)
+                for sid, tid in cat_filters
+            ]
+            cat_subq = (
+                select(AggregatedSource.aggregated_video_id)
+                .where(or_(*conds))
+                .subquery()
+            )
+            base_query = base_query.where(AggregatedVideoV3.id.in_(cat_subq))
+            count_query = count_query.where(AggregatedVideoV3.id.in_(cat_subq))
 
         count_result = await db.execute(count_query)
         count = count_result.scalar_one()
@@ -608,19 +640,6 @@ async def list_videos(
     per_page = _get_page_size(request, pg_size)
     logger.info("api_list_videos category=%s pg=%s mode=%s sort=%s mobile=%s per_page=%s", category, pg, mode, sort, is_mobile, per_page)
 
-    # 无分类 / 无 t / 聚合模式：优先走预聚合缓存表（O(1) 查询）
-    if not category and t is None and mode == "aggregated":
-        agg_response = await _query_aggregated_cache(db, pg, per_page, site_id, sort=sort)
-        if agg_response is not None:
-            # fields 字段过滤
-            raw_items = [item.model_dump() for item in agg_response.items]
-            filtered = _filter_fields(raw_items, fields)
-            agg_response.items = [AggregatedVideo(**item) for item in filtered]
-            elapsed = time.monotonic() - start
-            logger.info("api_list_videos_agg items=%d elapsed=%.3fs", len(agg_response.items), elapsed)
-            return agg_response
-        # 预聚合表为空（首次启动未初始化），fallback 到原路径
-
     result = await db.execute(
         select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
     )
@@ -638,6 +657,23 @@ async def list_videos(
                 select(SystemCategory.name).where(SystemCategory.id == parent_id)
             )
             fallback_category = parent_name_result.scalar_one_or_none()
+
+    # 聚合模式 + 无 t：优先走预聚合缓存表（O(1) 查询），含分类场景。
+    # 在"已聚合"的表上分页，从根上不重不漏；分类则按 (site_id, type_id) 过滤。
+    if t is None and mode == "aggregated":
+        agg_response = await _query_aggregated_cache(
+            db, pg, per_page, site_id, sort=sort,
+            category=category, fallback_category=fallback_category, sites=sites,
+        )
+        if agg_response is not None:
+            # fields 字段过滤
+            raw_items = [item.model_dump() for item in agg_response.items]
+            filtered = _filter_fields(raw_items, fields)
+            agg_response.items = [AggregatedVideo(**item) for item in filtered]
+            elapsed = time.monotonic() - start
+            logger.info("api_list_videos_agg items=%d elapsed=%.3fs", len(agg_response.items), elapsed)
+            return agg_response
+        # 预聚合表为空（首次启动未初始化），fallback 到原实时路径
 
     # 构建 (site_id, type_id) 过滤条件
     filters = []
