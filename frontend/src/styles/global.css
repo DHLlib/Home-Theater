@@ -30,6 +30,10 @@
   --glass-border: rgba(255, 255, 255, 0.06);
   --glass-border-bright: rgba(255, 255, 255, 0.1);
 
+  /* === 按钮底色（随主题切换，深黑模式贴近纯黑，靠描边区分） === */
+  --btn-bg: transparent;
+  --btn-bg-hover: rgba(255, 255, 255, 0.1);
+
   /* === 层级系统 === */
   --z-toast: 2000;
   --z-modal: 1000;
@@ -83,6 +87,10 @@
   --glass-border: rgba(0, 0, 0, 0.1);
   --glass-border-bright: rgba(0, 0, 0, 0.16);
 
+  /* 按钮底色：米色背景上用黑色半透明 */
+  --btn-bg: rgba(0, 0, 0, 0.05);
+  --btn-bg-hover: rgba(0, 0, 0, 0.08);
+
   --card-bg: #d4cbad;
   --card-bg-hover: #ded5b7;
   --card-border: rgba(0, 0, 0, 0.1);
@@ -92,12 +100,7 @@
 }
 
 /* 按钮：底色改暗、主色按钮改用白字 */
-[data-theme="crimson"] .btn {
-  background: rgba(0, 0, 0, 0.05);
-}
-
 [data-theme="crimson"] .btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.08);
   border-color: rgba(0, 0, 0, 0.22);
   color: var(--text-primary);
 }
@@ -309,7 +312,7 @@ textarea,
   padding: 8px 20px;
   border-radius: 4px;
   border: 1px solid var(--glass-border-bright);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--btn-bg);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 13px;
@@ -324,7 +327,7 @@ textarea,
 }
 
 .btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--btn-bg-hover);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--text-primary);
 }
@@ -630,7 +633,7 @@ nav.top-nav::after {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 260px;
+  width: min(260px, 80vw);
   background: var(--bg-elevated);
   border-right: 1px solid var(--glass-border);
   display: flex;
@@ -1152,8 +1155,8 @@ textarea:focus {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  min-width: 280px;
-  max-width: 480px;
+  min-width: min(280px, calc(100vw - 24px));
+  max-width: min(480px, calc(100vw - 24px));
   padding: 12px 14px;
   background: rgba(0, 0, 0, 1);
   backdrop-filter: blur(20px) saturate(1.2);
@@ -1228,7 +1231,7 @@ textarea:focus {
 
 .player-video-wrap {
   flex: 1;
-  min-height: 0;
+  min-height: 200px;
   background: #000;
   border-radius: 4px;
   overflow: hidden;
