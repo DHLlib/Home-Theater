@@ -3,6 +3,8 @@ import type { Favorite, FavoriteIn } from "../types";
 
 export const addFavorite = (body: FavoriteIn) =>
   post<Favorite>("/api/favorites", body);
+export const toggleFavorite = (body: FavoriteIn) =>
+  post<{ favorited: boolean; id: number | null }>("/api/favorites/toggle", body);
 export const listFavorites = () => get<Favorite[]>("/api/favorites");
 export const removeFavorite = (id: number) =>
   del<{ ok: boolean }>(`/api/favorites/${id}`);
