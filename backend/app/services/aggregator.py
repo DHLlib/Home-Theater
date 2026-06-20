@@ -28,11 +28,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _is_postgres(db: AsyncSession) -> bool:
-    """判断当前数据库是否为 PostgreSQL。"""
-    return "postgresql" in settings.database_url.lower()
-
-
 def normalize_title(title: str) -> str:
     if title is None:
         return ""
@@ -361,170 +356,6 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
     return True
 
 
-async def _rebuild_aggregated_tables_python(db: AsyncSession) -> bool:
-    """SQLite / 通用路径：Python 流式聚合，按 norm_title 首字符分区控制内存。"""
-    await _clear_aggregated_tables(db)
-
-    # 加载站点名称用于来源反规范化
-    site_result = await db.execute(select(Site.id, Site.name))
-    site_name_map: dict[int, str | None] = {r.id: r.name for r in site_result.all()}
-
-    # 1. 先全局统计 year 频率（轻量，仅 Counter）
-    year_counter: dict[str, Counter] = {}
-    result = await db.stream(
-        select(VideoCache.title, VideoCache.year).order_by(VideoCache.id)
-    )
-    async for row in result.scalars():
-        norm = normalize_title(row.title)
-        if norm not in year_counter:
-            year_counter[norm] = Counter()
-        if row.year is not None:
-            year_counter[norm][row.year] += 1
-    await result.close()
-
-    def _backfilled_year(norm: str) -> int | None:
-        c = year_counter.get(norm)
-        return c.most_common(1)[0][0] if c else None
-
-    # 2. 按 norm_title 首字符分区聚合写入
-    #    中文字符：按 Unicode 码点分 16 个桶
-    def _partition(norm: str) -> int:
-        if not norm:
-            return 0
-        return ord(norm[0]) % 16
-
-    agg_table = AggregatedVideoV3.__table__
-    src_table = AggregatedSource.__table__
-    now = _utcnow()
-
-    for part in range(16):
-        bucket: dict[tuple[str, int | None], dict] = {}
-        latest_update: dict[tuple[str, int | None], str] = {}
-
-        result = await db.stream(
-            select(VideoCache).order_by(VideoCache.id)
-        )
-        async for row in result.scalars():
-            norm = normalize_title(row.title)
-            if _partition(norm) != part:
-                continue
-
-            year = row.year
-            key = (norm, year)
-            if key not in bucket:
-                bucket[key] = {
-                    "title": row.title,
-                    "year": year,
-                    "poster_url": row.poster_url,
-                    "sources": [],
-                }
-                latest_update[key] = row.source_updated_at or ""
-            else:
-                if row.source_updated_at and row.source_updated_at > latest_update[key]:
-                    latest_update[key] = row.source_updated_at
-                if not bucket[key]["poster_url"] and row.poster_url:
-                    bucket[key]["poster_url"] = row.poster_url
-
-            bucket[key]["sources"].append({
-                "site_id": row.site_id,
-                "site_name": site_name_map.get(row.site_id),
-                "original_id": row.original_id,
-                "type": row.type_name,
-                "type_id": row.type_id,
-                "remarks": row.remarks,
-                "updated_at": row.source_updated_at,
-            })
-        await result.close()
-
-        # 回填 year=None
-        null_keys = [k for k in bucket if k[1] is None]
-        for key in null_keys:
-            norm = key[0]
-            item = bucket.pop(key)
-            lu = latest_update.pop(key)
-            best_year = _backfilled_year(norm)
-            if best_year is not None:
-                new_key = (norm, best_year)
-                if new_key not in bucket:
-                    bucket[new_key] = {
-                        "title": item["title"],
-                        "year": best_year,
-                        "poster_url": item["poster_url"],
-                        "sources": [],
-                    }
-                    latest_update[new_key] = lu
-                else:
-                    if lu > latest_update.get(new_key, ""):
-                        latest_update[new_key] = lu
-                    if not bucket[new_key]["poster_url"] and item["poster_url"]:
-                        bucket[new_key]["poster_url"] = item["poster_url"]
-                bucket[new_key]["sources"].extend(item["sources"])
-            else:
-                bucket[key] = item
-                latest_update[key] = lu
-
-        # 写入 aggregated_videos
-        sorted_items = sorted(
-            bucket.items(),
-            key=lambda kv: latest_update.get(kv[0], ""),
-            reverse=True,
-        )
-
-        id_map: dict[tuple[str, int | None], int] = {}
-        for i in range(0, len(sorted_items), _INSERT_BATCH):
-            batch = sorted_items[i : i + _INSERT_BATCH]
-            video_rows = []
-            for (norm, year), item in batch:
-                video_rows.append({
-                    "title": item["title"],
-                    "year": item["year"],
-                    "poster_url": item["poster_url"],
-                    "norm_title": norm,
-                    "latest_updated_at": latest_update.get((norm, year)),
-                    "source_count": len(item["sources"]),
-                    "cached_at": now,
-                })
-            await db.execute(agg_table.insert(), video_rows)
-            await db.commit()
-
-            # 取回 id
-            norms = list({norm for (norm, _), _ in batch})
-            rows = await db.execute(
-                select(AggregatedVideoV3.id, AggregatedVideoV3.norm_title, AggregatedVideoV3.year)
-                .where(AggregatedVideoV3.norm_title.in_(norms))
-            )
-            for r in rows.all():
-                id_map[(r.norm_title, r.year)] = r.id
-
-        # 写入 sources
-        source_rows = []
-        for (norm, year), item in sorted_items:
-            vid = id_map.get((norm, year))
-            if vid is None:
-                continue
-            for s in item["sources"]:
-                source_rows.append({
-                    "aggregated_video_id": vid,
-                    "site_id": s["site_id"],
-                    "original_id": s["original_id"],
-                    "site_name": s.get("site_name"),
-                    "type_name": s.get("type"),
-                    "type_id": s.get("type_id"),
-                    "remarks": s.get("remarks"),
-                    "updated_at": s.get("updated_at"),
-                })
-                if len(source_rows) >= _INSERT_BATCH:
-                    await db.execute(src_table.insert(), source_rows)
-                    await db.commit()
-                    source_rows = []
-        if source_rows:
-            await db.execute(src_table.insert(), source_rows)
-            await db.commit()
-
-        logger.info("聚合中间表分区 %d/16 完成", part + 1)
-
-    return True
-
 
 async def incrementally_update_aggregated_tables(
     db: AsyncSession, affected_norm_titles: set[str]
@@ -694,17 +525,11 @@ async def incrementally_update_aggregated_tables(
 
 
 async def rebuild_aggregated_tables(db: AsyncSession) -> bool:
-    """全量重建 aggregated_videos / aggregated_sources 中间表。
-
-    PostgreSQL 使用 INSERT ... SELECT CTE 优化；SQLite 使用 Python 分区聚合。
-    """
+    """全量重建 aggregated_videos / aggregated_sources 中间表（PostgreSQL 路径）。"""
     try:
         logger.info("开始重建聚合中间表...")
 
-        if _is_postgres(db):
-            ok = await _rebuild_aggregated_tables_pg(db)
-        else:
-            ok = await _rebuild_aggregated_tables_python(db)
+        ok = await _rebuild_aggregated_tables_pg(db)
 
         if ok:
             logger.info("聚合中间表重建完成")

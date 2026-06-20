@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+
 # ATDD: REFACTOR-DB-001 — 数据库引擎迁移（SQLite → PostgreSQL）
 
 ## 场景一：启动时连接到 PostgreSQL

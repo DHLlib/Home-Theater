@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # AC-032: PostgreSQL LISTEN/NOTIFY 事件推送架构设计
 
 ## 1. 设计目标

@@ -1,7 +1,7 @@
 """下载功能端到端逻辑模拟。
 
 流程：
-1. 初始化 SQLite 内存数据库 + 本地 HTTP 文件服务
+1. 初始化独立 PostgreSQL 沙箱库 + 本地 HTTP 文件服务
 2. 创建模拟资源站
 3. 创建直链下载任务 + m3u8 下载任务
 4. 启动并执行下载
@@ -9,6 +9,9 @@
 6. 暂停 / 继续
 7. 删除任务并清理文件
 8. 验证数据库与磁盘清理
+
+环境要求：本地 PostgreSQL 已存在名为 `home_theater_sim` 的数据库；
+可通过 `DATABASE_URL` 环境变量覆盖。
 """
 from __future__ import annotations
 
@@ -22,9 +25,11 @@ import time
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
-# 在导入 app 模块前设置环境变量，确保使用独立 SQLite 与临时下载目录
+# 在导入 app 模块前设置环境变量，确保使用独立 PostgreSQL 沙箱库与临时下载目录
 _TMPDIR = tempfile.mkdtemp(prefix="ht_download_sim_")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TMPDIR}/sim.db"
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://localhost:5432/home_theater_sim"
+)
 os.environ["DEFAULT_DOWNLOAD_ROOT"] = str(Path(_TMPDIR) / "downloads")
 os.environ["LOG_LEVEL"] = "WARNING"
 
@@ -35,32 +40,34 @@ from app.db import async_session_factory
 from app.models import Base, DownloadTask, Site
 from app.services import downloader
 
-# 屏蔽 PostgreSQL NOTIFY，避免 SQLite 模拟时连接报错
-_downloader_notify = downloader.notify_sender.send
-
-
-async def _noop_send(channel, event):
-    return
-
-
-downloader.notify_sender.send = _noop_send
-
-
 _PORT = 18081
 _SERVER: HTTPServer | None = None
 
 
 async def _init_sim_db() -> None:
-    """只创建模拟所需的表，跳过 PostgreSQL 专用物化视图。"""
+    """只创建模拟所需的表，跳过 PostgreSQL 专用物化视图与触发器。"""
     from app.db import engine
 
     async with engine.begin() as conn:
         def create_tables(sync_conn):
-            for name in ("sites", "download_tasks"):
+            for name in ("app_config", "sites", "download_tasks"):
                 table = Base.metadata.tables[name]
                 table.create(sync_conn, checkfirst=True)
 
         await conn.run_sync(create_tables)
+
+
+async def _cleanup_sim_db() -> None:
+    """模拟结束后清理创建的业务表。"""
+    from app.db import engine
+
+    async with engine.begin() as conn:
+        def drop_tables(sync_conn):
+            for name in ("download_tasks", "sites", "app_config"):
+                table = Base.metadata.tables[name]
+                table.drop(sync_conn, checkfirst=True)
+
+        await conn.run_sync(drop_tables)
 
 
 def _start_http_server(root: str, port: int = _PORT) -> HTTPServer:
@@ -438,6 +445,11 @@ async def main() -> int:
     finally:
         if _SERVER:
             _SERVER.shutdown()
+        try:
+            await _cleanup_sim_db()
+            print("\n沙箱库业务表已清理")
+        except Exception as exc:
+            print(f"\n⚠️ 沙箱库业务表清理失败（通常不影响下一次运行）: {exc}")
         shutil.rmtree(_TMPDIR, ignore_errors=True)
 
 

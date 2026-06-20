@@ -18,7 +18,7 @@
 - **数据完整性**：站点删除时级联清理关联数据，支持手动/每日定时批量补全缺失的 videolist 详情
 - **分类映射**：将各站点的子分类映射到统一的层级系统分类，支持禁用/启用
 - **本地聚合数据库**：后台自动刮削资源站数据到 VideoCache，首页/搜索纯本地查询
-- **预聚合缓存**：PostgreSQL 物化视图（MATERIALIZED VIEW）/ SQLite 双缓冲表，首页查询从 ~8s 降至 ~26ms
+- **预聚合缓存**：`AggregatedVideoV3` + `AggregatedSource` 预聚合中间表（PostgreSQL），首页查询从 ~8s 降至 ~26ms
 - **刮削器**：首次启动自动全量刮削，日常 5 分钟检测增量更新，每日 04:00 自动全量补 videolist，状态持久化
 - **播放器格式兼容**：支持 M3U8/MP4/WebM，自动归一化 dytt/xlyun/155m3u8 等后缀
 - **移动端适配**：响应式布局、手势操作、全屏适配（含夸克浏览器兼容）
@@ -40,14 +40,14 @@
 | 后端 | Python 3.13, FastAPI, httpx, SQLAlchemy(async), asyncpg |
 | 前端 | React 18, Vite, TypeScript, react-router-dom, framer-motion |
 | 播放器 | xgplayer v3 + xgplayer-hls.js |
-| 数据库 | SQLite（默认）/ PostgreSQL 16+（可选） |
+| 数据库 | PostgreSQL 16+ |
 | 部署 | uvicorn + FastAPI 静态托管前端构建产物 / Docker |
 
 ---
 
-## 部署前置：PostgreSQL 安装与配置（可选）
+## 部署前置：PostgreSQL 安装与配置
 
-SQLite 为项目默认数据库，个人本机使用无需额外安装。如需使用 PostgreSQL 获得更高性能（特别是大数据量首页聚合），按以下流程安装配置。
+本分支已完全 PostgreSQL 化，不再保留 SQLite 路径。部署前必须先安装并初始化 PostgreSQL。
 
 ### 系统要求
 
@@ -196,7 +196,7 @@ psql postgresql://home_theater:your_password@localhost:5432/home_theater -c "SEL
 
 - Python 3.11+（推荐 3.13）
 - Node.js 18+ 及 npm
-- 数据库：SQLite 为默认零配置方案；PostgreSQL 16+ 为可选高性能方案（见上方【部署前置】）
+- 数据库：PostgreSQL 16+（必需）
 - **ffmpeg（可选）**：用于 m3u8 下载后的 TS 片段合并为 MP4；未安装时会自动降级为直接字节拼接，部分编码可能不兼容
 
 ### 1. 配置环境变量
@@ -209,11 +209,8 @@ copy .env.example .env
 
 编辑 `.env`：
 ```env
-# PostgreSQL（推荐用于大数据量）
+# PostgreSQL（必需）
 DATABASE_URL=postgresql+asyncpg://home_theater:your_password@localhost:5432/home_theater
-
-# 或 SQLite（零配置，适合个人本机使用）
-# DATABASE_URL=sqlite+aiosqlite:///data/app.db
 
 PORT=8000
 LOG_LEVEL=INFO

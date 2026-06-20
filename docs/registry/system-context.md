@@ -1,7 +1,7 @@
 # System Context — Home Theater v0.1.0
 
 **最后更新**: 2026-06-05（Sprint-006 完成）  
-**环境**: Python 3.13, FastAPI, React 18, Vite, SQLite, xgplayer v3
+**环境**: Python 3.13, FastAPI, React 18, Vite, PostgreSQL, xgplayer v3
 
 ---
 

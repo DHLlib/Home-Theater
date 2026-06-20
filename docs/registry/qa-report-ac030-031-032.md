@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # QA Report: AC-030 + AC-031 + AC-032
 
 **Date:** 2026-06-09

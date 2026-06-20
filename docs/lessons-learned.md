@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # 错题本 — Home Theater 项目踩坑记录
 
 > 遇到异常时，优先从本文档中搜索相似症状，再尝试新方案。
@@ -181,7 +183,7 @@ git init
 
 ---
 
-## 11. 数据库列缺失导致后端启动崩溃
+## 11. 数据库列缺失导致后端启动崩溃（已 PG 化，仅作历史参考）
 
 **症状**：`scheduler.py` 报错 `sqlite3.OperationalError: no such column: sites.auto_disabled_at`。
 
@@ -352,7 +354,7 @@ for data in sources:
 
 ---
 
-## 18. 下载任务卡顿：数据库事务过于频繁
+## 18. 下载任务卡顿：数据库事务过于频繁（已 PG 化，仅作历史参考）
 
 **症状**：下载大文件时，进度更新明显卡顿，CPU 占用不高但 IO 等待时间长。
 
@@ -478,7 +480,7 @@ site_map = {sid: name for sid, name in sites_result.all()}
 
 **教训**：
 - 缓存上限必须结合**实际使用场景**来设定，不能拍脑袋定一个数字
-- 本机/局域网部署，SQLite 处理几十万条记录性能完全可接受，不应人为限制数据量
+- 本机/局域网部署，SQLite 处理几十万条记录性能完全可接受，不应人为限制数据量（已 PG 化，仅作历史参考）
 - 如果必须设上限，应按"分类"或"站点"分别限制，而不是全局一刀切
 - 用户体验（数据完整）比磁盘空间节省更重要
 
@@ -614,7 +616,7 @@ if (!lockMax()) {
 
 ---
 
-## 25. SQLite `database is locked` — 刮削期间前端请求报错
+## 25. SQLite `database is locked` — 刮削期间前端请求报错（已 PG 化，仅作历史参考）
 
 **症状**：首次启动全量刮削时，前端请求 `/api/sites`、`/api/play/progress` 等接口报 500，`OperationalError: database is locked`。
 
@@ -861,7 +863,7 @@ query.limit(scan_window).offset(offset)
 | 5000、上限、分类不全 | #22 VideoCache 上限导致分类覆盖不全 |
 | 全屏、横屏、夸克 | #23 夸克浏览器不支持 screen.orientation.lock |
 | 模糊、画质、HLS | #24 HLS ABR 自动降码率 |
-| database is locked、sqlite | #25 SQLite 并发锁 |
+| database is locked、sqlite | #25 SQLite 并发锁（已 PG 化，仅作历史参考） |
 | 首页、无响应、骨架屏 | #26 导航冻结（IndexedDB） |
 | 不支持播放、格式、dytt | #27 新站点播放格式兼容 |
 | ffmpeg、m3u8、合并 | #28 ffmpeg 是可选依赖 |
