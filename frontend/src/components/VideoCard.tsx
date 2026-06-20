@@ -1,10 +1,11 @@
 import React, { useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toggleFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
+import { posterLayoutId } from "./DetailContent";
 import type { AggregatedVideo } from "../types";
 
 export interface VideoCardProps {
@@ -69,9 +70,22 @@ function VideoCard({
   showOverlay = true,
 }: VideoCardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useIsMobile();
   const reduceMotion = useReducedMotion();
   const [favorited, setFavorited] = useState(false);
+
+  // 打开详情弹窗：停在当前 pathname，仅加 detail=1 标记触发 DetailModalHost，
+  // 完整 item（含 sources）走 navigation state，避免塞进 URL。
+  // 这是一次 push，浏览器/移动端后退键天然 = 关闭弹窗。
+  const openDetail = () => {
+    const params = new URLSearchParams(location.search);
+    params.set("detail", "1");
+    navigate(
+      { search: `?${params.toString()}` },
+      { state: { detailItem: item } }
+    );
+  };
 
   // 仅桌面端、且用户未要求减少动效时启用 3D 倾斜
   const tiltEnabled = !isMobile && !reduceMotion;
@@ -109,15 +123,20 @@ function VideoCard({
 
   const posterInner = (
     <>
-      <PosterImage
-        title={item.title}
-        year={item.year}
-        posterUrl={item.poster_url}
-        posterUrls={item.poster_urls}
-        alt={item.title}
-        loading="lazy"
-        placeholder={<PosterPlaceholder />}
-      />
+      <motion.div
+        layoutId={posterLayoutId(item.title, item.year)}
+        style={{ position: "absolute", inset: 0 }}
+      >
+        <PosterImage
+          title={item.title}
+          year={item.year}
+          posterUrl={item.poster_url}
+          posterUrls={item.poster_urls}
+          alt={item.title}
+          loading="lazy"
+          placeholder={<PosterPlaceholder />}
+        />
+      </motion.div>
 
       {/* 海报内底部信息层：标题+年份常驻，源数与操作按钮悬停浮现 */}
       <div className="card-info">
@@ -132,7 +151,7 @@ function VideoCard({
               className="action-btn secondary"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate("/detail", { state: item });
+                openDetail();
               }}
               aria-label={`查看 ${item.title} 详情`}
             >
@@ -158,21 +177,11 @@ function VideoCard({
       tabIndex={0}
       aria-label={`${item.title}${item.year ? ` (${item.year})` : ""}`}
       style={width ? { width } : undefined}
-      onClick={() => {
-        const params = new URLSearchParams();
-        params.set("title", item.title);
-        if (item.year != null) params.set("year", String(item.year));
-        params.set("sources", JSON.stringify(item.sources));
-        navigate(`/detail?${params.toString()}`, { state: item });
-      }}
+      onClick={openDetail}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          const params = new URLSearchParams();
-          params.set("title", item.title);
-          if (item.year != null) params.set("year", String(item.year));
-          params.set("sources", JSON.stringify(item.sources));
-          navigate(`/detail?${params.toString()}`, { state: item });
+          openDetail();
         }
       }}
     >
