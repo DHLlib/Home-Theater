@@ -17,6 +17,21 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30
     log_level: str = "INFO"
 
+    # 站点探测 / 自适应检测（秒 / 次数）
+    probe_interval: int = 600
+    fail_threshold: int = 3
+    recover_threshold: int = 2
+    check_base_interval: int = 300
+    check_max_interval: int = 3600
+
+    # 下载 / 推流 / 缓存
+    max_concurrent_downloads: int = 10
+    sse_heartbeat_interval: int = 30
+    play_cache_ttl_seconds: int = 7 * 24 * 3600  # 7 天
+
+    # 分类映射读路径：true 走数据库中间表，false 回退 JSON
+    use_category_mapping_table: bool = True
+
     @property
     def db_url(self) -> str:
         return self.database_url

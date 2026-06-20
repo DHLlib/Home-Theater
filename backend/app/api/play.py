@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from urllib.parse import quote
 
 from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
+from app.config import settings
 from app.db import get_db
 from app.models import Site, VideoCache
 from app.schemas import Episode
@@ -23,7 +24,7 @@ from app.services.source_client import SourceClient, _safe_year
 router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
 
-CACHE_TTL_SECONDS = 7 * 24 * 3600
+CACHE_TTL_SECONDS = settings.play_cache_ttl_seconds
 
 
 class PlaySourceOut(BaseModel):

@@ -4,15 +4,14 @@ from typing import Optional
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import Site, SiteCategoryMapping
 
 logger = logging.getLogger(__name__)
 
 # 配置开关：是否强制使用中间表读路径
-# 环境变量 USE_CATEGORY_MAPPING_TABLE=false 可回退到 JSON
-import os
-
-_USE_MAPPING_TABLE = os.getenv("USE_CATEGORY_MAPPING_TABLE", "true").lower() != "false"
+# .env 中 USE_CATEGORY_MAPPING_TABLE=false 可回退到 JSON
+_USE_MAPPING_TABLE = settings.use_category_mapping_table
 
 
 async def get_site_category_mappings(
