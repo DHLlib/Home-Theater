@@ -314,11 +314,14 @@ export default function Home() {
               videos={recommendedVideos}
               loading={recommendedLoading}
               onSelect={(v) => {
-                const params = new URLSearchParams();
-                params.set("title", v.title);
-                if (v.year != null) params.set("year", String(v.year));
-                params.set("sources", JSON.stringify(v.sources));
-                navigate(`/detail?${params.toString()}`, { state: v });
+                // 与 VideoCard 一致：停在当前 pathname，加 detail=1 触发弹窗，
+                // 完整 item 走 navigation state
+                const params = new URLSearchParams(searchParams);
+                params.set("detail", "1");
+                navigate(
+                  { search: `?${params.toString()}` },
+                  { state: { detailItem: v } }
+                );
               }}
             />
           )}

@@ -10,6 +10,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import BottomNav from "./BottomNav";
 import CategoryBar from "./CategoryBar";
+import DetailModalHost from "./DetailModalHost";
 import { useSitesQuery } from "../hooks/useVideos";
 import { useTheme } from "../lib/theme";
 
@@ -283,6 +284,9 @@ export default function Layout() {
       </main>
 
       <BottomNav />
+
+      {/* 详情弹窗宿主：URL ?detail=1 驱动，从被点卡片位置生长展开 */}
+      <DetailModalHost />
     </div>
   );
 }
