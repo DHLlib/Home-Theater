@@ -113,7 +113,7 @@ export function useVideosInfinite(filters: {
         return {
           ...old,
           pages: newPages,
-          pageParams: old.pageParams.slice(0, newPages.length + 1),
+          pageParams: old.pageParams.slice(0, newPages.length),
         };
       }
     );

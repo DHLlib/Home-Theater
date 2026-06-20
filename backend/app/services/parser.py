@@ -32,12 +32,12 @@ def parse_episodes(raw: str) -> list[Episode]:
         if not s:
             continue
         parts = s.split("$")
-        if len(parts) < 3:
+        if len(parts) != 3:
             raise ValueError(
                 f"播放/下载行格式不合规（第 {lineno + 1} 行）：'{s}'，"
                 f"期望 '集数$地址$后缀'"
             )
-        ep_name, url, suffix = parts[0], parts[1], "$".join(parts[2:])
+        ep_name, url, suffix = parts[0], parts[1], parts[2]
         episodes.append(
             Episode(
                 ep_name=ep_name.strip(),

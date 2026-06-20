@@ -92,7 +92,9 @@ function ProgressCard({ item, index }: { item: PlayProgress; index: number }) {
     navigate(
       `/player?site_id=${item.source_site_id}&original_id=${encodeURIComponent(
         item.source_video_id
-      )}&ep=${item.episode_index}`
+      )}&ep=${item.episode_index}&title=${encodeURIComponent(
+        item.title
+      )}&year=${item.year ?? ""}`
     );
   };
 

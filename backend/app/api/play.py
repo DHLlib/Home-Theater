@@ -48,8 +48,8 @@ def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
     suffix = "mp4"
     if lines:
         parts = lines[0].split("$")
-        if len(parts) >= 3:
-            suffix = parts[-1].strip()
+        if len(parts) == 3:
+            suffix = parts[2].strip()
     return count, suffix
 
 
