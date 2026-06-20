@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # Delta AC Report — PostgreSQL 深度适配 Sprint
 
 **变更描述**: 数据库引擎迁移（SQLite → PostgreSQL）及配套优化

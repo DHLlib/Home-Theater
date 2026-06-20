@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # Code Review Report: AC-033 JSONB 查询优化
 
 **审查日期**: 2026-06-09

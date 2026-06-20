@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # Baseline Snapshot — REFACTOR-DB-001
 
 **日期**: 2026-06-09

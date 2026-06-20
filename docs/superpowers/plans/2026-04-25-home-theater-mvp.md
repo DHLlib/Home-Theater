@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+
 # Home Theater MVP Implementation Plan
 
 > **更新注记（2026-04-26）**：本计划已执行完毕。后续变更未反向同步到本文档：

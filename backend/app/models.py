@@ -181,38 +181,6 @@ class VideoCache(Base):
     search_vector: Mapped[Optional[TSVECTOR]] = mapped_column(TSVECTOR, nullable=True)
 
 
-class AggregatedVideoV1(Base):
-    """预聚合视频缓存表 v1（PostgreSQL 下不再使用，保留模型兼容历史数据）。"""
-
-    __tablename__ = "aggregated_videos_v1"
-    __table_args__ = (Index("ix_agg_v1_updated", "latest_updated_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
-    latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
-class AggregatedVideoV2(Base):
-    """预聚合视频缓存表 v2（PostgreSQL 下不再使用，保留模型兼容历史数据）。"""
-
-    __tablename__ = "aggregated_videos_v2"
-    __table_args__ = (Index("ix_agg_v2_updated", "latest_updated_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    sources: Mapped[list[dict]] = mapped_column(JSON, default=list)
-    latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
 class AggregatedVideo(Base):
     """物化视图映射（只读）。
 
@@ -234,7 +202,7 @@ class AggregatedVideo(Base):
 
 
 class AggregatedVideoV3(Base):
-    """聚合视频中间表 v3（替代物化视图，统一 PG/SQLite）。"""
+    """聚合视频中间表 v3（替代物化视图，PostgreSQL 下使用）。"""
 
     __tablename__ = "aggregated_videos"
     __table_args__ = (

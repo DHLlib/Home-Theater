@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # Review Report — REFACTOR-DB-001（数据库迁移 SQLite → PostgreSQL）
 
 **审查日期**: 2026-06-09  

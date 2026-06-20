@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # Acceptance Criteria — Home Theater Sprint-001
 
 **项目**: Home Theater  
