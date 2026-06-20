@@ -239,10 +239,10 @@ def _convert_play_url(raw: str, from_str: str) -> str:
     """
     if not raw:
         return ""
-    # 若已含换行且每行至少 3 段，视为规范格式
+    # 若已含换行且每行恰好 3 段，视为规范格式
     if "\n" in raw:
         lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        if lines and all(ln.count("$") >= 2 for ln in lines):
+        if lines and all(ln.count("$") == 2 for ln in lines):
             return raw.strip()
 
     froms = [f.strip() for f in from_str.split("$$$") if f.strip()] if from_str else []
