@@ -32,6 +32,7 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
 )
 from app.db import async_session_factory
+from app.config import settings
 from app.models import AppConfig, DownloadTask, Site
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.m3u8_sanitizer import sanitize_m3u8_text
@@ -191,7 +192,7 @@ async def resume(task_id: int) -> None:
 # Worker 循环（动态并发池）
 # ---------------------------------------------------------------------------
 
-_MAX_CONCURRENT_DOWNLOADS_DEFAULT = 10
+_MAX_CONCURRENT_DOWNLOADS_DEFAULT = settings.max_concurrent_downloads
 _MAX_CONCURRENT_DOWNLOADS_MIN = 1
 _MAX_CONCURRENT_DOWNLOADS_MAX = 50
 

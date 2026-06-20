@@ -12,6 +12,7 @@ from app.constants import (
     CRAWLER_FILL_VIDEOLIST_HOUR,
     CRAWLER_FILL_VIDEOLIST_MINUTE,
 )
+from app.config import settings
 from app.db import async_session_factory
 from app.models import Site, SiteProbeLog, _utcnow
 from app.services.crawler import Crawler
@@ -19,14 +20,14 @@ from app.services.health import ProbeResult, probe
 from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
-PROBE_INTERVAL = 600  # 每 10 分钟探测一次
+PROBE_INTERVAL = settings.probe_interval  # 站点探测间隔（秒）
 PROBE_LOG_RETENTION_DAYS = 1  # 探测日志保留 1 天
-FAIL_THRESHOLD = 3  # 连续失败 3 次自动禁用
-RECOVER_THRESHOLD = 2  # 连续成功 2 次自动恢复
+FAIL_THRESHOLD = settings.fail_threshold  # 连续失败 N 次自动禁用
+RECOVER_THRESHOLD = settings.recover_threshold  # 连续成功 N 次自动恢复
 
 # --- 自适应检测间隔配置 ---
-CHECK_BASE_INTERVAL = 300  # 基础检测间隔 5 分钟
-CHECK_MAX_INTERVAL = 3600  # 最大检测间隔 60 分钟
+CHECK_BASE_INTERVAL = settings.check_base_interval  # 基础检测间隔（秒）
+CHECK_MAX_INTERVAL = settings.check_max_interval  # 最大检测间隔（秒）
 CHECK_MISS_BACKOFF = 2  # 未命中时间隔乘数
 CHECK_LOOP_TICK = 60  # 主循环 tick 60 秒
 

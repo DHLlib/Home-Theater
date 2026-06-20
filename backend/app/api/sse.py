@@ -8,12 +8,13 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from app.config import settings
 from app.services.listen_manager import listen_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sse", tags=["sse"])
 
-HEARTBEAT_INTERVAL = 30  # 秒
+HEARTBEAT_INTERVAL = settings.sse_heartbeat_interval  # 秒
 
 
 async def _event_stream():
