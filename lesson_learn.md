@@ -1,3 +1,5 @@
+> ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+>
 # 项目经验教训
 
 ## 2026-06-13：m3u8 并发下载报 "Could not refresh instance"

@@ -76,12 +76,14 @@ interface SiteHealthDrawerProps {
   site: Site | null;
   open: boolean;
   onClose: () => void;
+  onSiteChange?: (site: Site) => void;
 }
 
 export default function SiteHealthDrawer({
   site,
   open,
   onClose,
+  onSiteChange,
 }: SiteHealthDrawerProps) {
   const [health, setHealth] = useState<SiteHealth | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,8 +117,9 @@ export default function SiteHealthDrawer({
 
   const toggleSite = () => {
     if (!site) return;
-    updateSite(site.id, { enabled: !site.enabled }).then(() => {
-      site.enabled = !site.enabled;
+    const nextEnabled = !site.enabled;
+    updateSite(site.id, { enabled: nextEnabled }).then(() => {
+      onSiteChange?.({ ...site, enabled: nextEnabled });
       setLoading(true);
       getSiteHealth(site.id)
         .then(setHealth)

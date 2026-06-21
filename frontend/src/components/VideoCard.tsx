@@ -1,7 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
-import { toggleFavorite } from "../api/favorites";
+import { getFavoriteStatus, toggleFavorite } from "../api/favorites";
 import { toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
@@ -74,6 +74,20 @@ function VideoCard({
   const isMobile = useIsMobile();
   const reduceMotion = useReducedMotion();
   const [favorited, setFavorited] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getFavoriteStatus(item.title, item.year)
+      .then((res) => {
+        if (!cancelled) setFavorited(res.favorited);
+      })
+      .catch(() => {
+        // 静默失败，保持未收藏状态
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.title, item.year]);
 
   // 打开详情弹窗：停在当前 pathname，仅加 detail=1 标记触发 DetailModalHost，
   // 完整 item（含 sources）走 navigation state，避免塞进 URL。

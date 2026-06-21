@@ -21,6 +21,15 @@ async def list_favorites(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
+@router.get("/status")
+async def get_favorite_status(title: str, year: int | None = None, db: AsyncSession = Depends(get_db)):
+    """查询指定 title+year 是否已被收藏。"""
+    stmt = select(Favorite).where(Favorite.title == title)
+    stmt = stmt.where(Favorite.year.is_(None) if year is None else Favorite.year == year)
+    existing = (await db.execute(stmt)).scalars().first()
+    return {"favorited": existing is not None, "id": existing.id if existing else None}
+
+
 @router.post("")
 async def add_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
     fav = Favorite(title=req.title, year=req.year, poster_url=req.poster_url, sources=[s.model_dump() for s in req.sources])

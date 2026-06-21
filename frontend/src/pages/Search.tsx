@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useSearchVideosQuery } from "../hooks/useVideos";
+import { useVideosInfinite } from "../hooks/useVideos";
 import VideoCard from "../components/VideoCard";
 
 export default function Search() {
@@ -8,7 +8,16 @@ export default function Search() {
   const [wd, setWd] = useState("");
   const [submittedWd, setSubmittedWd] = useState("");
 
-  const { data: videos = [], isLoading, error } = useSearchVideosQuery(submittedWd);
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    error,
+  } = useVideosInfinite({ wd: submittedWd });
+
+  const videos = useMemo(() => data?.pages.flat() ?? [], [data]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +88,18 @@ export default function Search() {
           <VideoCard key={`${v.title}-${v.year}`} item={v} />
         ))}
       </div>
+
+      {hasSearched && hasNextPage && (
+        <div style={{ textAlign: "center", padding: 20 }}>
+          <button
+            className="btn"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+          >
+            {isFetchingNextPage ? "加载中..." : "加载更多"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

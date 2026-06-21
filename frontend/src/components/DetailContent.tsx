@@ -194,13 +194,12 @@ export default function DetailContent({
     if (!selectedSource) return;
     if (selectedEpisodeIndices.size === 0) return;
 
-    // 立即关闭弹窗、清空选择，避免阻塞 UI；后台任务 fire-and-forget
+    // 立即关闭弹窗、清空选择，避免阻塞 UI；实际提示由 createTasksAsync 完成后给出
     const source = selectedSource;
     const indices = new Set(selectedEpisodeIndices);
     setEpisodePickerOpen(false);
     setSelectedSource(null);
     setSelectedEpisodeIndices(new Set());
-    toastSuccess("已开始创建下载任务");
 
     createTasksAsync(source, indices, item);
   };
@@ -361,20 +360,29 @@ export default function DetailContent({
         detail.length > 0 &&
         detail.map((s) => (
           <div key={`${s.site_id}-${s.original_id}`} style={{ marginTop: 16 }}>
-            <h4>{s.site_name || `站点 #${s.site_id}`}</h4>
-            <EpisodeList
-              episodes={s.episodes}
-              onPick={(idx) => {
-                navigate(
-                  `/player?site_id=${s.site_id}&original_id=${encodeURIComponent(
-                    s.original_id
-                  )}&ep=${idx}&title=${encodeURIComponent(item.title)}&year=${
-                    item.year ?? ""
-                  }`,
-                  { state: { episodes: s.episodes } }
-                );
+            <div
+              className="row"
+              style={{
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
               }}
-            />
+            >
+              <h4 style={{ margin: 0 }}>{s.site_name || `站点 #${s.site_id}`}</h4>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ fontSize: 12, padding: "4px 10px" }}
+                onClick={() => {
+                  setPickerAction("play");
+                  onConfirmSource(s);
+                }}
+              >
+                从此源播放
+              </button>
+            </div>
+            <EpisodeList episodes={s.episodes} onPick={() => {}} />
           </div>
         ))}
 
