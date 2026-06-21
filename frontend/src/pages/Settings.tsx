@@ -985,6 +985,11 @@ export default function Settings() {
         site={drawerSite}
         open={drawerSite !== null}
         onClose={() => setDrawerSite(null)}
+        onSiteChange={(changed) =>
+          setSites((prev) =>
+            prev.map((s) => (s.id === changed.id ? changed : s))
+          )
+        }
       />
 
       <AddSiteDialog
