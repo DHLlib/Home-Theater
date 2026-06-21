@@ -51,9 +51,24 @@ async def toggle_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
         await db.commit()
         logger.info("favorite_toggled_off fav_id=%d title=%s year=%s", fav_id, req.title, req.year)
         return {"favorited": False, "id": None}
-    fav = Favorite(title=req.title, year=req.year, poster_url=req.poster_url, sources=[s.model_dump() for s in req.sources])
+    fav = Favorite(
+        title=req.title,
+        year=req.year,
+        poster_url=req.poster_url,
+        sources=[s.model_dump() for s in req.sources],
+    )
     db.add(fav)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        logger.warning(
+            "favorite_toggle_duplicate title=%s year=%s", req.title, req.year
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=f"Favorite already exists for title='{req.title}' and year={req.year}",
+        )
     await db.refresh(fav)
     logger.info("favorite_toggled_on fav_id=%d title=%s year=%s", fav.id, req.title, req.year)
     return {"favorited": True, "id": fav.id}

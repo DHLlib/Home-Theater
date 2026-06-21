@@ -220,7 +220,8 @@ async def pause_download(task_id: int, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await dl_pause(task_id)
-    await db.refresh(task)
+    # 状态在 downloader 的独立 session 中修改，重新查询以避免脏读
+    task = await db.get(DownloadTask, task_id)
     return task
 
 
@@ -230,7 +231,8 @@ async def resume_download(task_id: int, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await dl_resume(task_id)
-    await db.refresh(task)
+    # 状态在 downloader 的独立 session 中修改，重新查询以避免脏读
+    task = await db.get(DownloadTask, task_id)
     return task
 
 

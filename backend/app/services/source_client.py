@@ -172,7 +172,7 @@ class SourceClient:
         return {
             "site_id": self.site_id,
             "site_name": self.name,
-            "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
+            "original_id": _extract_original_id(raw),
             "title": raw.get("vod_name") or raw.get("name") or "",
             "year": _safe_year(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
@@ -191,7 +191,7 @@ class SourceClient:
         return {
             "site_id": self.site_id,
             "site_name": self.name,
-            "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
+            "original_id": _extract_original_id(raw),
             "title": raw.get("vod_name") or raw.get("name") or "",
             "year": _safe_year(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
@@ -203,6 +203,15 @@ class SourceClient:
             "download_url_raw": _convert_play_url(down_raw, down_from),
             "updated_at": raw.get("vod_time") or raw.get("last"),
         }
+
+
+def _extract_original_id(raw: dict[str, Any]) -> str:
+    """提取资源站原始 ID，避免 vod_id=0 或 id=0 被误判为空字符串。"""
+    if "vod_id" in raw and raw["vod_id"] is not None:
+        return str(raw["vod_id"])
+    if "id" in raw and raw["id"] is not None:
+        return str(raw["id"])
+    return ""
 
 
 def _safe_year(v: Any) -> int | None:

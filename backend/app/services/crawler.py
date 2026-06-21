@@ -1198,8 +1198,7 @@ class Crawler:
                     except ValueError:
                         pass
 
-                to_refresh = self._pending_norm_titles
-                self._pending_norm_titles = set()
+                to_refresh = set(self._pending_norm_titles)
                 if not to_refresh:
                     return
 
@@ -1207,6 +1206,8 @@ class Crawler:
                     db, affected_norm_titles=to_refresh
                 )
                 if ok:
+                    # 仅移除已刷新成功的 title；刷新期间新进入的 title 保留待下次处理
+                    self._pending_norm_titles -= to_refresh
                     now = _utcnow()
                     stmt = insert_cls(AppConfig).values(
                         key="aggregated_cache_computed_at",
@@ -1218,7 +1219,6 @@ class Crawler:
                         set_={"value": now.isoformat(), "updated_at": now},
                     )
                     await db.execute(stmt)
-                    await db.commit()
                     await db.commit()
 
     async def _save_state(self, state: dict):

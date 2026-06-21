@@ -1,5 +1,6 @@
 import logging
 
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,7 +156,7 @@ async def get_site_health(site_id: int, db: AsyncSession = Depends(get_db)):
     logs = logs_result.scalars().all()
 
     # 24 小时内可用率
-    since_24h = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    since_24h = _utcnow() - timedelta(hours=24)
     agg_result = await db.execute(
         select(
             func.count(SiteProbeLog.id).label("total"),
