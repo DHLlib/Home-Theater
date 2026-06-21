@@ -160,22 +160,7 @@ export default function Player() {
   useEffect(() => {
     if (!current) return;
 
-    progressTimer.current = setInterval(() => {
-      const pos = Math.floor(playerRef.current?.getCurrentTime() || 0);
-      const dur = Math.floor(playerRef.current?.getDuration() || 0);
-      upsertProgress({
-        title,
-        year,
-        source_site_id: site_id,
-        source_video_id: original_id,
-        episode_index: currentIndex,
-        episode_name: current.ep_name,
-        position_seconds: pos,
-        duration_seconds: dur || null,
-      }).catch(() => {});
-    }, 15000);
-
-    const handleBeforeUnload = () => {
+    const saveProgress = (beacon = false) => {
       const pos = Math.floor(playerRef.current?.getCurrentTime() || 0);
       const dur = Math.floor(playerRef.current?.getDuration() || 0);
       const data = JSON.stringify({
@@ -188,17 +173,27 @@ export default function Player() {
         position_seconds: pos,
         duration_seconds: dur || null,
       });
-      navigator.sendBeacon(
-        "/api/progress",
-        new Blob([data], { type: "application/json" })
-      );
+      if (beacon && navigator.sendBeacon) {
+        navigator.sendBeacon(
+          "/api/progress",
+          new Blob([data], { type: "application/json" })
+        );
+      } else {
+        upsertProgress(JSON.parse(data)).catch(() => {});
+      }
     };
+
+    progressTimer.current = setInterval(() => saveProgress(false), 15000);
+
+    const handleBeforeUnload = () => saveProgress(true);
 
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
       if (progressTimer.current) clearInterval(progressTimer.current);
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      // 正常路由跳转（如点击返回）时强制保存最终进度
+      saveProgress(true);
     };
   }, [current, currentIndex, site_id, original_id, title, year]);
 

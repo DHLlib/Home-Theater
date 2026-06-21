@@ -12,12 +12,19 @@ router = APIRouter(prefix="/progress", tags=["progress"])
 logger = logging.getLogger(__name__)
 
 
+def _year_clause(year: int | None):
+    """显式生成 year 的 WHERE 子句，避免依赖 SQLAlchemy 对 None 的隐式 IS NULL 行为。"""
+    if year is None:
+        return PlayProgress.year.is_(None)
+    return PlayProgress.year == year
+
+
 @router.post("")
 async def upsert_progress(req: PlayProgressIn, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(PlayProgress).where(
             PlayProgress.title == req.title,
-            PlayProgress.year == req.year,
+            _year_clause(req.year),
         )
     )
     row = result.scalar_one_or_none()
@@ -64,7 +71,7 @@ async def get_progress(
     result = await db.execute(
         select(PlayProgress).where(
             PlayProgress.title == title,
-            PlayProgress.year == year,
+            _year_clause(year),
         )
     )
     row = result.scalar_one_or_none()

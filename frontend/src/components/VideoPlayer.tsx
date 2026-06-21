@@ -43,8 +43,7 @@ function analyzeFormat(src: string, suffix: string): FormatInfo {
     suffixLower.endsWith("yun") ||
     urlLower.endsWith(".m3u8") ||
     urlLower.includes(".m3u8?");
-  const isDirectVideo =
-    isM3u8 || suffixLower === "mp4" || suffixLower === "webm" || suffix === "";
+  const isDirectVideo = true; // 除明确识别为 HLS 的流外，其余均尝试直接播放
   return { isM3u8, isDirectVideo };
 }
 
@@ -205,7 +204,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           lockMaxQuality(player, qualityTimerRef);
         }
 
-        player.on("playing", () => {
+        player.on("ready", () => {
           onReadyRef.current?.();
         });
 
