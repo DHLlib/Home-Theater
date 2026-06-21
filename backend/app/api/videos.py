@@ -542,8 +542,12 @@ async def _query_aggregated_cache(
                 .where(or_(*conds))
                 .subquery()
             )
-            base_query = base_query.where(AggregatedVideoV3.id.in_(cat_subq))
-            count_query = count_query.where(AggregatedVideoV3.id.in_(cat_subq))
+            base_query = base_query.where(
+                AggregatedVideoV3.id.in_(select(cat_subq.c.aggregated_video_id))
+            )
+            count_query = count_query.where(
+                AggregatedVideoV3.id.in_(select(cat_subq.c.aggregated_video_id))
+            )
 
         count_result = await db.execute(count_query)
         count = count_result.scalar_one()
@@ -1312,8 +1316,6 @@ async def cleanup_expired(
 
     限制：每个站点最多检查 2000 条，避免超时。
     """
-    import httpx
-
     if site_id:
         site_result = await db.execute(select(Site).where(Site.id == site_id))
     else:
@@ -1328,8 +1330,13 @@ async def cleanup_expired(
     BATCH_SIZE = 20
     MAX_PER_SITE = 2000
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        for site in sites:
+    for site in sites:
+        async with SourceClient(
+            site_id=site.id,
+            base_url=site.base_url,
+            name=site.name,
+            timeout=30,
+        ) as client:
             video_result = await db.execute(
                 select(VideoCache.original_id)
                 .where(VideoCache.site_id == site.id)
@@ -1343,48 +1350,45 @@ async def cleanup_expired(
             expired_ids = []
             for i in range(0, len(ids), BATCH_SIZE):
                 batch = ids[i : i + BATCH_SIZE]
-                ids_str = ",".join(str(x) for x in batch)
-                url = f"{site.base_url.rstrip('/')}?ac=videolist&ids={ids_str}"
                 try:
-                    resp = await client.get(url)
-                    data = resp.json()
-                    returned_ids = {
-                        str(item.get("vod_id", "")) for item in data.get("list", [])
-                    }
+                    items = await client.videolist(
+                        ids=batch, op="cleanup_expired"
+                    )
+                    returned_ids = {item["original_id"] for item in items}
                     for vid in batch:
                         if str(vid) not in returned_ids:
                             expired_ids.append(str(vid))
                 except Exception:
                     continue
 
-            if expired_ids:
-                norm_result = await db.execute(
-                    select(VideoCache.norm_title)
-                    .where(
-                        VideoCache.site_id == site.id,
-                        VideoCache.original_id.in_(expired_ids),
-                    )
+        if expired_ids:
+            norm_result = await db.execute(
+                select(VideoCache.norm_title)
+                .where(
+                    VideoCache.site_id == site.id,
+                    VideoCache.original_id.in_(expired_ids),
                 )
-                affected_norm_titles.update(n for n in norm_result.scalars() if n)
-
-                await db.execute(
-                    delete(VideoCache).where(
-                        VideoCache.site_id == site.id,
-                        VideoCache.original_id.in_(expired_ids),
-                    )
-                )
-                await db.commit()
-                total_deleted += len(expired_ids)
-
-            total_checked += len(ids)
-            by_site.append(
-                {
-                    "site_id": site.id,
-                    "site_name": site.name,
-                    "checked": len(ids),
-                    "deleted": len(expired_ids),
-                }
             )
+            affected_norm_titles.update(n for n in norm_result.scalars() if n)
+
+            await db.execute(
+                delete(VideoCache).where(
+                    VideoCache.site_id == site.id,
+                    VideoCache.original_id.in_(expired_ids),
+                )
+            )
+            await db.commit()
+            total_deleted += len(expired_ids)
+
+        total_checked += len(ids)
+        by_site.append(
+            {
+                "site_id": site.id,
+                "site_name": site.name,
+                "checked": len(ids),
+                "deleted": len(expired_ids),
+            }
+        )
 
     if total_deleted > 0:
         await refresh_aggregated_view(
