@@ -49,6 +49,11 @@ function analyzeFormat(src: string, suffix: string): FormatInfo {
 }
 
 function lockMaxQuality(player: Player, timerRef: React.MutableRefObject<number | null>) {
+  if (timerRef.current) {
+    clearInterval(timerRef.current);
+    timerRef.current = null;
+  }
+
   const tryLock = () => {
     try {
       const p = player as any;
@@ -65,11 +70,6 @@ function lockMaxQuality(player: Player, timerRef: React.MutableRefObject<number 
   };
 
   if (tryLock()) return;
-
-  if (timerRef.current) {
-    clearInterval(timerRef.current);
-    timerRef.current = null;
-  }
 
   let attempts = 0;
   timerRef.current = window.setInterval(() => {
@@ -250,6 +250,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const msg = `暂不支持播放该格式 (${suffix})`;
         setError(msg);
         onErrorRef.current?.(msg);
+        player.pause?.();
         return;
       }
 

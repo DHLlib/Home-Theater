@@ -30,6 +30,18 @@ function isIOS(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
+let changeHandler: (() => void) | null = null;
+let iosVideo: HTMLVideoElement | null = null;
+
+function onIOSFullscreenChange() {
+  changeHandler?.();
+  if (iosVideo) {
+    iosVideo.removeEventListener("webkitendfullscreen", onIOSFullscreenChange);
+    iosVideo.removeEventListener("webkitbeginfullscreen", onIOSFullscreenChange);
+    iosVideo = null;
+  }
+}
+
 async function requestFullscreen(element: HTMLElement): Promise<void> {
   const video = element.querySelector("video");
 
@@ -37,6 +49,12 @@ async function requestFullscreen(element: HTMLElement): Promise<void> {
   if (isIOS() && video && (video as any).webkitEnterFullscreen) {
     try {
       (video as any).webkitEnterFullscreen();
+      // iOS webkitEnterFullscreen 不会触发 document 的 fullscreenchange，
+      // 需手动同步一次状态；退出事件绑定到 video 元素。
+      changeHandler?.();
+      iosVideo = video as HTMLVideoElement;
+      iosVideo.addEventListener("webkitbeginfullscreen", onIOSFullscreenChange);
+      iosVideo.addEventListener("webkitendfullscreen", onIOSFullscreenChange);
       return;
     } catch {
       // 降级到容器全屏
@@ -185,22 +203,26 @@ async function unlockOrientation(): Promise<void> {
 }
 
 function addChangeListener(handler: () => void): void {
+  changeHandler = handler;
   document.addEventListener("fullscreenchange", handler);
   document.addEventListener("webkitfullscreenchange", handler);
   document.addEventListener("mozfullscreenchange", handler);
   document.addEventListener("MSFullscreenChange", handler);
-  // iOS video 元素全屏事件（webkitEnterFullscreen 不会触发 fullscreenchange）
-  document.addEventListener("webkitbeginfullscreen", handler);
-  document.addEventListener("webkitendfullscreen", handler);
 }
 
 function removeChangeListener(handler: () => void): void {
+  if (changeHandler === handler) {
+    changeHandler = null;
+  }
   document.removeEventListener("fullscreenchange", handler);
   document.removeEventListener("webkitfullscreenchange", handler);
   document.removeEventListener("mozfullscreenchange", handler);
   document.removeEventListener("MSFullscreenChange", handler);
-  document.removeEventListener("webkitbeginfullscreen", handler);
-  document.removeEventListener("webkitendfullscreen", handler);
+  if (iosVideo) {
+    iosVideo.removeEventListener("webkitbeginfullscreen", onIOSFullscreenChange);
+    iosVideo.removeEventListener("webkitendfullscreen", onIOSFullscreenChange);
+    iosVideo = null;
+  }
 }
 
 export const fullscreen: FullscreenAPI = {
