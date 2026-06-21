@@ -273,7 +273,16 @@ export default function RecommendedCarousel({
             return (
               <div
                 key={`${video.title}-${video.year ?? "null"}-${index}`}
+                role="button"
+                tabIndex={isVisible ? 0 : -1}
+                aria-label={`${video.title}${video.year ? ` (${video.year})` : ""}`}
                 onClick={() => handleClick(index)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleClick(index);
+                  }
+                }}
                 style={{
                   position: "absolute",
                   left: "50%",
@@ -284,6 +293,7 @@ export default function RecommendedCarousel({
                   borderRadius: 8,
                   overflow: "hidden",
                   transformOrigin: "center center",
+                  outline: "none",
                   boxShadow:
                     offset === 0
                       ? "0 20px 60px rgba(0,0,0,0.6)"

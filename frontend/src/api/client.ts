@@ -37,10 +37,10 @@ async function request<T>(
 }
 
 export const get = <T>(path: string, timeoutMs?: number) => request<T>("GET", path, undefined, timeoutMs);
-export const post = <T>(path: string, body?: unknown) =>
-  request<T>("POST", path, body);
-export const put = <T>(path: string, body?: unknown) =>
-  request<T>("PUT", path, body);
-export const patch = <T>(path: string, body?: unknown) =>
-  request<T>("PATCH", path, body);
-export const del = <T>(path: string) => request<T>("DELETE", path);
+export const post = <T>(path: string, body?: unknown, timeoutMs?: number) =>
+  request<T>("POST", path, body, timeoutMs);
+export const put = <T>(path: string, body?: unknown, timeoutMs?: number) =>
+  request<T>("PUT", path, body, timeoutMs);
+export const patch = <T>(path: string, body?: unknown, timeoutMs?: number) =>
+  request<T>("PATCH", path, body, timeoutMs);
+export const del = <T>(path: string, timeoutMs?: number) => request<T>("DELETE", path, undefined, timeoutMs);

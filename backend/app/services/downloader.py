@@ -885,8 +885,8 @@ def _pick_best_stream(m3u8_text: str, base_url: str) -> str | None:
 
 
 def _clean_ts_filename(name: str) -> str:
-    """去掉 URL 查询参数，提取可用作文件名的 .ts 名。"""
-    return Path(name.split("?")[0]).name
+    """从 URL 中提取可用作文件名的 .ts 名（只取路径部分，丢弃查询参数/片段）。"""
+    return Path(urlparse(name).path).name
 
 
 def _extract_ts_names(m3u8_text: str) -> list[str]:
