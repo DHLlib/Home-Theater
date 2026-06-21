@@ -15,6 +15,7 @@ import logging
 import re
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 import asyncio
 
@@ -65,6 +66,7 @@ class SourceClient:
         wd: str | None = None,
         by: str | None = None,
         ids: list[str | int] | None = None,
+        h: int | None = None,
     ) -> dict[str, str]:
         params: dict[str, str] = {"ac": ac}
         if t is not None:
@@ -77,10 +79,12 @@ class SourceClient:
             params["by"] = by
         if ids:
             params["ids"] = ",".join(str(i) for i in ids)
+        if h is not None:
+            params["h"] = str(h)
         return params
 
     async def _get(self, params: dict[str, str], op: str = "unknown") -> dict[str, Any]:
-        url_with_params = f"{self.base_url}?{ '&'.join(f'{k}={v}' for k, v in params.items()) }"
+        url_with_params = f"{self.base_url}?{urlencode(params)}"
         start = time.monotonic()
         for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
@@ -144,9 +148,10 @@ class SourceClient:
         pg: int | None = None,
         wd: str | None = None,
         by: str | None = None,
+        h: int | None = None,
         op: str = "unknown",
     ) -> list[dict[str, Any]]:
-        params = self._build_params("list", t=t, pg=pg, wd=wd, by=by)
+        params = self._build_params("list", t=t, pg=pg, wd=wd, by=by, h=h)
         data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:
@@ -159,9 +164,10 @@ class SourceClient:
         ids: list[str | int] | None = None,
         t: int | str | None = None,
         pg: int | None = None,
+        h: int | None = None,
         op: str = "unknown",
     ) -> list[dict[str, Any]]:
-        params = self._build_params("videolist", t=t, pg=pg, ids=ids)
+        params = self._build_params("videolist", t=t, pg=pg, ids=ids, h=h)
         data = await self._get(params, op=op)
         items: list[dict[str, Any]] = []
         for raw in data["list"]:

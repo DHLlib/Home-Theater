@@ -13,6 +13,27 @@ router = APIRouter(prefix="/system-categories", tags=["system-categories"])
 logger = logging.getLogger(__name__)
 
 
+async def _would_form_cycle(
+    db: AsyncSession, cat_id: int, parent_id: int | None
+) -> bool:
+    """检查把 cat_id 的父设为 parent_id 是否会形成循环父子关系（含多层）。"""
+    if parent_id is None:
+        return False
+    current_id = parent_id
+    visited: set[int] = set()
+    while current_id is not None:
+        if current_id == cat_id:
+            return True
+        if current_id in visited:
+            return True
+        visited.add(current_id)
+        parent = await db.get(SystemCategory, current_id)
+        if not parent:
+            break
+        current_id = parent.parent_id
+    return False
+
+
 @router.get("")
 async def list_system_categories(db: AsyncSession = Depends(get_db)):
     """列出所有系统分类（树形结构）。"""
@@ -93,6 +114,8 @@ async def update_system_category(
         parent = await db.get(SystemCategory, data["parent_id"])
         if not parent:
             raise HTTPException(status_code=404, detail="父分类不存在")
+        if await _would_form_cycle(db, cat_id, data["parent_id"]):
+            raise HTTPException(status_code=400, detail="不能形成循环父子关系")
 
     # 名称/父子关系/启用状态变更都会让分类过滤缓存的
     # system_by_name / system_by_id / enabled 判定过期，立即作废
