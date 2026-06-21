@@ -40,6 +40,7 @@ export default function Player() {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const passedConsumedRef = useRef(false);
+  const userPickedRef = useRef(false);
 
   const { isFullscreen, isFakeLandscape, isSimulatedFullscreen, toggleFullscreen } = useFullscreen();
   const sidebarOpenRef = useRef(sidebarOpen);
@@ -131,12 +132,14 @@ export default function Player() {
 
     // 用户从详情页明确选择了集数（ep > 0），跳过进度恢复
     if (initialEp > 0) {
+      userPickedRef.current = true;
       setProgressRestored(true);
       return;
     }
 
     getProgress(title, year)
       .then((res: PlayProgress | null) => {
+        if (userPickedRef.current) return;
         if (
           res &&
           res.source_site_id === site_id &&
@@ -235,7 +238,15 @@ export default function Player() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT"
+      )
+        return;
+      // 仅当焦点在播放器容器内或为 body 时拦截，避免劫持页面其他焦点元素
+      if (target !== document.body && !containerRef.current?.contains(target))
+        return;
       e.preventDefault();
 
       const key = e.key;
@@ -321,6 +332,7 @@ export default function Player() {
 
   const handleEpisodeClick = useCallback(
     (index: number) => {
+      userPickedRef.current = true;
       setCurrentIndex(index);
       if (isMobile) {
         setSidebarOpen(false);
@@ -390,7 +402,10 @@ export default function Player() {
           <button
             className="btn"
             disabled={currentIndex <= 0}
-            onClick={() => setCurrentIndex((i) => i - 1)}
+            onClick={() => {
+              userPickedRef.current = true;
+              setCurrentIndex((i) => i - 1);
+            }}
           >
             上一集
           </button>
@@ -421,7 +436,10 @@ export default function Player() {
             <button
               className="btn"
               disabled={currentIndex >= episodes.length - 1}
-              onClick={() => setCurrentIndex((i) => i + 1)}
+              onClick={() => {
+                userPickedRef.current = true;
+                setCurrentIndex((i) => i + 1);
+              }}
             >
               下一集
             </button>
