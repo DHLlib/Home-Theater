@@ -374,8 +374,29 @@ async for chunk in resp.aiter_bytes(CHUNK_SIZE):
     if now - last_commit >= 5 or chunk_counter >= 100:
         await session.commit()
         last_commit = now
-        chunk_counter = 0
+        ---
+
+## 19. 搜索后整页空白：VirtualGrid 直接 new ResizeObserver 导致未捕获异常
+
+**症状**：在首页顶部搜索框输入关键词（如 `瑞克和`）并回车后，页面瞬间变成全白；浏览器控制台显示 `ReferenceError: ResizeObserver is not defined`，堆栈指向 `VirtualGrid.tsx`。
+
+**原因**：`VirtualGrid` 组件在 `useEffect` 中无条件执行 `new ResizeObserver(...)`。部分浏览器环境（旧内核、某些 TV/盒子浏览器、SSR/测试环境）未实现 `ResizeObserver`，该异常在 React 渲染阶段抛出且未被任何 Error Boundary 捕获，导致整棵组件树被卸载，出现白屏。
+
+**解决**：在 `VirtualGrid` 中先判断 `ResizeObserver` 是否存在，缺失时退化到 `window resize` 事件监听，保证组件至少能正常渲染：
+
+```tsx
+update();
+if (typeof ResizeObserver === "undefined") {
+  window.addEventListener("resize", update);
+  return () => window.removeEventListener("resize", update);
+}
+const ro = new ResizeObserver(update);
+ro.observe(el);
+ro.observe(document.body);
+return () => ro.disconnect();
 ```
+
+**教训**：任何浏览器原生 API（ResizeObserver、IntersectionObserver、matchMedia 等）使用前都应有兜底，否则在低端或特殊客户端上会变成致命白屏。测试环境（jsdom）缺少这些 API，正好能暴露这类问题。
 
 **教训**：高频 IO 循环中不要把数据库事务放在热路径上。批量提交能显著提升吞吐量。
 
