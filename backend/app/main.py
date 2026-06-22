@@ -178,17 +178,20 @@ async def lifespan(app: FastAPI):
 
     # Phase 2: 首次启动或表为空时，后台重建聚合中间表
     async def _bootstrap_aggregated_tables():
-        async with async_session_factory() as db:
-            from app.models import AggregatedVideoV3
-            from sqlalchemy import func, select
+        try:
+            async with async_session_factory() as db:
+                from app.models import AggregatedVideoV3
+                from sqlalchemy import func, select
 
-            count = await db.execute(
-                select(func.count()).select_from(AggregatedVideoV3)
-            )
-            if count.scalar_one() == 0:
-                logger = logging.getLogger(__name__)
-                logger.info("聚合中间表为空，启动后台重建")
-                await refresh_aggregated_view(db)
+                count = await db.execute(
+                    select(func.count()).select_from(AggregatedVideoV3)
+                )
+                if count.scalar_one() == 0:
+                    logger = logging.getLogger(__name__)
+                    logger.info("聚合中间表为空，启动后台重建")
+                    await refresh_aggregated_view(db)
+        except Exception:
+            logging.getLogger(__name__).exception("后台聚合中间表重建失败")
 
     asyncio.create_task(_bootstrap_aggregated_tables())
 

@@ -32,6 +32,19 @@ interface FormatInfo {
   isDirectVideo: boolean;
 }
 
+const _UNSUPPORTED_SUFFIXES = new Set([
+  "flv",
+  "rmvb",
+  "rm",
+  "avi",
+  "wmv",
+  "mpeg",
+  "mpg",
+  "dat",
+  "vob",
+  "swf",
+]);
+
 function analyzeFormat(src: string, suffix: string): FormatInfo {
   const suffixLower = suffix.toLowerCase();
   const urlLower = src.toLowerCase();
@@ -43,7 +56,9 @@ function analyzeFormat(src: string, suffix: string): FormatInfo {
     suffixLower.endsWith("yun") ||
     urlLower.endsWith(".m3u8") ||
     urlLower.includes(".m3u8?");
-  const isDirectVideo = true; // 除明确识别为 HLS 的流外，其余均尝试直接播放
+  const isDirectVideo =
+    suffixLower === "" ||
+    (!isM3u8 && !_UNSUPPORTED_SUFFIXES.has(suffixLower));
   return { isM3u8, isDirectVideo };
 }
 

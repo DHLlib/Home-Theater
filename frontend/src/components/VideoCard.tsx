@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getFavoriteStatus, toggleFavorite } from "../api/favorites";
-import { toastSuccess } from "../utils/toast";
+import { toastError, toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
 import { posterLayoutId } from "./DetailContent";
@@ -129,10 +129,14 @@ function VideoCard({
       year: item.year,
       poster_url: item.poster_url || undefined,
       sources: item.sources,
-    }).then((res) => {
-      setFavorited(res.favorited);
-      toastSuccess(res.favorited ? "已收藏" : "已取消收藏");
-    });
+    })
+      .then((res) => {
+        setFavorited(res.favorited);
+        toastSuccess(res.favorited ? "已收藏" : "已取消收藏");
+      })
+      .catch(() => {
+        toastError("收藏操作失败");
+      });
   };
 
   const posterInner = (

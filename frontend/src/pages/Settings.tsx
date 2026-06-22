@@ -216,7 +216,7 @@ export default function Settings() {
   const [showBatchDetectDialog, setShowBatchDetectDialog] = useState(false);
 
   useEffect(() => {
-    listSites().then(setSites);
+    listSites().then(setSites).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -276,10 +276,12 @@ export default function Settings() {
 
   /* ---- add site (inline) ---- */
   const handleAddSite = (name: string, base_url: string) => {
-    createSite({ name, base_url, enabled: true, sort: 0 }).then((s) => {
-      setSites((prev) => [...prev, s]);
-      setShowAddDialog(false);
-    });
+    createSite({ name, base_url, enabled: true, sort: 0 })
+      .then((s) => {
+        setSites((prev) => [...prev, s]);
+        setShowAddDialog(false);
+      })
+      .catch(() => toastError("添加站点失败"));
   };
 
   /* ---- edit site (inline) ---- */
@@ -301,10 +303,12 @@ export default function Settings() {
       cancelEdit();
       return;
     }
-    updateSite(site.id, { name, base_url }).then(() => {
-      listSites().then(setSites);
-      cancelEdit();
-    });
+    updateSite(site.id, { name, base_url })
+      .then(() => {
+        listSites().then(setSites).catch(() => {});
+        cancelEdit();
+      })
+      .catch(() => toastError("更新站点失败"));
   };
 
   const handleBatchDetect = () => {

@@ -94,6 +94,10 @@ async def create_download(req: DownloadTaskCreate, db: AsyncSession = Depends(ge
         "title": task.title,
         "episode_name": task.episode_name,
         "file_path": task.file_path,
+        "source_site_id": task.source_site_id,
+        "source_video_id": task.source_video_id,
+        "url": task.url,
+        "suffix": task.suffix,
     }))
     return task
 

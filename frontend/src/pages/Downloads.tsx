@@ -723,6 +723,10 @@ export default function Downloads() {
       title?: string;
       episode_name?: string;
       file_path?: string;
+      source_site_id?: number;
+      source_video_id?: string;
+      url?: string;
+      suffix?: string;
     }>("download_status", (ev) => {
       if (ev.status === "deleted") {
         setTasks((prev) => prev.filter((t) => t.id !== ev.task_id));
@@ -752,10 +756,10 @@ export default function Downloads() {
               title: ev.title,
               episode_name: ev.episode_name || "",
               episode_index: 0,
-              source_site_id: 0,
-              source_video_id: "",
-              url: "",
-              suffix: "",
+              source_site_id: ev.source_site_id ?? 0,
+              source_video_id: ev.source_video_id ?? "",
+              url: ev.url ?? "",
+              suffix: ev.suffix ?? "",
               file_path: ev.file_path,
               total_bytes: null,
               downloaded_bytes: 0,
