@@ -67,3 +67,4 @@ backend/data/
 # 本地保留、不入库的目录
 shared/
 test/
+BUGlist.md
