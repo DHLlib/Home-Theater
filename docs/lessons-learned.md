@@ -884,6 +884,33 @@ const err = new ApiError(resp.status, detail || `${resp.status} error`);
 
 ---
 
+## 34. start-dev.ps1 报 UnexpectedAttribute / 无法运行
+
+**症状**：运行 `.​start-dev.ps1 -Detach` 报错 `UnexpectedAttribute`，或脚本启动时提示属性表达式无效。
+
+**原因**：
+1. PowerShell 的 `[CmdletBinding()]` / `param()` 块之前不能出现可执行语句；`start-dev.ps1` 原先把 `[Console]::OutputEncoding = ...` 放在了文件最开头，导致解析失败。
+2. 修复位置时写成了 `[System.Text.Encoding]::Encoding::UTF8`，多了一个 `Encoding`，会抛出运行时错误。
+
+**解决**：
+- 将 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` 放在 `param()` 块之后。
+- 修正表达式为 `[System.Text.Encoding]::UTF8`。
+
+```powershell
+[CmdletBinding()]
+param(
+    [switch]$Detach
+)
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+**教训**：
+- PowerShell 脚本中 `param()` 必须是第一个非注释标记；任何可执行语句（包括属性赋值）都必须在它之后。
+- 复制类型表达式时注意核对限定符，多余的 `::Encoding` 会产生非终止错误，仍应清理。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -918,3 +945,4 @@ const err = new ApiError(resp.status, detail || `${resp.status} error`);
 | NameError、F821、漏导入、annotations | #30 模型/类型漏导入 |
 | 回弹、下拉到底、duplicate key、重复视频 | #31 预聚合分页 offset 错位 |
 | React error #300、白屏、播放页崩溃、hooks、sourcemap | #32 早期 return 后还有 useEffect |
+| start-dev、UnexpectedAttribute、CmdletBinding、PowerShell | #34 start-dev.ps1 解析错误 |
