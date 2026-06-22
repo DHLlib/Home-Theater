@@ -26,7 +26,11 @@ async function request<T>(
     const resp = await fetch(path, opts);
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
-      const err = new ApiError(resp.status, data.detail || `${resp.status} error`);
+      const detail =
+        typeof data.detail === "string"
+          ? data.detail
+          : data.msg || JSON.stringify(data.detail || data);
+      const err = new ApiError(resp.status, detail || `${resp.status} error`);
       toastError(err.detail);
       throw err;
     }

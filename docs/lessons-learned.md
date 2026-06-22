@@ -858,6 +858,32 @@ query.limit(scan_window).offset(offset)
 
 ---
 
+## 33. 修复 ResizeObserver 兜底后首页又白屏：收藏状态接口 422 + Toast 渲染对象
+
+**症状**：修复 VirtualGrid 的 ResizeObserver 兜底后，首页能加载出内容，但立刻白屏。控制台先报 `GET /api/favorites/status?title=...&year= 422 (Unprocessable Content)`，随后是 `Minified React error #31: Objects are not valid as a React child`。
+
+**原因（两层）**：
+1. `VideoCard` 调用 `/api/favorites/status` 时把 `year` 传成了空字符串（`year=`）。后端 `year: int | None` 无法解析空字符串，返回 422。
+2. 422 响应体是 `{detail: [{type, loc, msg, input}]}`，`api/client.ts` 直接拿 `data.detail` 当字符串传给 `toastError`，结果 Toast 组件尝试渲染一个数组/对象，触发 React #31 错误，整棵树被卸载。
+
+**解决**：
+- `frontend/src/api/favorites.ts`：`year` 为 `null`/`undefined` 时直接省略该查询参数，不传 `year=`。
+- `frontend/src/api/client.ts`：错误处理中对 `data.detail` 做类型判断，非字符串时降级为 `JSON.stringify(data.detail || data)`，避免 Toast 渲染对象。
+
+```ts
+const detail =
+  typeof data.detail === "string"
+    ? data.detail
+    : data.msg || JSON.stringify(data.detail || data);
+const err = new ApiError(resp.status, detail || `${resp.status} error`);
+```
+
+**教训**：
+- 可选查询参数为 `null` 时，前端应**省略参数**而不是传空字符串，否则 FastAPI 会按声明类型解析失败。
+- 错误提示文案永远不要假设后端 `detail` 一定是字符串；结构化校验错误会直接让 UI 崩溃。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
