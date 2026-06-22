@@ -47,6 +47,14 @@ export default function VirtualGrid<T>({
     };
 
     update();
+
+    // 部分环境（旧浏览器 / 某些 TV 客户端 / SSR/测试）没有 ResizeObserver，
+    // 退化到 window resize 监听，避免整棵树因未捕获异常而白屏。
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+
     const ro = new ResizeObserver(update);
     ro.observe(el);
     // 上方内容（轮播/「最新更新」封面懒加载）高度变化会改变容器在文档中的位置，
