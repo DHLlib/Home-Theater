@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -40,16 +41,22 @@ class PlaySourcesResponse(BaseModel):
 
 
 def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
-    """从 play_url_raw 解析集数和主要后缀。"""
+    """从 play_url_raw 解析集数和主要后缀。
+
+    若各集后缀不一致，取出现最频繁的后缀作为该源的代表后缀。
+    """
     if not play_url_raw:
         return 0, "mp4"
     lines = [ln.strip() for ln in play_url_raw.splitlines() if ln.strip()]
     count = len(lines)
+    suffixes = [
+        parts[2].strip()
+        for ln in lines
+        if (parts := ln.split("$")) and len(parts) == 3
+    ]
     suffix = "mp4"
-    if lines:
-        parts = lines[0].split("$")
-        if len(parts) == 3:
-            suffix = parts[2].strip()
+    if suffixes:
+        suffix = Counter(suffixes).most_common(1)[0][0]
     return count, suffix
 
 

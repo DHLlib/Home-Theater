@@ -13,6 +13,17 @@ _RECONNECT_BASE_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 60.0
 
 
+def _quote_ident(name: str) -> str:
+    """将 channel 名安全地引用为 PostgreSQL 标识符。
+
+    仅允许小写字母、数字和下划线组成的 bare identifier；其余字符一律拒绝，
+    避免通过转义序列注入。
+    """
+    if not name or not name.isidentifier() or not name.islower():
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return f'"{name}"'
+
+
 class ListenConnectionManager:
     """管理独立的 PostgreSQL LISTEN 连接，支持自动重连。"""
 
@@ -65,7 +76,7 @@ class ListenConnectionManager:
                         pass
 
                 for ch in self.channels:
-                    await conn.execute(f"LISTEN {ch}")
+                    await conn.execute(f"LISTEN {_quote_ident(ch)}")
                     await conn.add_listener(ch, _callback)
                     logger.debug("LISTEN channel=%s", ch)
 

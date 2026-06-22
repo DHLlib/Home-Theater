@@ -73,10 +73,14 @@ export default function Player() {
     });
 
     // 再调 API 刷新并写入缓存
-    getEpisodes(site_id, original_id).then((eps) => {
-      setEpisodes(eps);
-      setCachedEpisodes(site_id, original_id, eps);
-    });
+    getEpisodes(site_id, original_id)
+      .then((eps) => {
+        setEpisodes(eps);
+        setCachedEpisodes(site_id, original_id, eps);
+      })
+      .catch(() => {
+        // API 失败时保持已有缓存/传入数据，不阻断播放
+      });
   }, [site_id, original_id, passedEpisodes]);
 
   // 加载该视频的所有可用源

@@ -11,6 +11,17 @@ logger = logging.getLogger(__name__)
 _ALLOWED_CHANNELS = frozenset({"download_events", "health_events", "site_delete_events"})
 
 
+def _quote_ident(name: str) -> str:
+    """将 channel 名安全地引用为 PostgreSQL 标识符。
+
+    仅允许小写字母、数字和下划线组成的 bare identifier；其余字符一律拒绝，
+    避免通过转义序列注入。
+    """
+    if not name or not name.isidentifier() or not name.islower():
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return f'"{name}"'
+
+
 @dataclass
 class Event:
     type: str
@@ -35,9 +46,10 @@ class NotifySender:
             async with self._lock:
                 if self._conn is None or self._conn.is_closed():
                     self._conn = await asyncpg.connect(dsn=self._dsn_for_asyncpg())
-                # PostgreSQL NOTIFY 不支持参数占位符，使用 dollar-quoting 安全嵌入 payload
+                # PostgreSQL NOTIFY 不支持参数占位符；channel 名经标识符校验+引用，
+                # payload 用 dollar-quoting 安全嵌入
                 await self._conn.execute(
-                    f"NOTIFY {channel}, {self._dollar_quote(payload)}"
+                    f"NOTIFY {_quote_ident(channel)}, {self._dollar_quote(payload)}"
                 )
         except Exception:
             logger.exception("NOTIFY 发送失败 channel=%s", channel)
