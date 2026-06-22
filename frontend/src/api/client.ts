@@ -31,6 +31,20 @@ async function request<T>(
       throw err;
     }
     return resp.json();
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const isAbort = err instanceof DOMException && err.name === "AbortError";
+    const isNetwork = err instanceof TypeError;
+    if (isAbort) {
+      toastError("请求超时，请检查后端服务是否响应");
+    } else if (isNetwork) {
+      toastError("无法连接到后端服务，请先启动后端（./start-dev.ps1 或 cd backend && uvicorn ...）");
+    } else {
+      toastError("请求异常，请稍后重试");
+    }
+    throw err;
   } finally {
     if (timer) clearTimeout(timer);
   }
