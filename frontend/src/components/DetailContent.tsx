@@ -103,12 +103,11 @@ export default function DetailContent({
     if (!d) return;
 
     if (pickerAction === "play") {
+      const yearParam = item.year != null ? `&year=${item.year}` : "";
       navigate(
         `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
           source.original_id
-        )}&ep=0&title=${encodeURIComponent(item.title)}&year=${
-          item.year ?? ""
-        }`,
+        )}&ep=0&title=${encodeURIComponent(item.title)}${yearParam}`,
         { state: { episodes: d.episodes } }
       );
     } else if (pickerAction === "download") {
@@ -129,12 +128,11 @@ export default function DetailContent({
     );
     if (!d) return;
 
+    const yearParam = item.year != null ? `&year=${item.year}` : "";
     navigate(
       `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
         source.original_id
-      )}&ep=${episodeIndex}&title=${encodeURIComponent(item.title)}&year=${
-        item.year ?? ""
-      }`,
+      )}&ep=${episodeIndex}&title=${encodeURIComponent(item.title)}${yearParam}`,
       { state: { episodes: d.episodes } }
     );
   };
