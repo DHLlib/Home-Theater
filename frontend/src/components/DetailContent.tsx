@@ -122,6 +122,23 @@ export default function DetailContent({
     }
   };
 
+  const playSource = (source: SourceRef, episodeIndex: number) => {
+    const d = detail.find(
+      (s) =>
+        s.site_id === source.site_id && s.original_id === source.original_id
+    );
+    if (!d) return;
+
+    navigate(
+      `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
+        source.original_id
+      )}&ep=${episodeIndex}&title=${encodeURIComponent(item.title)}&year=${
+        item.year ?? ""
+      }`,
+      { state: { episodes: d.episodes } }
+    );
+  };
+
   const handleToggleEpisode = (index: number, selected: boolean) => {
     setSelectedEpisodeIndices((prev) => {
       const next = new Set(prev);
@@ -360,29 +377,10 @@ export default function DetailContent({
         detail.length > 0 &&
         detail.map((s) => (
           <div key={`${s.site_id}-${s.original_id}`} style={{ marginTop: 16 }}>
-            <div
-              className="row"
-              style={{
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <h4 style={{ margin: 0 }}>{s.site_name || `站点 #${s.site_id}`}</h4>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ fontSize: 12, padding: "4px 10px" }}
-                onClick={() => {
-                  setPickerAction("play");
-                  onConfirmSource(s);
-                }}
-              >
-                从此源播放
-              </button>
-            </div>
-            <EpisodeList episodes={s.episodes} onPick={() => {}} />
+            <h4 style={{ margin: 0, marginBottom: 8 }}>
+              {s.site_name || `站点 #${s.site_id}`}
+            </h4>
+            <EpisodeList episodes={s.episodes} onPick={(idx) => playSource(s, idx)} />
           </div>
         ))}
 
