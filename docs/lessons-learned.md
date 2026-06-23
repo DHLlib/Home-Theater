@@ -911,6 +911,39 @@ param(
 
 ---
 
+## 35. 分类设置 SiteTabs 滚轮无法横向滚动 + 主题色硬编码
+
+**症状**：
+1. 鼠标悬停在「设置 → 分类设置」的站点标签栏上，用滚轮无法滚动查看后面的站点。
+2. 在绯红主题下，分类映射的「已映射」边框/标签仍显示绿色，与主题不协调。
+
+**原因**：
+1. 标签栏是 `overflow-x: auto` 且隐藏了滚动条；浏览器默认不会把垂直滚轮事件转换为横向滚动。
+2. 之前的实现直接写死了 `rgba(52, 211, 153, …)`（绿）和 `rgba(239, 68, 68, …)`（红），没有使用主题 CSS 变量。
+
+**解决**：
+- 在 `SiteTabs` 容器上监听 `onWheel`：
+  ```tsx
+  onWheel={(e) => {
+    const el = e.currentTarget;
+    if (el.scrollWidth <= el.clientWidth) return;
+    const atLeft = el.scrollLeft <= 0;
+    const atRight = el.scrollLeft >= el.scrollWidth - el.clientWidth - 1;
+    if ((e.deltaY > 0 && !atRight) || (e.deltaY < 0 && !atLeft)) {
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }}
+  ```
+  到达边界后把事件还给页面，不影响页面纵向滚动。
+- 分类设置的全部样式迁移到 `frontend/src/components/category-settings/CategorySettings.css`，颜色统一使用 `var(--primary)` / `var(--danger)` / `var(--primary-dim)` / `var(--danger-dim)`，适配 `:root`（深黑影院绿）与 `[data-theme="crimson"]`（绯红）两套主题。
+
+**教训**：
+- 横向滚动容器必须显式处理滚轮事件，否则用户只能拖拽或按 Shift 滚轮。
+- 项目同时存在两套主题，任何新增 UI 都应使用语义 CSS 变量，禁止硬编码绿/红色值。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -946,3 +979,5 @@ param(
 | 回弹、下拉到底、duplicate key、重复视频 | #31 预聚合分页 offset 错位 |
 | React error #300、白屏、播放页崩溃、hooks、sourcemap | #32 早期 return 后还有 useEffect |
 | start-dev、UnexpectedAttribute、CmdletBinding、PowerShell | #34 start-dev.ps1 解析错误 |
+| 分类设置、SiteTabs、滚轮、横向滚动 | #35 横向滚动与主题变量 |
+| CategorySettings、CSS 变量、绯红主题、主题色 | #35 横向滚动与主题变量 |
