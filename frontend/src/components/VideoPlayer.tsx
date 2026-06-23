@@ -171,7 +171,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       if (!container || !src || playerRef.current) return;
 
       const { isM3u8, isDirectVideo } = analyzeFormat(src, suffix);
-      if (!isDirectVideo) {
+      if (!isM3u8 && !isDirectVideo) {
         const msg = `暂不支持播放该格式 (${suffix})`;
         setError(msg);
         onErrorRef.current?.(msg);
@@ -260,7 +260,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
 
       const { isM3u8, isDirectVideo } = analyzeFormat(src, suffix);
-      if (!isDirectVideo) {
+      if (!isM3u8 && !isDirectVideo) {
         const msg = `暂不支持播放该格式 (${suffix})`;
         setError(msg);
         onErrorRef.current?.(msg);
