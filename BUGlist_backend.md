@@ -1,7 +1,9 @@
 # Backend Bug List — Home Theater v2
 
-> Scope: `backend/app/main.py`, `models.py`, `schemas.py`, `db.py`, `config.py`, `constants.py`, `api/*.py`, `services/*.py`.
+> Scope: `backend/app/main.py`, `models.py`, `schemas.py`, `db.py`, `config.py`, `constants.py`, `api/*.py`, `services/*.py`.  
 > This is a read-only review; no files were modified.
+
+> **状态更新（2026-06-23）**：已修复的条目在“Severity”下方标注了 `- **状态：已修复**`；其余仍为待修复项，需结合当前 PG-only 分支策略继续推进。
 
 ---
 
@@ -50,6 +52,7 @@
 - **File:** `backend/app/services/source_client.py`
 - **Lines:** 175 (`_normalize_list_item`), 194 (`_normalize_detail_item`)
 - **Severity:** High
+- **状态：已修复**
 - **Description:** Both normalizers build `original_id` with `str(raw.get("vod_id") or raw.get("id") or "")`. Because `0` is falsy in Python, a legitimate ID of `0` is converted to `""`. The same problem affects `id=0`.
 - **Impact:**
   - Rows for ID `0` get an empty `original_id`.
@@ -59,14 +62,17 @@
   ```python
   "original_id": str(raw.get("vod_id") or raw.get("id") or ""),
   ```
+- **修复说明**：新增 `_extract_original_id()` 单独处理 `vod_id` / `id` 的 `None` 与 `0` 情况，仅当字段确实不存在时才回退空字符串。
 
 ### 5. `SourceClient` cannot build the `h` (hours) parameter required by the hard spec
 - **File:** `backend/app/services/source_client.py`
 - **Lines:** 60-80 (`_build_params`), 140-154 (`list`), 156-169 (`videolist`)
 - **Severity:** High
+- **状态：已修复**
 - **Description:** The hard spec lists `h=<小时数>` as a valid parameter for both `ac=list` and `ac=videolist`. `_build_params` supports `ac`, `t`, `pg`, `wd`, `by`, `ids` but has no `h` argument, and neither `list()` nor `videolist()` expose it.
 - **Impact:** Any future feature that needs “recent N hours” queries must bypass the designated client and hand-roll URLs, increasing the risk of spec drift and duplicated logic.
 - **Evidence:** `_build_params` body; `h` is absent from all signatures.
+- **修复说明**：`_build_params` 新增 `h: int | None = None` 参数并写入 `params["h"]`；`list()` / `videolist()` 签名同步暴露 `h`。
 
 ---
 
@@ -76,17 +82,20 @@
 - **File:** `backend/app/api/sites.py`
 - **Line:** 158
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** `get_site_health` computes `since_24h` as `_utcnow().replace(hour=0, minute=0, second=0, microsecond=0)`, i.e. the start of the current UTC day, not `_utcnow() - timedelta(hours=24)`.
 - **Impact:** The availability percentage ignores probes from the previous 23:59 to 00:00 UTC window and gives a misleading number for users in non-UTC timezones.
 - **Evidence:**
   ```python
   since_24h = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
   ```
+- **修复说明**：改为 `_utcnow() - timedelta(hours=24)`，正确统计最近 24 小时探测。
 
 ### 7. Pending aggregated-cache titles are cleared before refresh succeeds
 - **File:** `backend/app/services/crawler.py`
 - **Lines:** 1201-1204
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** In `_refresh_aggregated_cache`, `self._pending_norm_titles` is swapped to a local variable and cleared before `refresh_aggregated_view()` runs. If the refresh raises or returns `False`, the pending set is already gone.
 - **Impact:** A transient DB error during incremental refresh causes the affected aggregation keys to be silently dropped; the cache will stay stale until the next full rebuild.
 - **Evidence:**
@@ -97,11 +106,13 @@
       return
   ok = await refresh_aggregated_view(db, affected_norm_titles=to_refresh)
   ```
+- **修复说明**：只有在 `refresh_aggregated_view` 返回成功后才从 `_pending_norm_titles` 中移除已刷新项，失败时保留待下次处理。
 
 ### 8. `parse_episodes` violates the strict “exactly 3 segments” contract
 - **File:** `backend/app/services/parser.py`
 - **Lines:** 34-40
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** The parser raises only when `len(parts) < 3` and joins extras into the suffix. The hard spec says each line must be split into **exactly** three fields (`episode$URL$suffix`). URLs that legitimately contain a `$` character (e.g. query strings or paths) will be mis-split.
 - **Impact:** Non-compliant input can silently corrupt the URL or suffix. Conversely, malformed lines with extra `$` are accepted instead of rejected.
 - **Evidence:**
@@ -110,11 +121,13 @@
       raise ValueError(...)
   ep_name, url, suffix = parts[0], parts[1], "$".join(parts[2:])
   ```
+- **修复说明**：改为 `len(parts) != 3` 并直接取 `parts[2]` 作为 suffix，严格符合“集数$地址$后缀”三段式规范。
 
 ### 9. Category-filter subquery triggers SQLAlchemy warning and may be fragile
 - **File:** `backend/app/api/videos.py`
 - **Lines:** 540-546
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** `cat_subq` is built with `.subquery()` and passed directly to `AggregatedVideoV3.id.in_(cat_subq)`. SQLAlchemy emits `SAWarning: Coercing Subquery object into a select() for use in IN(); please pass a select() construct explicitly`.
 - **Impact:** Works today but is deprecated/unsupported territory; future SQLAlchemy versions may break. It also litters test output.
 - **Evidence:** pytest warnings:
@@ -122,11 +135,13 @@
   SAWarning: Coercing Subquery object into a select() for use in IN();
   please pass a select() construct explicitly
   ```
+- **修复说明**：使用 `select(cat_subq.c.aggregated_video_id)` 包裹后传入 `.in_()`，消除 SQLAlchemy 警告。
 
 ### 10. `cleanup_expired` bypasses `SourceClient` and assumes JSON responses
 - **File:** `backend/app/api/videos.py`
 - **Lines:** 1341-1358
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** The cleanup endpoint builds `?ac=videolist&ids=...` URLs by hand and calls `resp.json()` without content-type handling or retries. It also skips the centralized `SourceClient`, so it does not benefit from its retry logic or URL-encoding.
 - **Impact:** If a site returns XML (common in older AppleCMS deployments) or a transient non-JSON error, the cleanup aborts for that site instead of handling it gracefully.
 - **Evidence:**
@@ -135,11 +150,13 @@
   resp = await client.get(url)
   data = resp.json()
   ```
+- **修复说明**：清理逻辑改为通过 `SourceClient` 调用 `client.videolist(ids=batch, op="cleanup_expired")`，复用 JSON/XML 解析、重试、URL 编码等能力。
 
 ### 11. `NotifySender` interpolates channel name into SQL
 - **File:** `backend/app/services/notify_sender.py`
 - **Lines:** 39-40
 - **Severity:** Medium
+- **状态：已修复**
 - **Description:** The `NOTIFY` statement is built with an f-string: `f"NOTIFY {channel}, {self._dollar_quote(payload)}"`. Although `channel` is validated against an allow-list, this is still unsafe SQL construction and would break if a future change adds dynamic channels.
 - **Impact:** SQL-injection pattern in the event bus; currently mitigated only by the hardcoded allow-list.
 - **Evidence:**
@@ -147,6 +164,7 @@
   await self._conn.execute(f"NOTIFY {channel}, {self._dollar_quote(payload)}")
   ```
   (Same pattern exists in `listen_manager.py:68` for `LISTEN {ch}`.)
+- **修复说明**：新增 `_quote_ident()` 对 channel 名做 PostgreSQL 标识符校验并双引号引用；payload 使用 dollar-quoting。白名单机制继续保留。
 
 ---
 
@@ -156,12 +174,14 @@
 - **File:** `backend/app/services/source_client.py`
 - **Line:** 83
 - **Severity:** Low
+- **状态：已修复**
 - **Description:** `url_with_params` is built with raw f-string interpolation, so Chinese search keywords or special characters are not percent-encoded in the logged URL. The actual HTTP request uses httpx `params=` and is correct.
 - **Impact:** Misleading logs; URLs copied from logs may be invalid.
 - **Evidence:**
   ```python
   url_with_params = f"{self.base_url}?{ '&'.join(f'{k}={v}' for k, v in params.items()) }"
   ```
+- **修复说明**：使用 `urllib.parse.urlencode(params)` 构造日志 URL，中文字符与特殊字符会被正确编码。
 
 ### 13. Direct download worker holds a DB session open during long network streams
 - **File:** `backend/app/services/downloader.py`
@@ -191,13 +211,16 @@
 - **File:** `backend/app/api/videos.py`
 - **Line:** 1347
 - **Severity:** Low
+- **状态：已修复**
 - **Description:** `ids_str = ",".join(str(x) for x in batch)` is concatenated into the URL without quoting. An `original_id` containing `&`, `#`, `?`, etc. would break the request.
 - **Impact:** Cleanup may fail or behave incorrectly for sites with non-alphanumeric IDs.
+- **修复说明**：清理逻辑已改为通过 `SourceClient.videolist(ids=batch)` 发起请求，`SourceClient` 内部使用 `urlencode` 处理参数，不再需要手工拼接 URL。
 
 ### 17. Duplicate `await db.commit()` in aggregated-cache refresh
 - **File:** `backend/app/services/crawler.py`
 - **Line:** 1222
 - **Severity:** Low
+- **状态：已修复**
 - **Description:** After refreshing the aggregated cache, the code calls `await db.commit()` twice in a row.
 - **Impact:** Harmless but indicates a copy-paste error and may confuse future maintainers.
 - **Evidence:**
@@ -205,6 +228,7 @@
   await db.commit()
   await db.commit()
   ```
+- **修复说明**：移除重复的 `await db.commit()`，只保留一次提交。
 
 ---
 
@@ -218,3 +242,21 @@
 | Low | 6 | Log URL encoding; long-lived download session; shallow cycle check; favorite race; unencoded IDs; duplicate commit |
 
 The most urgent fixes are the SQLite compatibility blockers (#1, #2) and the `original_id` falsy-handling bug (#4), because they can corrupt data or prevent the application from starting on the documented default backend.
+
+---
+
+## 修复状态速查（2026-06-23）
+
+| # | 标题 | 状态 |
+|---|------|------|
+| 4 | `original_id=0` 被误判为空串 | 已修复 |
+| 5 | `SourceClient` 缺少 `h` 参数 | 已修复 |
+| 6 | 24 小时可用率使用 UTC 午夜 | 已修复 |
+| 7 | 聚合缓存 pending titles 提前清空 | 已修复 |
+| 8 | `parse_episodes` 未严格三段式 | 已修复 |
+| 9 | 分类过滤 subquery 警告 | 已修复 |
+| 10 | `cleanup_expired` 绕过 `SourceClient` | 已修复 |
+| 11 | `NotifySender` SQL 拼接 channel | 已修复 |
+| 12 | 日志 URL 未编码 | 已修复 |
+| 16 | `cleanup_expired` ID 未编码 | 已修复 |
+| 17 | 聚合缓存刷新重复 commit | 已修复 |
