@@ -1,0 +1,526 @@
+/* CategorySettings: 分类设置面板样式
+ * 所有颜色使用 CSS 变量，自动适配 :root（深黑影院绿）与 [data-theme="crimson"]（绯红）主题。
+ */
+
+.cs-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 2fr);
+  align-items: start;
+}
+
+.cs-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cs-column + .cs-column {
+  border-left: 1px solid var(--glass-border);
+  padding-left: 24px;
+}
+
+.cs-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.cs-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cs-section-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ===== 系统分类树 ===== */
+
+.cs-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cs-tree-parent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cs-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.cs-tree-row:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--glass-border);
+}
+
+.cs-tree-row--disabled {
+  opacity: 0.55;
+}
+
+.cs-tree-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  min-height: auto;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.cs-tree-expand svg {
+  transition: transform var(--transition-fast);
+}
+
+.cs-tree-expand[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.cs-tree-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-tree-name--disabled {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.cs-tree-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cs-tree-actions .btn {
+  padding: 4px 8px;
+  min-height: 28px;
+  font-size: 12px;
+}
+
+.cs-tree-actions .btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cs-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 11px;
+  padding-left: 16px;
+  border-left: 1px solid var(--glass-border);
+}
+
+.cs-tree-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color var(--transition-fast);
+}
+
+.cs-tree-child:hover {
+  background: var(--btn-bg-hover);
+}
+
+.cs-tree-child-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-tree-child-name--disabled {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.cs-tree-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.cs-tree-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ===== 开关 ===== */
+
+.cs-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cs-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cs-toggle-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--glass-border-bright);
+  position: relative;
+  transition: background-color var(--transition-fast);
+}
+
+.cs-toggle input:checked + .cs-toggle-track {
+  background: var(--primary);
+}
+
+.cs-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform var(--transition-fast);
+}
+
+.cs-toggle input:checked + .cs-toggle-track .cs-toggle-thumb {
+  transform: translateX(16px);
+}
+
+.cs-toggle input:focus-visible + .cs-toggle-track {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ===== 站点标签页 ===== */
+
+.cs-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.cs-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.cs-tabs {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.cs-tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.cs-tab:hover:not(:disabled) {
+  background: var(--btn-bg-hover);
+  color: var(--text-primary);
+}
+
+.cs-tab--active {
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ===== 映射工具栏 ===== */
+
+.cs-mapping-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.cs-mapping-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== 分类映射列表 ===== */
+
+.cs-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cs-mapping-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cs-mapping-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+}
+
+.cs-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(140px, 1.4fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.cs-mapping-row:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--glass-border);
+}
+
+.cs-mapping-row--mapped {
+  background: var(--primary-dim);
+}
+
+.cs-mapping-row--mapped:hover {
+  border-color: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.cs-mapping-row--disabled {
+  background: var(--danger-dim);
+  opacity: 0.8;
+}
+
+.cs-mapping-row--disabled:hover {
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.cs-mapping-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-mapping-name--disabled {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.cs-mapping-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.cs-mapping-status--mapped {
+  background: var(--primary);
+  color: #000;
+}
+
+[data-theme="crimson"] .cs-mapping-status--mapped {
+  color: #fff;
+}
+
+.cs-mapping-status--disabled {
+  background: var(--danger);
+  color: #000;
+}
+
+[data-theme="crimson"] .cs-mapping-status--disabled {
+  color: #fff;
+}
+
+.cs-mapping-status--unmapped {
+  background: var(--glass-border-bright);
+  color: var(--text-secondary);
+}
+
+.cs-mapping-select {
+  width: 100%;
+  min-width: 120px;
+}
+
+.cs-mapping-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cs-mapping-actions .btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== 空状态 ===== */
+
+.cs-mapping-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--btn-bg);
+  border: 1px dashed var(--glass-border-bright);
+  border-radius: 8px;
+}
+
+.cs-mapping-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ===== 骨架屏 ===== */
+
+.cs-mapping-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.cs-skeleton-line {
+  height: 20px;
+  border-radius: 4px;
+  background: var(--btn-bg);
+}
+
+.cs-skeleton-line--short {
+  width: 60%;
+}
+
+/* ===== 移动端 ===== */
+
+@media (max-width: 767px) {
+  .cs-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cs-column + .cs-column {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--glass-border);
+    padding-top: 16px;
+  }
+
+  .cs-mapping-row {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .cs-mapping-name {
+    grid-column: 1 / 2;
+  }
+
+  .cs-mapping-status {
+    grid-column: 2 / 3;
+    justify-self: end;
+  }
+
+  .cs-mapping-select {
+    grid-column: 1 / -1;
+  }
+
+  .cs-mapping-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .cs-mapping-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cs-mapping-toolbar-actions {
+    justify-content: space-between;
+  }
+
+  .cs-tree-actions .btn {
+    padding: 4px 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-tree-expand svg,
+  .cs-toggle-track,
+  .cs-toggle-thumb,
+  .cs-tree-row,
+  .cs-tree-child,
+  .cs-mapping-row,
+  .cs-tab {
+    transition: none;
+  }
+}

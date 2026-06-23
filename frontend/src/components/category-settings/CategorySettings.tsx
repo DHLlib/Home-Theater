@@ -11,13 +11,14 @@ import {
   updateSystemCategory,
   deleteSystemCategory,
 } from "../../api/system-categories";
+import { toastSuccess, toastError } from "../../utils/toast";
 import type {
   CategoryGroup,
   CategoryMapping,
   Site,
   SystemCategoryTreeItem,
 } from "../../types";
-import SiteTabs from "./SiteTabs";
+import "./CategorySettings.css";
 
 interface CategorySettingsProps {
   sites: Site[];
@@ -26,11 +27,150 @@ interface CategorySettingsProps {
 interface SiteCategoryState {
   groups: CategoryGroup[];
   mappings: CategoryMapping[];
+  initialMappings: CategoryMapping[];
   loading: boolean;
   loaded: boolean;
 }
 
-/* ===== 系统分类树组件 ===== */
+/* ===== 图标 ===== */
+
+function IconChevronRight({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+function IconEdit({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function IconTrash({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
+function IconPlus({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function IconX({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function IconCheck({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+/* ===== 开关 ===== */
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  children,
+  title,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  children?: React.ReactNode;
+  title?: string;
+}) {
+  return (
+    <label className="cs-toggle" title={title}>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <span className="cs-toggle-track">
+        <span className="cs-toggle-thumb" />
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/* ===== 系统分类树 ===== */
 
 function SystemCategoryTree({
   tree,
@@ -57,569 +197,532 @@ function SystemCategoryTree({
     });
   };
 
-  const handleEdit = (item: SystemCategoryTreeItem) => {
+  const startEdit = (item: SystemCategoryTreeItem) => {
     setEditingId(item.id);
     setEditName(item.name);
     setEditSort(item.sort);
   };
 
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditSort(0);
+  };
+
   const handleSaveEdit = async (id: number) => {
     const name = editName.trim();
     if (!name) return;
-    await updateSystemCategory(id, { name, sort: editSort });
-    setEditingId(null);
-    onRefresh();
+    try {
+      await updateSystemCategory(id, { name, sort: editSort });
+      setEditingId(null);
+      onRefresh();
+    } catch {
+      toastError("保存分类失败");
+    }
   };
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`确定删除分类「${name}」？子分类将一并删除。`)) return;
-    await deleteSystemCategory(id);
-    onRefresh();
+    try {
+      await deleteSystemCategory(id);
+      onRefresh();
+      toastSuccess("已删除");
+    } catch {
+      toastError("删除分类失败");
+    }
   };
 
   const handleAddParent = async () => {
     const name = newParentName.trim();
     if (!name) return;
-    await createSystemCategory({ name, sort: 0 });
-    setAddingParent(false);
-    setNewParentName("");
-    onRefresh();
+    try {
+      await createSystemCategory({ name, sort: 0 });
+      setAddingParent(false);
+      setNewParentName("");
+      onRefresh();
+      toastSuccess("大类已添加");
+    } catch {
+      toastError("添加大类失败");
+    }
   };
 
   const handleAddChild = async (parentId: number) => {
     const name = newChildName.trim();
     if (!name) return;
-    await createSystemCategory({ name, parent_id: parentId, sort: 0 });
-    setAddingChild(null);
-    setNewChildName("");
-    onRefresh();
+    try {
+      await createSystemCategory({ name, parent_id: parentId, sort: 0 });
+      setAddingChild(null);
+      setNewChildName("");
+      setExpanded((prev) => new Set(prev).add(parentId));
+      onRefresh();
+      toastSuccess("子分类已添加");
+    } catch {
+      toastError("添加子分类失败");
+    }
   };
 
   const handleToggleEnabled = async (item: SystemCategoryTreeItem) => {
     const next = !(item.enabled !== false);
-    await updateSystemCategory(item.id, { enabled: next });
-    onRefresh();
+    try {
+      await updateSystemCategory(item.id, { enabled: next });
+      onRefresh();
+    } catch {
+      toastError("切换状态失败");
+    }
   };
 
-  const disabledStyle = {
-    color: "var(--text-secondary)",
-    textDecoration: "line-through",
-    opacity: 0.6,
-  } as const;
+  const inputProps = {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      padding: "4px 8px",
+      fontSize: 13,
+    } as React.CSSProperties,
+  };
+
+  const sortInputProps = {
+    type: "number" as const,
+    style: {
+      width: 64,
+      padding: "4px 8px",
+      fontSize: 13,
+    } as React.CSSProperties,
+  };
 
   return (
-    <div className="col" style={{ gap: 4 }}>
+    <div className="cs-tree">
       {tree.map((parent) => {
         const isExpanded = expanded.has(parent.id);
+        const isDisabled = parent.enabled === false;
         return (
-          <div key={parent.id} className="col" style={{ gap: 2 }}>
-            {/* 父分类行 */}
+          <div key={parent.id} className="cs-tree-parent">
             <div
-              className="row"
-              style={{
-                gap: 8,
-                padding: "6px 8px",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.03)",
-                alignItems: "center",
-              }}
+              className={[
+                "cs-tree-row",
+                isDisabled ? "cs-tree-row--disabled" : "",
+              ].join(" ")}
             >
               <button
-                className="btn"
+                type="button"
+                className="btn cs-tree-expand"
                 onClick={() => toggleExpand(parent.id)}
-                style={{ padding: "2px 6px", minHeight: 24, fontSize: 12 }}
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? "收起" : "展开"}
               >
-                {isExpanded ? "▼" : "▶"}
+                <IconChevronRight />
               </button>
+
               {editingId === parent.id ? (
                 <>
                   <input
+                    {...inputProps}
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: "4px 8px",
-                      fontSize: 13,
-                      borderRadius: 4,
-                      border: "1px solid var(--glass-border)",
-                      background: "var(--bg)",
-                      color: "var(--text-primary)",
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveEdit(parent.id);
+                      if (e.key === "Escape") cancelEdit();
                     }}
+                    autoFocus
                   />
                   <input
-                    type="number"
+                    {...sortInputProps}
                     value={editSort}
                     onChange={(e) => setEditSort(Number(e.target.value))}
-                    style={{
-                      width: 60,
-                      padding: "4px 8px",
-                      fontSize: 13,
-                      borderRadius: 4,
-                      border: "1px solid var(--glass-border)",
-                      background: "var(--bg)",
-                      color: "var(--text-primary)",
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveEdit(parent.id);
+                      if (e.key === "Escape") cancelEdit();
                     }}
                   />
                   <button
+                    type="button"
                     className="btn btn-primary"
                     onClick={() => handleSaveEdit(parent.id)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+                    title="保存"
                   >
-                    保存
+                    <IconCheck size={12} />
                   </button>
                   <button
+                    type="button"
                     className="btn"
-                    onClick={() => setEditingId(null)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+                    onClick={cancelEdit}
+                    title="取消"
                   >
-                    取消
+                    <IconX size={12} />
                   </button>
                 </>
               ) : (
                 <>
-                  <span style={{ flex: 1, fontSize: 14, fontWeight: 600, ...(parent.enabled === false ? disabledStyle : {}) }}>
+                  <span
+                    className={[
+                      "cs-tree-name",
+                      isDisabled ? "cs-tree-name--disabled" : "",
+                    ].join(" ")}
+                    title={parent.name}
+                  >
                     {parent.name}
                   </span>
-                  <button
-                    className="btn"
-                    onClick={() => handleEdit(parent)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => handleToggleEnabled(parent)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
-                  >
-                    {parent.enabled === false ? "启用" : "禁用"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => setAddingChild(parent.id)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
-                  >
-                    +子类
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => handleDelete(parent.id, parent.name)}
-                    style={{
-                      padding: "4px 10px",
-                      minHeight: 28,
-                      fontSize: 12,
-                      color: "var(--danger)",
-                    }}
-                  >
-                    删除
-                  </button>
+                  <div className="cs-tree-actions">
+                    <ToggleSwitch
+                      checked={!isDisabled}
+                      onChange={() => handleToggleEnabled(parent)}
+                      title={isDisabled ? "启用" : "禁用"}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-icon"
+                      onClick={() => startEdit(parent)}
+                      title="编辑"
+                      aria-label="编辑"
+                    >
+                      <IconEdit size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-icon"
+                      onClick={() => setAddingChild(parent.id)}
+                      title="添加子分类"
+                      aria-label="添加子分类"
+                    >
+                      <IconPlus size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-icon"
+                      onClick={() => handleDelete(parent.id, parent.name)}
+                      title="删除"
+                      aria-label="删除"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      <IconTrash size={12} />
+                    </button>
+                  </div>
                 </>
               )}
             </div>
 
-            {/* 子分类列表 */}
             {isExpanded && (
-              <div className="col" style={{ gap: 2, paddingLeft: 24 }}>
-                {parent.children.map((child) => (
-                  <div
-                    key={child.id}
-                    className="row"
-                    style={{
-                      gap: 8,
-                      padding: "4px 8px",
-                      borderRadius: 4,
-                      alignItems: "center",
-                    }}
-                  >
-                    {editingId === child.id ? (
-                      <>
-                        <input
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          style={{
-                            flex: 1,
-                            padding: "4px 8px",
-                            fontSize: 13,
-                            borderRadius: 4,
-                            border: "1px solid var(--glass-border)",
-                            background: "var(--bg)",
-                            color: "var(--text-primary)",
-                          }}
-                        />
-                        <input
-                          type="number"
-                          value={editSort}
-                          onChange={(e) =>
-                            setEditSort(Number(e.target.value))
-                          }
-                          style={{
-                            width: 60,
-                            padding: "4px 8px",
-                            fontSize: 13,
-                            borderRadius: 4,
-                            border: "1px solid var(--glass-border)",
-                            background: "var(--bg)",
-                            color: "var(--text-primary)",
-                          }}
-                        />
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => handleSaveEdit(child.id)}
-                          style={{
-                            padding: "4px 10px",
-                            minHeight: 28,
-                            fontSize: 12,
-                          }}
-                        >
-                          保存
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() => setEditingId(null)}
-                          style={{
-                            padding: "4px 10px",
-                            minHeight: 28,
-                            fontSize: 12,
-                          }}
-                        >
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span
-                          style={{
-                            flex: 1,
-                            fontSize: 13,
-                            ...(child.enabled === false ? disabledStyle : { color: "var(--text-primary)" }),
-                          }}
-                        >
-                          {child.name}
-                        </span>
-                        <button
-                          className="btn"
-                          onClick={() => handleEdit(child)}
-                          style={{
-                            padding: "4px 10px",
-                            minHeight: 28,
-                            fontSize: 12,
-                          }}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() => handleToggleEnabled(child)}
-                          style={{
-                            padding: "4px 10px",
-                            minHeight: 28,
-                            fontSize: 12,
-                          }}
-                        >
-                          {child.enabled === false ? "启用" : "禁用"}
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() =>
-                            handleDelete(child.id, child.name)
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            minHeight: 28,
-                            fontSize: 12,
-                            color: "var(--danger)",
-                          }}
-                        >
-                          删除
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
+              <div className="cs-tree-children">
+                {parent.children.map((child) => {
+                  const childDisabled = child.enabled === false;
+                  return (
+                    <div
+                      key={child.id}
+                      className={[
+                        "cs-tree-child",
+                        childDisabled ? "cs-tree-row--disabled" : "",
+                      ].join(" ")}
+                    >
+                      {editingId === child.id ? (
+                        <>
+                          <input
+                            {...inputProps}
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveEdit(child.id);
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                            autoFocus
+                          />
+                          <input
+                            {...sortInputProps}
+                            value={editSort}
+                            onChange={(e) =>
+                              setEditSort(Number(e.target.value))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveEdit(child.id);
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            onClick={() => handleSaveEdit(child.id)}
+                            title="保存"
+                          >
+                            <IconCheck size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={cancelEdit}
+                            title="取消"
+                          >
+                            <IconX size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className={[
+                              "cs-tree-child-name",
+                              childDisabled
+                                ? "cs-tree-child-name--disabled"
+                                : "",
+                            ].join(" ")}
+                            title={child.name}
+                          >
+                            {child.name}
+                          </span>
+                          <div className="cs-tree-actions">
+                            <ToggleSwitch
+                              checked={!childDisabled}
+                              onChange={() => handleToggleEnabled(child)}
+                              title={childDisabled ? "启用" : "禁用"}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-icon"
+                              onClick={() => startEdit(child)}
+                              title="编辑"
+                              aria-label="编辑"
+                            >
+                              <IconEdit size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-icon"
+                              onClick={() =>
+                                handleDelete(child.id, child.name)
+                              }
+                              title="删除"
+                              aria-label="删除"
+                              style={{ color: "var(--danger)" }}
+                            >
+                              <IconTrash size={12} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
 
-                {/* 添加子分类输入框 */}
-                {addingChild === parent.id && (
-                  <div
-                    className="row"
-                    style={{
-                      gap: 8,
-                      padding: "4px 8px",
-                      alignItems: "center",
-                    }}
-                  >
+                {addingChild === parent.id ? (
+                  <div className="cs-tree-add-row">
                     <input
+                      type="text"
                       value={newChildName}
                       onChange={(e) => setNewChildName(e.target.value)}
-                      placeholder="新子分类名称"
-                      style={{
-                        flex: 1,
-                        padding: "4px 8px",
-                        fontSize: 13,
-                        borderRadius: 4,
-                        border: "1px solid var(--glass-border)",
-                        background: "var(--bg)",
-                        color: "var(--text-primary)",
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAddChild(parent.id);
+                        if (e.key === "Escape") {
+                          setAddingChild(null);
+                          setNewChildName("");
+                        }
                       }}
+                      placeholder="新子分类名称"
+                      autoFocus
                     />
                     <button
+                      type="button"
                       className="btn btn-primary"
                       onClick={() => handleAddChild(parent.id)}
-                      style={{
-                        padding: "4px 10px",
-                        minHeight: 28,
-                        fontSize: 12,
-                      }}
+                      title="添加"
                     >
-                      添加
+                      <IconCheck size={12} />
                     </button>
                     <button
+                      type="button"
                       className="btn"
                       onClick={() => {
                         setAddingChild(null);
                         setNewChildName("");
                       }}
-                      style={{
-                        padding: "4px 10px",
-                        minHeight: 28,
-                        fontSize: 12,
-                      }}
+                      title="取消"
                     >
-                      取消
+                      <IconX size={12} />
                     </button>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </div>
         );
       })}
 
-      {/* 添加父分类 */}
       {addingParent ? (
-        <div
-          className="row"
-          style={{
-            gap: 8,
-            padding: "6px 8px",
-            borderRadius: 6,
-            background: "rgba(255,255,255,0.03)",
-            alignItems: "center",
-          }}
-        >
+        <div className="cs-tree-row">
           <input
+            type="text"
             value={newParentName}
             onChange={(e) => setNewParentName(e.target.value)}
-            placeholder="新大类名称"
-            style={{
-              flex: 1,
-              padding: "4px 8px",
-              fontSize: 13,
-              borderRadius: 4,
-              border: "1px solid var(--glass-border)",
-              background: "var(--bg)",
-              color: "var(--text-primary)",
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddParent();
+              if (e.key === "Escape") {
+                setAddingParent(false);
+                setNewParentName("");
+              }
             }}
+            placeholder="新大类名称"
+            autoFocus
+            style={{ flex: 1, minWidth: 0, fontSize: 13 }}
           />
           <button
+            type="button"
             className="btn btn-primary"
             onClick={handleAddParent}
-            style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+            title="添加"
           >
-            添加
+            <IconCheck size={12} />
           </button>
           <button
+            type="button"
             className="btn"
             onClick={() => {
               setAddingParent(false);
               setNewParentName("");
             }}
-            style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
+            title="取消"
           >
-            取消
+            <IconX size={12} />
           </button>
         </div>
       ) : (
         <button
+          type="button"
           className="btn"
           onClick={() => setAddingParent(true)}
-          style={{
-            padding: "6px 12px",
-            minHeight: 32,
-            fontSize: 13,
-            alignSelf: "flex-start",
-          }}
+          style={{ alignSelf: "flex-start", gap: 4 }}
         >
-          + 新增大类
+          <IconPlus size={12} />
+          新增大类
         </button>
       )}
     </div>
   );
 }
 
-/* ===== 站点分类映射组件 ===== */
+/* ===== 站点标签页 ===== */
+
+function SiteTabs({
+  sites,
+  activeSiteId,
+  onChange,
+}: {
+  sites: Site[];
+  activeSiteId: number | null;
+  onChange: (siteId: number) => void;
+}) {
+  return (
+    <div
+      className="cs-tabs"
+      role="tablist"
+      onWheel={(e) => {
+        const el = e.currentTarget;
+        if (el.scrollWidth <= el.clientWidth) return;
+
+        const atLeft = el.scrollLeft <= 0;
+        const atRight =
+          el.scrollLeft >= el.scrollWidth - el.clientWidth - 1;
+
+        // 垂直滚轮映射为水平滚动；到达边界时把事件还给页面
+        if ((e.deltaY > 0 && !atRight) || (e.deltaY < 0 && !atLeft)) {
+          el.scrollLeft += e.deltaY;
+          e.preventDefault();
+        }
+      }}
+    >
+      {sites.map((site) => {
+        const active = site.id === activeSiteId;
+        return (
+          <button
+            key={site.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={["cs-tab", active ? "cs-tab--active" : ""].join(" ")}
+            onClick={() => onChange(site.id)}
+          >
+            {site.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ===== 站点分类映射 ===== */
 
 function SiteCategoryMappings({
-  siteName,
   groups,
   mappings,
   allSystemCategories,
   onMappingChange,
   onToggleMappingEnabled,
-  showAll,
 }: {
-  siteName: string;
   groups: CategoryGroup[];
   mappings: CategoryMapping[];
   allSystemCategories: string[];
   onMappingChange: (remoteId: string, systemName: string | null) => void;
   onToggleMappingEnabled: (remoteId: string) => void;
-  showAll: boolean;
 }) {
-  const mappedIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of mappings) set.add(m.remote_id);
-    return set;
-  }, [mappings]);
-
-  const displayGroups = useMemo(() => {
-    if (showAll) return groups;
-    return groups
-      .map((g) => ({
-        ...g,
-        categories: g.categories.filter((c) => !mappedIds.has(c.remote_id)),
-      }))
-      .filter((g) => g.categories.length > 0);
-  }, [groups, mappedIds, showAll]);
-
-  const localMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const m of mappings) if (m.enabled !== false) map[m.remote_id] = m.name;
-    return map;
-  }, [mappings]);
-
-  const enabledMap = useMemo(() => {
-    const map: Record<string, boolean> = {};
-    for (const m of mappings) map[m.remote_id] = m.enabled !== false;
-    return map;
-  }, [mappings]);
-
   if (groups.length === 0) {
     return (
-      <div className="empty" style={{ padding: 32 }}>
-        <p>暂无分类数据</p>
-        <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>
-          站点首次使用时会自动拉取分类
-        </p>
+      <div className="cs-mapping-empty">
+        <span className="cs-mapping-empty-title">暂无分类数据</span>
+        <span>站点首次使用时会自动拉取分类</span>
       </div>
     );
   }
 
-  if (!showAll && displayGroups.length === 0) {
-    return (
-      <div className="empty" style={{ padding: 32 }}>
-        <p style={{ color: "var(--success)" }}>
-          {siteName} 的所有分类均已识别
-        </p>
-        <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>
-          切换「显示全部」可查看和修改已有映射
-        </p>
-      </div>
-    );
-  }
+  const getMapping = (remoteId: string) =>
+    mappings.find((m) => m.remote_id === remoteId);
 
   return (
-    <div className="col" style={{ gap: 12 }}>
-      {displayGroups.map((group) => (
-        <div key={group.parent_id || "ungrouped"} className="col" style={{ gap: 4 }}>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              padding: "4px 0",
-            }}
-          >
+    <div className="cs-mapping-list">
+      {groups.map((group) => (
+        <div key={group.parent_id || "ungrouped"} className="cs-mapping-group">
+          <div className="cs-mapping-group-title">
             {group.parent_name || "未分组"}
           </div>
           {group.categories.map((cat) => {
-            const isMapped = cat.remote_id in localMap || mappings.some((m) => m.remote_id === cat.remote_id);
-            const isEnabled = enabledMap[cat.remote_id] !== false;
+            const mapping = getMapping(cat.remote_id);
+            const isMapped = !!mapping;
+            const isEnabled = mapping ? mapping.enabled !== false : false;
+            const rowClass = [
+              "cs-mapping-row",
+              isMapped && isEnabled ? "cs-mapping-row--mapped" : "",
+              isMapped && !isEnabled ? "cs-mapping-row--disabled" : "",
+            ].join(" ");
+
             return (
-              <div
-                key={cat.remote_id}
-                className="row"
-                style={{
-                  gap: 8,
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  alignItems: "center",
-                  background: isMapped && isEnabled
-                    ? "var(--primary-dim)"
-                    : isMapped && !isEnabled
-                    ? "rgba(239, 68, 68, 0.04)"
-                    : "transparent",
-                  border: isMapped && isEnabled
-                    ? "1px solid rgba(52, 211, 153, 0.2)"
-                    : isMapped && !isEnabled
-                    ? "1px solid rgba(239, 68, 68, 0.2)"
-                    : "1px solid transparent",
-                  opacity: isMapped && !isEnabled ? 0.7 : 1,
-                }}
-              >
+              <div key={cat.remote_id} className={rowClass}>
                 <span
-                  style={{
-                    flex: "0 0 120px",
-                    fontSize: 13,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    textDecoration: isMapped && !isEnabled ? "line-through" : "none",
-                    color: isMapped && !isEnabled ? "var(--text-secondary)" : "var(--text-primary)",
-                  }}
+                  className={[
+                    "cs-mapping-name",
+                    isMapped && !isEnabled ? "cs-mapping-name--disabled" : "",
+                  ].join(" ")}
                   title={cat.name}
                 >
                   {cat.name}
-                  {isMapped && isEnabled && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "var(--success)",
-                        marginLeft: 4,
-                      }}
-                    >
-                      ✓
-                    </span>
-                  )}
-                  {isMapped && !isEnabled && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "var(--danger)",
-                        marginLeft: 4,
-                      }}
-                    >
-                      已禁用
-                    </span>
-                  )}
                 </span>
+
+                <span
+                  className={[
+                    "cs-mapping-status",
+                    isMapped && isEnabled
+                      ? "cs-mapping-status--mapped"
+                      : isMapped && !isEnabled
+                      ? "cs-mapping-status--disabled"
+                      : "cs-mapping-status--unmapped",
+                  ].join(" ")}
+                >
+                  {isMapped && isEnabled
+                    ? "已映射"
+                    : isMapped && !isEnabled
+                    ? "已禁用"
+                    : "未映射"}
+                </span>
+
                 <select
-                  value={localMap[cat.remote_id] || ""}
+                  className="cs-mapping-select"
+                  value={mapping?.name || ""}
                   onChange={(e) =>
-                    onMappingChange(
-                      cat.remote_id,
-                      e.target.value || null
-                    )
+                    onMappingChange(cat.remote_id, e.target.value || null)
                   }
-                  style={{
-                    flex: 1,
-                    padding: "4px 8px",
-                    fontSize: 13,
-                    borderRadius: 4,
-                    border: "1px solid var(--glass-border)",
-                    background: "var(--bg)",
-                    color: "var(--text-primary)",
-                    fontFamily: "inherit",
-                  }}
+                  aria-label={`将 ${cat.name} 映射到系统分类`}
                 >
                   <option value="">-- 选择系统分类 --</option>
                   {allSystemCategories.map((name) => (
@@ -628,16 +731,27 @@ function SiteCategoryMappings({
                     </option>
                   ))}
                 </select>
-                {isMapped && (
-                  <button
-                    className="btn"
-                    onClick={() => onToggleMappingEnabled(cat.remote_id)}
-                    style={{ padding: "4px 10px", minHeight: 28, fontSize: 12 }}
-                    title={isEnabled ? "禁用此映射" : "启用此映射"}
-                  >
-                    {isEnabled ? "禁用" : "启用"}
-                  </button>
-                )}
+
+                <div className="cs-mapping-actions">
+                  {isMapped && (
+                    <>
+                      <ToggleSwitch
+                        checked={isEnabled}
+                        onChange={() => onToggleMappingEnabled(cat.remote_id)}
+                        title={isEnabled ? "禁用映射" : "启用映射"}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-icon"
+                        onClick={() => onMappingChange(cat.remote_id, null)}
+                        title="清除映射"
+                        aria-label="清除映射"
+                      >
+                        <IconX size={12} />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -649,6 +763,21 @@ function SiteCategoryMappings({
 
 /* ===== 主组件 ===== */
 
+function compareMappings(a: CategoryMapping[], b: CategoryMapping[]) {
+  if (a.length !== b.length) return false;
+  const byRemote = (x: CategoryMapping) => x.remote_id;
+  const sortedA = [...a].sort((x, y) => byRemote(x).localeCompare(byRemote(y)));
+  const sortedB = [...b].sort((x, y) => byRemote(x).localeCompare(byRemote(y)));
+  return sortedA.every((m, i) => {
+    const n = sortedB[i];
+    return (
+      m.remote_id === n.remote_id &&
+      m.name === n.name &&
+      (m.enabled ?? true) === (n.enabled ?? true)
+    );
+  });
+}
+
 export default function CategorySettings({ sites }: CategorySettingsProps) {
   const [systemTree, setSystemTree] = useState<SystemCategoryTreeItem[]>([]);
   const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
@@ -659,13 +788,12 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
   const [matching, setMatching] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
-  // 加载系统分类树
   const loadSystemTree = useCallback(async () => {
     try {
       const tree = await listSystemCategories();
       setSystemTree(tree);
     } catch {
-      /* ignore */
+      toastError("加载系统分类失败");
     }
   }, []);
 
@@ -673,18 +801,14 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
     loadSystemTree();
   }, [loadSystemTree]);
 
-  // 初始化 activeSiteId
   useEffect(() => {
     if (sites.length > 0 && activeSiteId === null) {
       setActiveSiteId(sites[0].id);
     }
   }, [sites, activeSiteId]);
 
-  // 加载站点分类数据（只加载当前激活站点，避免卡死）
   useEffect(() => {
     if (activeSiteId === null) return;
-
-    // 如果已加载过，跳过
     if (siteStates[activeSiteId]?.loaded) return;
 
     setSiteStates((prev) => ({
@@ -692,6 +816,7 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
       [activeSiteId]: {
         groups: prev[activeSiteId]?.groups || [],
         mappings: prev[activeSiteId]?.mappings || [],
+        initialMappings: prev[activeSiteId]?.initialMappings || [],
         loading: true,
         loaded: false,
       },
@@ -702,11 +827,13 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
       getSiteCategories(activeSiteId),
     ])
       .then(([remoteRes, savedRes]) => {
+        const mappings = savedRes.categories || [];
         setSiteStates((prev) => ({
           ...prev,
           [activeSiteId]: {
             groups: remoteRes.groups || [],
-            mappings: savedRes.categories || [],
+            mappings,
+            initialMappings: mappings,
             loading: false,
             loaded: true,
           },
@@ -721,10 +848,10 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
             loaded: true,
           },
         }));
+        toastError("加载站点分类失败");
       });
   }, [activeSiteId]);
 
-  // 提取所有系统分类叶子节点名称
   const allSystemCategories = useMemo(() => {
     const names: string[] = [];
     for (const parent of systemTree) {
@@ -735,6 +862,20 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
     return names;
   }, [systemTree]);
 
+  const dirtySiteIds = useMemo(() => {
+    const ids: number[] = [];
+    for (const site of sites) {
+      const state = siteStates[site.id];
+      if (!state) continue;
+      if (!compareMappings(state.mappings, state.initialMappings)) {
+        ids.push(site.id);
+      }
+    }
+    return ids;
+  }, [sites, siteStates]);
+
+  const isDirty = dirtySiteIds.length > 0;
+
   const handleMappingChange = useCallback(
     (siteId: number, remoteId: string, systemName: string | null) => {
       setSiteStates((prev) => {
@@ -743,9 +884,7 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
 
         let nextMappings: CategoryMapping[];
         if (systemName === null) {
-          nextMappings = state.mappings.filter(
-            (m) => m.remote_id !== remoteId
-          );
+          nextMappings = state.mappings.filter((m) => m.remote_id !== remoteId);
         } else {
           const existingIdx = state.mappings.findIndex(
             (m) => m.remote_id === remoteId
@@ -789,9 +928,17 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
         if (!state) continue;
         await updateSiteCategories(site.id, state.mappings);
       }
-      alert("保存成功");
+      // 保存成功后刷新 initialMappings，熄灭未保存提示
+      setSiteStates((prev) => {
+        const next: Record<number, SiteCategoryState> = {};
+        for (const [id, state] of Object.entries(prev)) {
+          next[Number(id)] = { ...state, initialMappings: state.mappings };
+        }
+        return next;
+      });
+      toastSuccess("分类映射已保存");
     } catch {
-      alert("保存失败");
+      toastError("保存映射失败");
     } finally {
       setSaving(false);
     }
@@ -802,12 +949,13 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
     setMatching(true);
     try {
       const result = await smartMatchCategories(activeSiteId);
-      // 只应用 auto_mapped 的结果
       const autoMappings = result.matches.filter(
         (m) => m.status === "auto_mapped" && m.suggested_system_name
       );
       if (autoMappings.length === 0) {
-        alert("暂无可自动识别的分类");
+        toastSuccess(
+          `暂无可自动识别的分类（建议 ${result.summary.suggested} 个，无法识别 ${result.summary.unrecognized} 个）`
+        );
         return;
       }
       setSiteStates((prev) => {
@@ -834,11 +982,11 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
           [activeSiteId]: { ...state, mappings: nextMappings },
         };
       });
-      alert(
-        `自动匹配完成：${autoMappings.length} 个分类已自动识别，${result.summary.suggested} 个建议手动确认，${result.summary.unrecognized} 个无法识别`
+      toastSuccess(
+        `自动匹配完成：${autoMappings.length} 个已自动识别，${result.summary.suggested} 个建议手动确认，${result.summary.unrecognized} 个无法识别`
       );
     } catch (e: any) {
-      alert("自动匹配失败: " + (e?.message || "未知错误"));
+      toastError("自动匹配失败: " + (e?.message || "未知错误"));
     } finally {
       setMatching(false);
     }
@@ -847,128 +995,116 @@ export default function CategorySettings({ sites }: CategorySettingsProps) {
   const activeState =
     activeSiteId !== null ? siteStates[activeSiteId] : null;
 
+  const displayState = useMemo<SiteCategoryState | null>(() => {
+    if (!activeState) return null;
+    if (showAll) return activeState;
+    const mappedIds = new Set(
+      activeState.mappings.map((m) => m.remote_id)
+    );
+    return {
+      ...activeState,
+      groups: activeState.groups
+        .map((g) => ({
+          ...g,
+          categories: g.categories.filter((c) => !mappedIds.has(c.remote_id)),
+        }))
+        .filter((g) => g.categories.length > 0),
+    };
+  }, [activeState, showAll]);
+
+  const leafCount = systemTree.reduce((acc, p) => acc + p.children.length, 0);
+
   return (
-    <div className="col" style={{ gap: 16 }}>
-      {/* 两栏布局 */}
-      <div
-        className="row"
-        style={{ gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}
-      >
-        {/* 左栏：系统分类管理 */}
-        <div style={{ flex: "1 1 320px", minWidth: 280 }}>
-          <div
-            className="row"
-            style={{
-              gap: 8,
-              marginBottom: 12,
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
+    <div className="cs-grid">
+      {/* 左栏：系统分类管理 */}
+      <div className="cs-column">
+        <div className="cs-section-header">
+          <h4 className="cs-section-title">系统分类</h4>
+          <span className="cs-section-meta">{leafCount} 个子分类</span>
+        </div>
+        <SystemCategoryTree tree={systemTree} onRefresh={loadSystemTree} />
+      </div>
+
+      {/* 右栏：分类映射 */}
+      <div className="cs-column">
+        <div className="cs-mapping-toolbar">
+          <ToggleSwitch
+            checked={showAll}
+            onChange={() => setShowAll((v) => !v)}
           >
-            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
-              系统分类
-            </h4>
-            <span
-              style={{ fontSize: 12, color: "var(--text-secondary)" }}
+            显示全部
+          </ToggleSwitch>
+          <div className="cs-mapping-toolbar-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={handleSmartMatch}
+              disabled={matching || activeSiteId === null}
+              style={{ fontSize: 13 }}
             >
-              {systemTree.reduce(
-                (acc, p) => acc + p.children.length,
-                0
-              )}{" "}
-              个子分类
-            </span>
+              {matching ? "匹配中..." : "自动匹配"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={saving || !isDirty}
+              style={{ fontSize: 13, gap: 4 }}
+            >
+              {saving ? "保存中..." : "保存映射"}
+              {isDirty && !saving && (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--danger)",
+                    display: "inline-block",
+                  }}
+                />
+              )}
+            </button>
           </div>
-          <SystemCategoryTree
-            tree={systemTree}
-            onRefresh={loadSystemTree}
-          />
         </div>
 
-        {/* 右栏：分类映射 */}
-        <div style={{ flex: "2 1 400px", minWidth: 320 }}>
-          <div
-            className="row"
-            style={{
-              gap: 8,
-              marginBottom: 12,
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-            }}
-          >
-            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
-              分类映射
-            </h4>
-            <div className="row" style={{ gap: 8 }}>
-              <label
-                className="row"
-                style={{
-                  gap: 6,
-                  alignItems: "center",
-                  fontSize: 13,
-                  cursor: "pointer",
-                  userSelect: "none",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={showAll}
-                  onChange={(e) => setShowAll(e.target.checked)}
-                  style={{ cursor: "pointer" }}
-                />
-                显示全部
-              </label>
-              <button
-                className="btn"
-                onClick={handleSmartMatch}
-                disabled={matching || activeSiteId === null}
-                style={{ fontSize: 13 }}
-              >
-                {matching ? "匹配中..." : "自动匹配"}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleSave}
-                disabled={saving}
-                style={{ fontSize: 13 }}
-              >
-                {saving ? "保存中..." : "保存映射"}
-              </button>
+        <SiteTabs
+          sites={sites}
+          activeSiteId={activeSiteId}
+          onChange={setActiveSiteId}
+        />
+
+        <div>
+          {activeState?.loading ? (
+            <div className="cs-mapping-skeleton">
+              <div className="cs-skeleton-line" />
+              <div className="cs-skeleton-line cs-skeleton-line--short" />
+              <div className="cs-skeleton-line" />
+              <div className="cs-skeleton-line cs-skeleton-line--short" />
             </div>
-          </div>
-
-          <SiteTabs
-            sites={sites}
-            activeSiteId={activeSiteId}
-            onChange={setActiveSiteId}
-          />
-
-          <div style={{ marginTop: 12 }}>
-            {activeState?.loading ? (
-              <div
-                className="empty"
-                style={{ padding: 32, fontSize: 13 }}
-              >
-                加载中...
-              </div>
-            ) : activeState ? (
-              <SiteCategoryMappings
-                siteName={
-                  sites.find((s) => s.id === activeSiteId)?.name || ""
-                }
-                groups={activeState.groups}
-                mappings={activeState.mappings}
-                allSystemCategories={allSystemCategories}
-                onMappingChange={(rid, sys) =>
-                  handleMappingChange(activeSiteId!, rid, sys)
-                }
-                onToggleMappingEnabled={(rid) =>
-                  handleToggleMappingEnabled(activeSiteId!, rid)
-                }
-                showAll={showAll}
-              />
-            ) : null}
-          </div>
+          ) : displayState && displayState.groups.length > 0 ? (
+            <SiteCategoryMappings
+              groups={displayState.groups}
+              mappings={activeState?.mappings || []}
+              allSystemCategories={allSystemCategories}
+              onMappingChange={(rid, sys) =>
+                activeSiteId !== null &&
+                handleMappingChange(activeSiteId, rid, sys)
+              }
+              onToggleMappingEnabled={(rid) =>
+                activeSiteId !== null &&
+                handleToggleMappingEnabled(activeSiteId, rid)
+              }
+            />
+          ) : displayState ? (
+            <div className="cs-mapping-empty">
+              <span className="cs-mapping-empty-title">
+                {showAll ? "暂无分类数据" : "当前站点所有分类均已识别"}
+              </span>
+              {!showAll && (
+                <span>切换「显示全部」可查看和修改已有映射</span>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
