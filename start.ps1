@@ -250,11 +250,11 @@ if ($Dev) {
     $frontendLog = Join-Path $frontendLogDir "vite.log"
     $frontendErrLog = Join-Path $frontendLogDir "vite.err.log"
     if ($Detach) {
-        $procFrontend = Start-Process "npm" -ArgumentList "run", "dev" `
+        $procFrontend = Start-Process "cmd.exe" -ArgumentList "/c", "npm", "run", "dev" `
             -WorkingDirectory $frontendDir `
             -WindowStyle Hidden -RedirectStandardOutput $frontendLog -RedirectStandardError $frontendErrLog -PassThru
     } else {
-        $procFrontend = Start-Process "npm" -ArgumentList "run", "dev" `
+        $procFrontend = Start-Process "cmd.exe" -ArgumentList "/c", "npm", "run", "dev" `
             -WorkingDirectory $frontendDir `
             -NoNewWindow -PassThru
     }
