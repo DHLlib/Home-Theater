@@ -353,6 +353,19 @@ async def _run_download(task_id: int) -> None:
         _unregister_task(task_id)
 
 
+async def _refresh_task_status(task_id: int, task: DownloadTask) -> str:
+    """用短会话查询任务最新状态并同步到内存对象。"""
+    async with async_session_factory() as session:
+        status_result = await session.execute(
+            select(DownloadTask.status).where(DownloadTask.id == task_id)
+        )
+        status_row = status_result.one_or_none()
+        if status_row is None:
+            raise TaskDeletedError()
+        task.status = status_row[0]
+    return task.status
+
+
 async def _run_direct_download(
     task_id: int,
     task: DownloadTask,
@@ -361,7 +374,7 @@ async def _run_direct_download(
     site_name: str,
     stop_event: asyncio.Event,
 ) -> None:
-    """直接文件下载（HTTP Range 流式）。整个 worker 复用一个 DB session。"""
+    """直接文件下载（HTTP Range 流式）。DB 操作均使用短会话，不长期占用连接。"""
     headers = {
         "Range": f"bytes={task.downloaded_bytes}-",
         "User-Agent": DEFAULT_USER_AGENT,
@@ -371,101 +384,94 @@ async def _run_direct_download(
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_DOWNLOAD, follow_redirects=True) as client:
             async with client.stream("GET", task.url, headers=headers) as resp:
-                async with async_session_factory() as session:
-                    if resp.status_code == 404:
-                        await _set_error(task_id, "file_removed: 资源已失效", session=session)
-                        return
-                    if resp.status_code == 416:
-                        # Range 不可满足，通常意味着已下载完整文件
-                        logger.info("Range 不可满足，标记完成 task_id=%s", task_id)
-                        await _commit_progress(task_id, task, force_status="done", session=session)
-                        await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
-                        return
-                    if resp.status_code >= 400:
-                        error_msg = await _classify_http_error(resp.status_code)
-                        await _set_error(task_id, error_msg, session=session)
-                        return
-
-                    # 服务器忽略 Range 时从头下载
-                    if resp.status_code == 200 and task.downloaded_bytes > 0:
-                        logger.warning("服务器不支持 Range，从头下载 task_id=%s", task_id)
-                        task.downloaded_bytes = 0
-
-                    # 计算总大小
-                    if task.total_bytes is None:
-                        content_length = resp.headers.get("content-length")
-                        if content_length is not None:
-                            try:
-                                remaining = int(content_length)
-                                if resp.status_code == 206:
-                                    task.total_bytes = task.downloaded_bytes + remaining
-                                else:
-                                    task.total_bytes = remaining
-                                external_status = await _commit_progress(task_id, task, session=session)
-                                if external_status:
-                                    return
-                            except ValueError:
-                                pass
-
-                    # 流式写入（批量 commit 优化：每 5 秒或每 100 个 chunk）
-                    last_commit = time.monotonic()
-                    last_refresh = time.monotonic()
-                    chunk_counter = 0
-                    file_mode = "wb" if task.downloaded_bytes == 0 else "ab"
-                    try:
-                        async with aiofiles.open(task.file_path, file_mode) as f:
-                            async for chunk in resp.aiter_bytes(DOWNLOAD_CHUNK_SIZE):
-                                now = time.monotonic()
-
-                                # 每 N 秒检查一次暂停/删除状态
-                                if stop_event.is_set() or now - last_refresh >= DOWNLOAD_PAUSE_CHECK_INTERVAL:
-                                    status_result = await session.execute(
-                                        select(DownloadTask.status).where(DownloadTask.id == task_id)
-                                    )
-                                    status_row = status_result.one_or_none()
-                                    if status_row is None:
-                                        raise TaskDeletedError()
-                                    task.status = status_row[0]
-                                    last_refresh = now
-                                    if task.status == "paused":
-                                        await _commit_progress(task_id, task, session=session)
-                                        logger.info("任务被暂停 task_id=%s", task_id)
-                                        return
-                                    if task.status == "error":
-                                        return
-                                    # stop_event 被设置但 DB 尚未反映，强制置为 paused 后退出
-                                    if stop_event.is_set():
-                                        await _commit_progress(task_id, task, force_status="paused", session=session)
-                                        logger.info("任务被暂停 task_id=%s", task_id)
-                                        return
-
-                                await f.write(chunk)
-                                task.downloaded_bytes += len(chunk)
-                                chunk_counter += 1
-
-                                # 每 N 秒或每 N 个 chunk commit 一次，并推送进度
-                                if now - last_commit >= DOWNLOAD_DB_COMMIT_INTERVAL or chunk_counter >= DOWNLOAD_BATCH_COMMIT_CHUNKS:
-                                    external_status = await _commit_progress(task_id, task, session=session)
-                                    if external_status:
-                                        logger.info("任务状态已变更 task_id=%s status=%s", task_id, external_status)
-                                        return
-                                    last_commit = now
-                                    chunk_counter = 0
-                    except TaskDeletedError:
-                        raise
-                    except Exception as exc:
-                        external_status = await _commit_progress(task_id, task, session=session)
-                        if external_status:
-                            logger.info("任务状态已变更 task_id=%s status=%s", task_id, external_status)
-                            return
-                        logger.exception("写盘异常 task_id=%s", task_id)
-                        await _set_error(task_id, f"connection_error: 写盘失败：{exc}", session=session)
-                        return
-
-                    # 完成
-                    await _commit_progress(task_id, task, force_status="done", session=session)
+                if resp.status_code == 404:
+                    await _set_error(task_id, "file_removed: 资源已失效")
+                    return
+                if resp.status_code == 416:
+                    # Range 不可满足，通常意味着已下载完整文件
+                    logger.info("Range 不可满足，标记完成 task_id=%s", task_id)
+                    await _commit_progress(task_id, task, force_status="done")
                     await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
-                    logger.info("下载完成 task_id=%s path=%s", task_id, task.file_path)
+                    return
+                if resp.status_code >= 400:
+                    error_msg = await _classify_http_error(resp.status_code)
+                    await _set_error(task_id, error_msg)
+                    return
+
+                # 服务器忽略 Range 时从头下载
+                if resp.status_code == 200 and task.downloaded_bytes > 0:
+                    logger.warning("服务器不支持 Range，从头下载 task_id=%s", task_id)
+                    task.downloaded_bytes = 0
+
+                # 计算总大小
+                if task.total_bytes is None:
+                    content_length = resp.headers.get("content-length")
+                    if content_length is not None:
+                        try:
+                            remaining = int(content_length)
+                            if resp.status_code == 206:
+                                task.total_bytes = task.downloaded_bytes + remaining
+                            else:
+                                task.total_bytes = remaining
+                            external_status = await _commit_progress(task_id, task)
+                            if external_status:
+                                return
+                        except ValueError:
+                            pass
+
+                # 流式写入（批量 commit 优化：每 5 秒或每 100 个 chunk）
+                last_commit = time.monotonic()
+                last_refresh = time.monotonic()
+                chunk_counter = 0
+                file_mode = "wb" if task.downloaded_bytes == 0 else "ab"
+                try:
+                    async with aiofiles.open(task.file_path, file_mode) as f:
+                        async for chunk in resp.aiter_bytes(DOWNLOAD_CHUNK_SIZE):
+                            now = time.monotonic()
+
+                            # 每 N 秒检查一次暂停/删除状态
+                            if stop_event.is_set() or now - last_refresh >= DOWNLOAD_PAUSE_CHECK_INTERVAL:
+                                task.status = await _refresh_task_status(task_id, task)
+                                last_refresh = now
+                                if task.status == "paused":
+                                    await _commit_progress(task_id, task)
+                                    logger.info("任务被暂停 task_id=%s", task_id)
+                                    return
+                                if task.status == "error":
+                                    return
+                                # stop_event 被设置但 DB 尚未反映，强制置为 paused 后退出
+                                if stop_event.is_set():
+                                    await _commit_progress(task_id, task, force_status="paused")
+                                    logger.info("任务被暂停 task_id=%s", task_id)
+                                    return
+
+                            await f.write(chunk)
+                            task.downloaded_bytes += len(chunk)
+                            chunk_counter += 1
+
+                            # 每 N 秒或每 N 个 chunk commit 一次，并推送进度
+                            if now - last_commit >= DOWNLOAD_DB_COMMIT_INTERVAL or chunk_counter >= DOWNLOAD_BATCH_COMMIT_CHUNKS:
+                                external_status = await _commit_progress(task_id, task)
+                                if external_status:
+                                    logger.info("任务状态已变更 task_id=%s status=%s", task_id, external_status)
+                                    return
+                                last_commit = now
+                                chunk_counter = 0
+                except TaskDeletedError:
+                    raise
+                except Exception as exc:
+                    external_status = await _commit_progress(task_id, task)
+                    if external_status:
+                        logger.info("任务状态已变更 task_id=%s status=%s", task_id, external_status)
+                        return
+                    logger.exception("写盘异常 task_id=%s", task_id)
+                    await _set_error(task_id, f"connection_error: 写盘失败：{exc}")
+                    return
+
+                # 完成
+                await _commit_progress(task_id, task, force_status="done")
+                await notify_sender.send("download_events", Event("download_status", {"task_id": task_id, "status": "done", "downloaded_bytes": task.downloaded_bytes, "total_bytes": task.total_bytes}))
+                logger.info("下载完成 task_id=%s path=%s", task_id, task.file_path)
     except httpx.TimeoutException as exc:
         error_msg = await _classify_network_error(str(exc))
         await _set_error(task_id, error_msg)

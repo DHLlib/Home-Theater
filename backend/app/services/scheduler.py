@@ -322,7 +322,7 @@ async def _fill_videolist_loop() -> None:
     """
 
     def _seconds_until_next_run() -> float:
-        now = datetime.now()
+        now = _utcnow()
         target = now.replace(
             hour=CRAWLER_FILL_VIDEOLIST_HOUR,
             minute=CRAWLER_FILL_VIDEOLIST_MINUTE,
