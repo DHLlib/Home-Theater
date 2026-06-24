@@ -6,7 +6,7 @@ Type-check: `npm run typecheck` ✅
 Tests: `npm test` ✅ (7/7)  
 Build: `npm run build` ✅ (with chunk-size warning only)
 
-> **状态更新（2026-06-23）**：已修复的条目在“Severity”下方标注了 `- **状态：已修复**`；其余仍为待修复项，需结合当前业务优先级继续推进。
+> **状态更新（2026-06-23）**：经复核，此前标记为【已修复】的条目已全部从列表中移除；剩余条目仍为待修复项，需结合当前业务优先级继续推进。
 
 ---
 
@@ -26,39 +26,6 @@ Build: `npm run build` ✅ (with chunk-size warning only)
   );
   ```
   vs. `Player.tsx` lines 21–23, 82–87, 129–155, 157–200.
-
-### 2. `lockMaxQuality` leaks the old interval when quality locks immediately
-- **File:** `frontend/src/components/VideoPlayer.tsx`, lines 51–83
-- **Severity:** High
-- **状态：已修复**
-- **Description:** When `tryLock()` succeeds on the first call, the function returns early without clearing `qualityTimerRef.current`. If an interval from a previous source is still running, it keeps executing against the old (possibly destroyed) HLS instance.
-- **Impact:** Memory leak and potential errors / wrong state mutations after switching sources.
-- **Evidence:**
-  ```tsx
-  if (tryLock()) return;   // line 67: skips cleanup of timerRef.current
-  if (timerRef.current) {  // lines 69-72: cleanup only reached on failure
-    clearInterval(timerRef.current);
-    timerRef.current = null;
-  }
-  ```
-- **修复说明**：`lockMaxQuality` 开头即清空旧 interval，成功锁定后不再遗留定时器；当前会话已验证测试通过。
-
-### 3. Switching to an unsupported format leaves the previous video playing
-- **File:** `frontend/src/components/VideoPlayer.tsx`, lines 248–254
-- **Severity:** High
-- **状态：已修复**
-- **Description:** In the "player exists, src changed" effect, if the new suffix is unsupported the code only sets the local error state and returns. It does not pause or destroy the existing player.
-- **Impact:** The previous source keeps playing audio/video behind the error overlay.
-- **Evidence:**
-  ```tsx
-  if (!isDirectVideo) {
-    const msg = `暂不支持播放该格式 (${suffix})`;
-    setError(msg);
-    onErrorRef.current?.(msg);
-    return;   // playerRef.current is left untouched
-  }
-  ```
-- **修复说明**：切换到不支持格式时现在调用 `player.pause?.()`，并恢复明确的不支持格式白名单，使该分支可达。
 
 ### 4. `useVideosInfinite` trims `pageParams` to the wrong length
 - **File:** `frontend/src/hooks/useVideos.ts`, lines 113–117
@@ -88,59 +55,6 @@ Build: `npm run build` ✅ (with chunk-size warning only)
 ---
 
 ## Medium
-
-### 6. Batch download reports success before tasks are actually created
-- **File:** `frontend/src/components/DetailContent.tsx`, lines 193–206
-- **Severity:** Medium
-- **状态：已修复**
-- **Description:** `handleConfirmBatchDownload` closes the dialog, clears selection, shows `"已开始创建下载任务"`, and then fires `createTasksAsync` without awaiting. If creation fails, the success toast has already been shown.
-- **Impact:** Users receive misleading success feedback; failures surface later only through the generic API error toast.
-- **Evidence:**
-  ```tsx
-  toastSuccess("已开始创建下载任务");
-  createTasksAsync(source, indices, item); // fire-and-forget
-  ```
-- **修复说明**：移除了提前的成功提示，`createTasksAsync` 内部在任务真正创建成功/失败后再给出对应 toast。
-
-### 7. Favorite remove button is hover-only (inaccessible on touch / keyboard)
-- **File:** `frontend/src/pages/Favorites.tsx`, lines 112–137
-- **Severity:** Medium
-- **状态：已修复**
-- **Description:** The remove button is hidden unless the card is hovered and has no focus-visible or touch fallback.
-- **Impact:** Mobile/touch users and keyboard users cannot remove favorites.
-- **Evidence:**
-  ```tsx
-  opacity: hovered ? 1 : 0;
-  transform: hovered ? "scale(1)" : "scale(0.8)";
-  ```
-- **修复说明**：删除按钮默认可见（`opacity: 1`），不再依赖 hover，已适配触摸与键盘操作。
-
-### 8. `VideoCard` always initializes favorited state as `false`
-- **File:** `frontend/src/components/VideoCard.tsx`, line 76
-- **Severity:** Medium
-- **状态：已修复**
-- **Description:** The heart icon starts empty regardless of whether the item is already favorited. It only updates after a manual toggle.
-- **Impact:** UI does not reflect real favorite state; users may duplicate add/remove actions.
-- **Evidence:**
-  ```tsx
-  const [favorited, setFavorited] = useState(false);
-  ```
-- **修复说明**：组件挂载时调用后端 `GET /api/favorites/status` 获取真实收藏状态，并添加 `.catch` 静默失败保护。
-
-### 9. `SiteHealthDrawer` mutates its prop and leaves parent state stale
-- **File:** `frontend/src/components/SiteHealthDrawer.tsx`, lines 116–125
-- **Severity:** Medium
-- **状态：已修复**
-- **Description:** `toggleSite` does `site.enabled = !site.enabled` directly on the prop object. It refetches health locally but never tells the parent (`Settings`) to update its `sites` array.
-- **Impact:** Closing and reopening the drawer reverts the displayed enabled state because the parent still holds the old object.
-- **Evidence:**
-  ```tsx
-  updateSite(site.id, { enabled: !site.enabled }).then(() => {
-    site.enabled = !site.enabled; // mutates prop
-    ...
-  });
-  ```
-- **修复说明**：通过 `onSiteChange` 回调向父组件传递新的 site 对象，父组件更新 `sites` 数组，不再直接修改 prop。
 
 ### 10. In-flight progress restore can override an explicit episode selection
 - **File:** `frontend/src/pages/Player.tsx`, lines 129–155
@@ -292,9 +206,9 @@ Build: `npm run build` ✅ (with chunk-size warning only)
 
 ## Summary
 
-- **Critical / High:** 5
-- **Medium:** 7
+- **Critical / High:** 3
+- **Medium:** 3
 - **Low:** 8
-- **Total:** 20
+- **Total:** 14
 
-The most user-visible issues are the broken **resume from recent** flow (#1), the **leaking HLS quality timer** (#2), and the **wrong infinite-scroll pageParams** (#4). The source-selection bypass (#12) also conflicts with the stated architecture rule.
+The most user-visible issues are the broken **resume from recent** flow (#1) and the **wrong infinite-scroll pageParams** (#4). The source-selection bypass (#12) also conflicts with the stated architecture rule.
