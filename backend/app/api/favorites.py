@@ -71,6 +71,11 @@ async def toggle_favorite(req: FavoriteIn, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # 并发场景：另一请求已插入，重查一次返回当前状态
+        existing = (await db.execute(stmt)).scalars().first()
+        if existing:
+            logger.info("favorite_toggle_race_resolved fav_id=%d title=%s year=%s", existing.id, req.title, req.year)
+            return {"favorited": True, "id": existing.id}
         logger.warning(
             "favorite_toggle_duplicate title=%s year=%s", req.title, req.year
         )
