@@ -6,16 +6,19 @@ export class ApiError extends Error {
   }
 }
 
+const DEFAULT_TIMEOUT = 30000;
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
   timeoutMs?: number
 ): Promise<T> {
+  const effectiveTimeout = timeoutMs ?? DEFAULT_TIMEOUT;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | null = null;
-  if (timeoutMs && timeoutMs > 0) {
-    timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (effectiveTimeout > 0) {
+    timer = setTimeout(() => controller.abort(), effectiveTimeout);
   }
   const opts: RequestInit = { method, headers: {}, signal: controller.signal };
   if (body) {
