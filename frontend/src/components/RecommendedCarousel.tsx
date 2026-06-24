@@ -202,14 +202,6 @@ export default function RecommendedCarousel({
     return () => el.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
 
-  const handleClick = (index: number) => {
-    if (index === cursor) {
-      onSelect(loopVideos[index]);
-    } else {
-      setCursor(index);
-    }
-  };
-
   const goNext = useCallback(() => {
     if (loopVideos.length <= 1) return;
     setCursor((prev) => prev + 1);
@@ -219,6 +211,30 @@ export default function RecommendedCarousel({
     if (loopVideos.length <= 1) return;
     setCursor((prev) => prev - 1);
   }, [loopVideos.length]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goNext();
+      }
+    };
+    el.addEventListener("keydown", handleKeyDown);
+    return () => el.removeEventListener("keydown", handleKeyDown);
+  }, [goPrev, goNext]);
+
+  const handleClick = (index: number) => {
+    if (index === cursor) {
+      onSelect(loopVideos[index]);
+    } else {
+      setCursor(index);
+    }
+  };
 
   const showSkeleton = loading || displayVideos.length === 0;
 
