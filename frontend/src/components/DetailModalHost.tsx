@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -30,7 +30,7 @@ export default function DetailModalHost() {
 
   // 记录弹窗打开时所在的路由。关闭时据此区分：回到同路由（后退/点遮罩）vs 跳走（播放/下载/设置）
   const openPathRef = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (active) openPathRef.current = location.pathname;
   }, [active, location.pathname]);
 

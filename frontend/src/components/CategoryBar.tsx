@@ -30,6 +30,15 @@ export default function CategoryBar({
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (hideTimer.current) {
+        clearTimeout(hideTimer.current);
+        hideTimer.current = null;
+      }
+    };
+  }, []);
+
   const availableCategories = useMemo(() => {
     const set = new Set<string>();
     for (const site of sites) {

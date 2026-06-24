@@ -106,6 +106,8 @@ function seekToStart(player: Player) {
   };
   if (typeof (player as any).once === "function") {
     (player as any).once("canplay", handleCanPlay);
+  } else if (typeof (player as any).on === "function") {
+    (player as any).on("canplay", handleCanPlay);
   }
 }
 

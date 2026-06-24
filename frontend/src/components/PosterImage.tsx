@@ -130,6 +130,7 @@ export default function PosterImage({
         </div>
       )}
       <img
+        key={src}
         ref={imgRef}
         src={src}
         alt={alt}
