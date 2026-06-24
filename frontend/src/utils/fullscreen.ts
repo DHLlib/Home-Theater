@@ -208,6 +208,10 @@ function addChangeListener(handler: () => void): void {
   document.addEventListener("webkitfullscreenchange", handler);
   document.addEventListener("mozfullscreenchange", handler);
   document.addEventListener("MSFullscreenChange", handler);
+  // iOS Safari 的 webkitbeginfullscreen/webkitendfullscreen 在 <video> 元素触发，
+  // 用捕获阶段在 document 监听，可同步通过系统控件进入/退出全屏的状态。
+  document.addEventListener("webkitbeginfullscreen", handler, true);
+  document.addEventListener("webkitendfullscreen", handler, true);
 }
 
 function removeChangeListener(handler: () => void): void {
@@ -218,6 +222,8 @@ function removeChangeListener(handler: () => void): void {
   document.removeEventListener("webkitfullscreenchange", handler);
   document.removeEventListener("mozfullscreenchange", handler);
   document.removeEventListener("MSFullscreenChange", handler);
+  document.removeEventListener("webkitbeginfullscreen", handler, true);
+  document.removeEventListener("webkitendfullscreen", handler, true);
   if (iosVideo) {
     iosVideo.removeEventListener("webkitbeginfullscreen", onIOSFullscreenChange);
     iosVideo.removeEventListener("webkitendfullscreen", onIOSFullscreenChange);
