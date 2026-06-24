@@ -37,7 +37,7 @@ from app.schemas import (
     SiteStat,
     SourceRef,
 )
-from app.services.aggregator import normalize_title, refresh_aggregated_view
+from app.services.aggregator import _aggregate_records, normalize_title, refresh_aggregated_view
 from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,
@@ -356,83 +356,12 @@ async def _query_and_aggregate(
     result = await db.execute(query)
     records = result.scalars().all()
 
-    # 聚合去重（两阶段：先分组，再回填 year=None）
-    from collections import Counter
-
-    bucket: dict[tuple[str, int | None], dict] = {}
-    latest_update: dict[tuple[str, int | None], str] = {}
-    year_counter: dict[str, Counter] = {}
-
-    for r in records:
-        norm = normalize_title(r.title)
-        key = (norm, r.year)
-        if key not in bucket:
-            bucket[key] = {
-                "title": r.title,
-                "year": r.year,
-                "poster_url": r.poster_url,
-                "sources": [],
-            }
-            latest_update[key] = r.source_updated_at or ""
-        else:
-            if r.source_updated_at and r.source_updated_at > latest_update[key]:
-                latest_update[key] = r.source_updated_at
-            # 同一视频多来源时，优先保留非空封面
-            if not bucket[key]["poster_url"] and r.poster_url:
-                bucket[key]["poster_url"] = r.poster_url
-        source_ref = {
-            "site_id": r.site_id,
-            "original_id": r.original_id,
-            "type": r.type_name,
-            "type_id": r.type_id,
-            "remarks": r.remarks,
-            "updated_at": r.source_updated_at,
-        }
-        bucket[key]["sources"].append(source_ref)
-
-        if norm not in year_counter:
-            year_counter[norm] = Counter()
-        if r.year is not None:
-            year_counter[norm][r.year] += 1
-
-    # 回填 year=None 的桶
-    null_keys = [k for k in bucket if k[1] is None]
-    for key in null_keys:
-        norm = key[0]
-        item = bucket.pop(key)
-        lu = latest_update.pop(key)
-        best_year = None
-        if norm in year_counter and year_counter[norm]:
-            best_year = year_counter[norm].most_common(1)[0][0]
-        if best_year is not None:
-            new_key = (norm, best_year)
-            if new_key not in bucket:
-                bucket[new_key] = {
-                    "title": item["title"],
-                    "year": best_year,
-                    "poster_url": item["poster_url"],
-                    "sources": [],
-                }
-                latest_update[new_key] = lu
-            else:
-                if lu > latest_update.get(new_key, ""):
-                    latest_update[new_key] = lu
-                if not bucket[new_key]["poster_url"] and item["poster_url"]:
-                    bucket[new_key]["poster_url"] = item["poster_url"]
-            bucket[new_key]["sources"].extend(item["sources"])
-        else:
-            bucket[key] = item
-            latest_update[key] = lu
+    # 聚合去重（含 year=None 回填）
+    sorted_items = _aggregate_records(records)
 
     # 按请求字段做最终排序，保证同一聚合桶内多来源合并后的顺序正确。
     if sort == "year":
-        ordered = sorted(
-            bucket.values(),
-            key=lambda item: latest_update.get(
-                (normalize_title(item["title"]), item["year"]), ""
-            ),
-            reverse=True,
-        )
+        ordered = [item for _, _, item, _ in sorted_items]
         aggregated = sorted(
             ordered,
             key=lambda item: (
@@ -441,13 +370,7 @@ async def _query_and_aggregate(
             ),
         )
     else:
-        aggregated = sorted(
-            bucket.values(),
-            key=lambda item: latest_update.get(
-                (normalize_title(item["title"]), item["year"]), ""
-            ),
-            reverse=True,
-        )
+        aggregated = [item for _, _, item, _ in sorted_items]
 
     # 聚合后取前 per_page 条即可；原始记录的分页已在查询层面完成
     page_items = aggregated[:per_page]
