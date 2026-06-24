@@ -121,22 +121,6 @@ export default function DetailContent({
     }
   };
 
-  const playSource = (source: SourceRef, episodeIndex: number) => {
-    const d = detail.find(
-      (s) =>
-        s.site_id === source.site_id && s.original_id === source.original_id
-    );
-    if (!d) return;
-
-    const yearParam = item.year != null ? `&year=${item.year}` : "";
-    navigate(
-      `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
-        source.original_id
-      )}&ep=${episodeIndex}&title=${encodeURIComponent(item.title)}${yearParam}`,
-      { state: { episodes: d.episodes } }
-    );
-  };
-
   const handleToggleEpisode = (index: number, selected: boolean) => {
     setSelectedEpisodeIndices((prev) => {
       const next = new Set(prev);
@@ -378,7 +362,10 @@ export default function DetailContent({
             <h4 style={{ margin: 0, marginBottom: 8 }}>
               {s.site_name || `站点 #${s.site_id}`}
             </h4>
-            <EpisodeList episodes={s.episodes} onPick={(idx) => playSource(s, idx)} />
+            <EpisodeList
+              episodes={s.episodes}
+              onPick={() => {}}
+            />
           </div>
         ))}
 

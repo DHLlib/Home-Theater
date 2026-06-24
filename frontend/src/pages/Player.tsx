@@ -93,6 +93,11 @@ export default function Player() {
 
   const current = episodes[currentIndex];
 
+  // 切换视频/来源时重置进度恢复标记，避免跨视频保留 true
+  useEffect(() => {
+    setProgressRestored(false);
+  }, [title, year, site_id, original_id]);
+
   /* 按 suffix 分组；若 suffix 全相同且集名重复，则按连续块切分 */
   const groupedEpisodes = useMemo(() => {
     if (episodes.length === 0) return [] as { label: string; eps: Episode[] }[];
@@ -143,7 +148,10 @@ export default function Player() {
 
     getProgress(title, year)
       .then((res: PlayProgress | null) => {
-        if (userPickedRef.current) return;
+        if (userPickedRef.current) {
+          setProgressRestored(true);
+          return;
+        }
         if (
           res &&
           res.source_site_id === site_id &&
@@ -156,9 +164,11 @@ export default function Player() {
             playerRef.current?.seekTo(res.position_seconds);
           }, 500);
         }
+        setProgressRestored(true);
       })
-      .catch(() => {})
-      .finally(() => setProgressRestored(true));
+      .catch(() => {
+        setProgressRestored(true);
+      });
   }, [title, year, site_id, original_id, episodes, progressRestored, initialEp]);
 
   useEffect(() => {
@@ -190,12 +200,19 @@ export default function Player() {
     progressTimer.current = setInterval(() => saveProgress(false), 15000);
 
     const handleBeforeUnload = () => saveProgress(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        saveProgress(true);
+      }
+    };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       if (progressTimer.current) clearInterval(progressTimer.current);
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       // 正常路由跳转（如点击返回）时强制保存最终进度
       saveProgress(true);
     };
@@ -240,7 +257,10 @@ export default function Player() {
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
+        target.tagName === "SELECT" ||
+        target.tagName === "BUTTON" ||
+        target.tagName === "A" ||
+        target.isContentEditable
       )
         return;
       // 仅当焦点在播放器容器内或为 body 时拦截，避免劫持页面其他焦点元素
