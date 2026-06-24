@@ -74,6 +74,95 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
     return list(bucket.values())
 
 
+def _aggregate_records(
+    records: Iterable[Any],
+    site_name_map: dict[int, str | None] | None = None,
+) -> list[tuple[str, int | None, dict[str, Any], str]]:
+    """把 VideoCache 记录按 (norm_title, year) 聚合去重。
+
+    返回按 latest_updated_at 降序排列的元组列表：
+        (norm_title, year, item_dict, latest_update)
+    """
+    bucket: dict[tuple[str, int | None], dict[str, Any]] = {}
+    latest_update: dict[tuple[str, int | None], str] = {}
+    year_counter: dict[str, Counter] = {}
+
+    for r in records:
+        norm = normalize_title(r.title)
+        year = r.year
+        key = (norm, year)
+        if key not in bucket:
+            bucket[key] = {
+                "title": r.title,
+                "year": year,
+                "poster_url": r.poster_url,
+                "sources": [],
+            }
+            latest_update[key] = r.source_updated_at or ""
+        else:
+            if r.source_updated_at and r.source_updated_at > latest_update[key]:
+                latest_update[key] = r.source_updated_at
+            if not bucket[key]["poster_url"] and r.poster_url:
+                bucket[key]["poster_url"] = r.poster_url
+
+        source_ref: dict[str, Any] = {
+            "site_id": r.site_id,
+            "original_id": r.original_id,
+            "type": r.type_name,
+            "type_id": r.type_id,
+            "remarks": r.remarks,
+            "updated_at": r.source_updated_at,
+        }
+        if site_name_map is not None:
+            source_ref["site_name"] = site_name_map.get(r.site_id)
+        bucket[key]["sources"].append(source_ref)
+
+        if norm not in year_counter:
+            year_counter[norm] = Counter()
+        if year is not None:
+            year_counter[norm][year] += 1
+
+    # 回填 year=None 的桶
+    null_keys = [k for k in bucket if k[1] is None]
+    for key in null_keys:
+        norm = key[0]
+        item = bucket.pop(key)
+        lu = latest_update.pop(key)
+        best_year = None
+        c = year_counter.get(norm)
+        if c:
+            best_year = c.most_common(1)[0][0]
+        if best_year is not None:
+            new_key = (norm, best_year)
+            if new_key not in bucket:
+                bucket[new_key] = {
+                    "title": item["title"],
+                    "year": best_year,
+                    "poster_url": item["poster_url"],
+                    "sources": [],
+                }
+                latest_update[new_key] = lu
+            else:
+                if lu > latest_update.get(new_key, ""):
+                    latest_update[new_key] = lu
+                if not bucket[new_key]["poster_url"] and item["poster_url"]:
+                    bucket[new_key]["poster_url"] = item["poster_url"]
+            bucket[new_key]["sources"].extend(item["sources"])
+        else:
+            bucket[key] = item
+            latest_update[key] = lu
+
+    sorted_items = sorted(
+        bucket.items(),
+        key=lambda kv: latest_update.get(kv[0], ""),
+        reverse=True,
+    )
+    return [
+        (key[0], key[1], item, latest_update[key])
+        for key, item in sorted_items
+    ]
+
+
 # ------------------------------------------------------------------
 # 聚合中间表重建
 # ------------------------------------------------------------------
@@ -390,95 +479,21 @@ async def incrementally_update_aggregated_tables(
             logger.info("增量聚合无对应原始记录，跳过")
             return True
 
-        # 3. 统计 year 频率（用于回填）
-        year_counter: dict[str, Counter] = {}
-        for r in records:
-            norm = r.norm_title
-            if norm not in year_counter:
-                year_counter[norm] = Counter()
-            if r.year is not None:
-                year_counter[norm][r.year] += 1
+        # 3. 聚合去重（含 year=None 回填）
+        sorted_items = _aggregate_records(records, site_name_map)
 
-        def _backfilled_year(norm: str) -> int | None:
-            c = year_counter.get(norm)
-            return c.most_common(1)[0][0] if c else None
-
-        # 4. 按 (norm_title, year) 分组聚合
-        bucket: dict[tuple[str, int | None], dict] = {}
-        latest_update: dict[tuple[str, int | None], str] = {}
-        for r in records:
-            norm = r.norm_title
-            year = r.year
-            key = (norm, year)
-            if key not in bucket:
-                bucket[key] = {
-                    "title": r.title,
-                    "year": year,
-                    "poster_url": r.poster_url,
-                    "sources": [],
-                }
-                latest_update[key] = r.source_updated_at or ""
-            else:
-                if r.source_updated_at and r.source_updated_at > latest_update[key]:
-                    latest_update[key] = r.source_updated_at
-                if not bucket[key]["poster_url"] and r.poster_url:
-                    bucket[key]["poster_url"] = r.poster_url
-
-            bucket[key]["sources"].append({
-                "site_id": r.site_id,
-                "site_name": site_name_map.get(r.site_id),
-                "original_id": r.original_id,
-                "type": r.type_name,
-                "type_id": r.type_id,
-                "remarks": r.remarks,
-                "updated_at": r.source_updated_at,
-            })
-
-        # 5. 回填 year=None 的桶
-        null_keys = [k for k in bucket if k[1] is None]
-        for key in null_keys:
-            norm = key[0]
-            item = bucket.pop(key)
-            lu = latest_update.pop(key)
-            best_year = _backfilled_year(norm)
-            if best_year is not None:
-                new_key = (norm, best_year)
-                if new_key not in bucket:
-                    bucket[new_key] = {
-                        "title": item["title"],
-                        "year": best_year,
-                        "poster_url": item["poster_url"],
-                        "sources": [],
-                    }
-                    latest_update[new_key] = lu
-                else:
-                    if lu > latest_update.get(new_key, ""):
-                        latest_update[new_key] = lu
-                    if not bucket[new_key]["poster_url"] and item["poster_url"]:
-                        bucket[new_key]["poster_url"] = item["poster_url"]
-                bucket[new_key]["sources"].extend(item["sources"])
-            else:
-                bucket[key] = item
-                latest_update[key] = lu
-
-        # 6. 插入 aggregated_videos，用 RETURNING 取回 id
-        sorted_items = sorted(
-            bucket.items(),
-            key=lambda kv: latest_update.get(kv[0], ""),
-            reverse=True,
-        )
-
+        # 4. 插入 aggregated_videos，用 RETURNING 取回 id
         id_map: dict[tuple[str, int | None], int] = {}
         for i in range(0, len(sorted_items), _INSERT_BATCH):
             batch = sorted_items[i : i + _INSERT_BATCH]
             video_rows = []
-            for (norm, year), item in batch:
+            for norm, year, item, lu in batch:
                 video_rows.append({
                     "title": item["title"],
                     "year": item["year"],
                     "poster_url": item["poster_url"],
                     "norm_title": norm,
-                    "latest_updated_at": latest_update.get((norm, year)),
+                    "latest_updated_at": lu,
                     "source_count": len(item["sources"]),
                     "cached_at": now,
                 })
@@ -491,9 +506,9 @@ async def incrementally_update_aggregated_tables(
             for row in rows_result.all():
                 id_map[(row.norm_title, row.year)] = row.id
 
-        # 7. 插入 aggregated_sources
+        # 5. 插入 aggregated_sources
         source_rows = []
-        for (norm, year), item in sorted_items:
+        for norm, year, item, _ in sorted_items:
             vid = id_map.get((norm, year))
             if vid is None:
                 continue
@@ -516,7 +531,7 @@ async def incrementally_update_aggregated_tables(
             await db.execute(src_table.insert(), source_rows)
             await db.commit()
 
-        logger.info("增量聚合完成: videos=%d, sources=%d", len(sorted_items), sum(len(item["sources"]) for _, item in sorted_items))
+        logger.info("增量聚合完成: videos=%d, sources=%d", len(sorted_items), sum(len(item["sources"]) for _, _, item, _ in sorted_items))
         return True
 
     except Exception as exc:
