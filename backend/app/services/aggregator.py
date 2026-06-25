@@ -607,7 +607,6 @@ async def rebuild_recommended_videos(db: AsyncSession) -> bool:
             subq = (
                 select(AggregatedSource.aggregated_video_id)
                 .where(AggregatedSource.type_name.in_(child_names))
-                .subquery()
             )
             videos = await db.execute(
                 select(AggregatedVideoV3)
