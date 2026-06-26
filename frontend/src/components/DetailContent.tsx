@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { getDownloadRoot } from "../api/settings";
 import { createDownloadBatch } from "../api/downloads";
-import { addFavorite } from "../api/favorites";
+import { getFavoriteStatus, toggleFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
 import { useDetailQuery } from "../hooks/useVideos";
 import { toastError, toastSuccess } from "../utils/toast";
@@ -68,6 +68,17 @@ export default function DetailContent({
     Set<number>
   >(new Set());
   const [downloading, setDownloading] = useState(false);
+  const [isFavorited, setIsFavorited] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getFavoriteStatus(item.title, item.year).then((res) => {
+      if (!cancelled) setIsFavorited(res.favorited);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.title, item.year]);
 
   const handlePlay = () => {
     setPickerAction("play");
@@ -86,12 +97,19 @@ export default function DetailContent({
   };
 
   const handleFavorite = () => {
-    addFavorite({
+    toggleFavorite({
       title: item.title,
       year: item.year,
       poster_url: item.poster_url || detail[0]?.poster_url || undefined,
       sources: item.sources,
-    }).then(() => toastSuccess("已收藏"));
+    })
+      .then((res) => {
+        setIsFavorited(res.favorited);
+        toastSuccess(res.favorited ? "已收藏" : "已取消收藏");
+      })
+      .catch(() => {
+        toastError("收藏操作失败");
+      });
   };
 
   const onConfirmSource = (source: SourceRef) => {
@@ -319,7 +337,7 @@ export default function DetailContent({
               下载
             </button>
             <button className="btn" onClick={handleFavorite}>
-              收藏
+              {isFavorited ? "已收藏" : "收藏"}
             </button>
           </div>
 
