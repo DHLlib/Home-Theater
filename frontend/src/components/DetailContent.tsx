@@ -13,6 +13,7 @@ import SourcePicker from "./SourcePicker";
 import type {
   AggregatedVideo,
   DownloadBatchItem,
+  SourceDetail,
   SourceRef,
 } from "../types";
 
@@ -112,6 +113,19 @@ export default function DetailContent({
       });
   };
 
+  const buildPlayerUrl = (siteId: number, originalId: string, epIndex: number) => {
+    const yearParam = item.year != null ? `&year=${item.year}` : "";
+    return `/player?site_id=${siteId}&original_id=${encodeURIComponent(
+      originalId
+    )}&ep=${epIndex}&title=${encodeURIComponent(item.title)}${yearParam}`;
+  };
+
+  const handlePlayEpisode = (source: SourceDetail, episodeIndex: number) => {
+    navigate(buildPlayerUrl(source.site_id, source.original_id, episodeIndex), {
+      state: { episodes: source.episodes },
+    });
+  };
+
   const onConfirmSource = (source: SourceRef) => {
     setPickerOpen(false);
     const d = detail.find(
@@ -121,13 +135,9 @@ export default function DetailContent({
     if (!d) return;
 
     if (pickerAction === "play") {
-      const yearParam = item.year != null ? `&year=${item.year}` : "";
-      navigate(
-        `/player?site_id=${source.site_id}&original_id=${encodeURIComponent(
-          source.original_id
-        )}&ep=0&title=${encodeURIComponent(item.title)}${yearParam}`,
-        { state: { episodes: d.episodes } }
-      );
+      navigate(buildPlayerUrl(source.site_id, source.original_id, 0), {
+        state: { episodes: d.episodes },
+      });
     } else if (pickerAction === "download") {
       if (d.episodes.length === 0) {
         toastError("该源暂无可用集数");
@@ -382,7 +392,7 @@ export default function DetailContent({
             </h4>
             <EpisodeList
               episodes={s.episodes}
-              onPick={() => {}}
+              onPick={(index) => handlePlayEpisode(s, index)}
             />
           </div>
         ))}
