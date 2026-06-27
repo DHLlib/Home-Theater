@@ -276,7 +276,7 @@ function SystemCategoryTree({
       flex: 1,
       minWidth: 0,
       padding: "4px 8px",
-      fontSize: 13,
+      fontSize: 16,
     } as React.CSSProperties,
   };
 
@@ -285,7 +285,7 @@ function SystemCategoryTree({
     style: {
       width: 64,
       padding: "4px 8px",
-      fontSize: 13,
+      fontSize: 16,
     } as React.CSSProperties,
   };
 
@@ -557,7 +557,7 @@ function SystemCategoryTree({
             }}
             placeholder="新大类名称"
             autoFocus
-            style={{ flex: 1, minWidth: 0, fontSize: 13 }}
+            style={{ flex: 1, minWidth: 0, fontSize: 16 }}
           />
           <button
             type="button"

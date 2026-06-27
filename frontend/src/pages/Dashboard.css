@@ -1,0 +1,188 @@
+/* Dashboard: 响应式适配
+ * 重点把站点明细表格在窄屏下转成卡片视图，避免横向滚动。
+ */
+
+.dashboard-page {
+  min-height: 100vh;
+  margin: -16px;
+  padding: 32px 24px 48px;
+}
+
+.dashboard-page .page-header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-page .page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dashboard-page .page-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ---------- 站点明细表格 ---------- */
+
+.site-table-section {
+  padding: 20px 0;
+}
+
+.site-table-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  letter-spacing: 0.03em;
+}
+
+.site-table-wrapper {
+  overflow-x: auto;
+}
+
+.site-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.site-table th,
+.site-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.site-table th {
+  text-align: left;
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.site-table td {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.site-table .cell-number {
+  font-family: monospace;
+}
+
+.site-table .cell-rate {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.site-table .cell-action {
+  text-align: center;
+}
+
+/* ---------- 移动端卡片视图 ---------- */
+
+@media (max-width: 640px) {
+  .dashboard-page {
+    padding: 20px 16px 48px;
+  }
+
+  .dashboard-page .page-title {
+    font-size: 20px;
+  }
+
+  .dashboard-page .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-page .page-header button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .site-table,
+  .site-table thead,
+  .site-table tbody,
+  .site-table th,
+  .site-table td,
+  .site-table tr {
+    display: block;
+  }
+
+  .site-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .site-table tr {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .site-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--glass-border-bright);
+    white-space: normal;
+  }
+
+  .site-table td:last-child {
+    border-bottom: none;
+  }
+
+  .site-table td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-right: auto;
+  }
+
+  .site-table td:first-child {
+    padding-top: 0;
+  }
+
+  .site-table td:first-child::before {
+    content: "站点";
+  }
+
+  .site-table .cell-action {
+    justify-content: flex-end;
+  }
+
+  .site-table .cell-action::before {
+    content: none;
+  }
+
+  .site-table .cell-action button {
+    min-height: 44px;
+    min-width: 80px;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+}

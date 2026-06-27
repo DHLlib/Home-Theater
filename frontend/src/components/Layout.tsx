@@ -218,10 +218,10 @@ export default function Layout() {
               placeholder="搜索..."
               aria-label="搜索"
               style={{
-                width: 180,
+                width: "min(180px, 100%)",
                 padding: "8px 12px 8px 36px",
                 borderRadius: 4,
-                fontSize: 13,
+                fontSize: 16,
                 fontFamily: "inherit",
               }}
             />
