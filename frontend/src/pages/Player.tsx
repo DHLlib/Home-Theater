@@ -386,8 +386,8 @@ export default function Player() {
         }}
         style={{
           position: "absolute",
-          top: 8,
-          left: 8,
+          top: "max(8px, env(safe-area-inset-top))",
+          left: "max(8px, env(safe-area-inset-left))",
           zIndex: 10,
           padding: "4px 12px",
           fontSize: 13,
@@ -416,7 +416,7 @@ export default function Player() {
 
         <div
           className="row"
-          style={{ justifyContent: "space-between", padding: "10px 0", flexShrink: 0 }}
+          style={{ justifyContent: "space-between", padding: "10px 0", flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}
         >
           <button
             className="btn"
@@ -428,12 +428,12 @@ export default function Player() {
           >
             上一集
           </button>
-          <div>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             {current
               ? `${current.ep_name} (${current.suffix})`
               : "加载中..."}
           </div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             {/* 移动端选集按钮 */}
             {isMobile && (
               <button
@@ -630,7 +630,7 @@ export default function Player() {
                   <button
                     className="btn"
                     onClick={() => setSourcePanelOpen(true)}
-                    style={{ padding: "4px 8px", minHeight: 28, fontSize: 12 }}
+                    style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
                   >
                     换源
                   </button>
@@ -639,7 +639,7 @@ export default function Player() {
                   <button
                     className="btn"
                     onClick={() => setSourcePanelOpen(false)}
-                    style={{ padding: "4px 8px", minHeight: 28, fontSize: 12 }}
+                    style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
                   >
                     返回
                   </button>
@@ -647,7 +647,7 @@ export default function Player() {
                 <button
                   className="btn"
                   onClick={() => setSidebarOpen(false)}
-                  style={{ padding: "4px 8px", minHeight: 28, fontSize: 12 }}
+                  style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
                   aria-label="关闭选集"
                 >
                   关闭

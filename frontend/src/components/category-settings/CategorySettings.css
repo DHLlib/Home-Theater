@@ -511,6 +511,30 @@
   .cs-tree-actions .btn {
     padding: 4px 6px;
   }
+
+  .cs-tree-actions .btn,
+  .cs-tree-expand,
+  .cs-mapping-actions .btn-icon,
+  .cs-tab {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .cs-tree-actions .btn-icon,
+  .cs-mapping-actions .btn-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .cs-tree-row,
+  .cs-tree-child {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .cs-mapping-row {
+    padding: 12px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
