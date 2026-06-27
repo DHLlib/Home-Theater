@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fillMissingVideolist, getCrawlerStats } from "../api/videos";
 import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
+import "./Dashboard.css";
 
 const CACHE_KEY = "dashboard_stats_cache_v3";
 const CACHE_TTL_MS = 60_000;
@@ -264,23 +265,23 @@ function SiteTable({
   fillLoadingSiteId?: number | null;
 }) {
   return (
-    <div style={{ padding: "20px 0" }}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, letterSpacing: "0.03em" }}>站点明细</div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+    <div className="site-table-section">
+      <div className="site-table-title">站点明细</div>
+      <div className="site-table-wrapper">
+        <table className="site-table">
           <thead>
-            <tr style={{ borderBottom: "1px solid var(--glass-border)" }}>
-              <th style={{ padding: "10px 12px", textAlign: "left", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>站点</th>
-              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>已收录</th>
-              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>已补全</th>
-              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>未补全</th>
-              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+            <tr>
+              <th>站点</th>
+              <th style={{ textAlign: "right" }}>已收录</th>
+              <th style={{ textAlign: "right" }}>已补全</th>
+              <th style={{ textAlign: "right" }}>未补全</th>
+              <th style={{ textAlign: "right" }}>
                 <HeaderWithTip label="补全率" tip="已补全 / 已收录 × 100%" />
               </th>
-              <th style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+              <th style={{ textAlign: "right" }}>
                 <HeaderWithTip label="资源占比" tip="已收录 / 总已收录 × 100%" />
               </th>
-              <th style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-primary)", fontWeight: 700, fontSize: 16, letterSpacing: "0.05em", whiteSpace: "nowrap" }}>操作</th>
+              <th style={{ textAlign: "center" }}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -290,16 +291,16 @@ function SiteTable({
               const color = completionRate >= 80 ? "var(--primary)" : completionRate >= 50 ? "var(--text-secondary)" : "var(--danger)";
               const isFilling = fillLoadingSiteId === s.site_id;
               return (
-                <tr key={s.site_id} style={{ borderBottom: "1px solid var(--glass-border)" }}>
-                  <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontWeight: 500, whiteSpace: "nowrap" }}>{s.site_name}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{fmt(s.count)}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--primary)", fontFamily: "monospace" }}>{fmt(s.with_detail)}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--danger)", fontFamily: "monospace" }}>{fmt(s.without_detail)}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, fontFamily: "monospace", color }}>{fmtPct(completionRate)}</span>
+                <tr key={s.site_id}>
+                  <td data-label="站点">{s.site_name}</td>
+                  <td data-label="已收录" className="cell-number" style={{ textAlign: "right" }}>{fmt(s.count)}</td>
+                  <td data-label="已补全" className="cell-number" style={{ textAlign: "right", color: "var(--primary)" }}>{fmt(s.with_detail)}</td>
+                  <td data-label="未补全" className="cell-number" style={{ textAlign: "right", color: "var(--danger)" }}>{fmt(s.without_detail)}</td>
+                  <td data-label="补全率" style={{ textAlign: "right" }}>
+                    <span className="cell-rate" style={{ color, border: `1px solid ${color}` }}>{fmtPct(completionRate)}</span>
                   </td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontFamily: "monospace" }}>{fmtPct(share)}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                  <td data-label="资源占比" className="cell-number" style={{ textAlign: "right" }}>{fmtPct(share)}</td>
+                  <td data-label="操作" className="cell-action">
                     {s.without_detail > 0 && onFill && (
                       <button
                         type="button"
@@ -382,12 +383,12 @@ export default function Dashboard() {
   }, [stats]);
 
   return (
-    <div style={{ minHeight: "100vh", margin: "-16px", padding: "32px 24px 48px" }}>
+    <div className="dashboard-page">
       {/* Header */}
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div className="page-header">
         <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>数据看板</h1>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+          <h1 className="page-title">数据看板</h1>
+          <div className="page-subtitle">
             {stats?.computed_at ? `统计于 ${new Date(stats.computed_at).toLocaleString("zh-CN")}` : "加载中..."}
           </div>
         </div>
