@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listRecent, clearRecent } from "../api/progress";
+import { listRecent, clearRecent, deleteProgress } from "../api/progress";
+import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { useLongPress } from "../hooks/useLongPress";
+import { useIsMobile } from "../hooks/useViewport";
+import { toastSuccess } from "../utils/toast";
 import type { PlayProgress } from "../types";
 
 function formatTime(sec: number): string {
@@ -82,8 +86,27 @@ function TrashIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function ProgressCard({ item, index }: { item: PlayProgress; index: number }) {
+function ProgressCard({
+  item,
+  index,
+  isMobile,
+  onOpenMenu,
+  onDeleteOne,
+}: {
+  item: PlayProgress;
+  index: number;
+  isMobile?: boolean;
+  onOpenMenu?: (id: number) => void;
+  onDeleteOne?: (id: number) => void;
+}) {
   const navigate = useNavigate();
+  const [hovered, setHovered] = useState(false);
+  const longPress = useLongPress({
+    onLongPress: () => {
+      if (isMobile) onOpenMenu?.(item.id);
+    },
+  });
+
   const pct = item.duration_seconds && item.duration_seconds > 0
     ? Math.min(100, Math.round((item.position_seconds / item.duration_seconds) * 100))
     : 0;
@@ -99,6 +122,11 @@ function ProgressCard({ item, index }: { item: PlayProgress; index: number }) {
     );
   };
 
+  const handleRemove = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDeleteOne?.(item.id);
+  };
+
   return (
     <div
       role="button"
@@ -108,16 +136,55 @@ function ProgressCard({ item, index }: { item: PlayProgress; index: number }) {
       style={{
         animation: `fadeInUp 0.5s ease both`,
         animationDelay: `${index * 60}ms`,
+        position: "relative",
+        touchAction: "manipulation",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
       onClick={handleActivate}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           handleActivate();
         }
       }}
+      {...longPress}
     >
       <div className="card-shine" />
+
+      {!isMobile && (
+        <button
+          type="button"
+          className="btn"
+          onClick={handleRemove}
+          aria-label={`删除记录 ${item.title} ${item.episode_name}`}
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 12,
+            zIndex: 3,
+            width: 32,
+            height: 32,
+            minHeight: 32,
+            padding: 0,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: hovered ? 1 : 0,
+            transform: hovered ? "scale(1)" : "scale(0.85)",
+            transition: "all var(--transition-fast)",
+            pointerEvents: hovered ? "auto" : "none",
+            background: "rgba(0,0,0,0.75)",
+            borderColor: "var(--glass-border-bright)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <TrashIcon size={14} />
+        </button>
+      )}
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -199,10 +266,13 @@ function ProgressCard({ item, index }: { item: PlayProgress; index: number }) {
 }
 
 export default function Progress() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<PlayProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [menuId, setMenuId] = useState<number | null>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     setLoading(true);
@@ -226,6 +296,31 @@ export default function Progress() {
     return Object.keys(groups).sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b));
   }, [groups]);
 
+  const menuItem = useMemo(
+    () => items.find((x) => x.id === menuId),
+    [items, menuId]
+  );
+
+  const handleActivate = (item: PlayProgress) => {
+    const yearParam = item.year != null ? `&year=${item.year}` : "";
+    navigate(
+      `/player?site_id=${item.source_site_id}&original_id=${encodeURIComponent(
+        item.source_video_id
+      )}&ep=${item.episode_index}&title=${encodeURIComponent(
+        item.title
+      )}${yearParam}`
+    );
+  };
+
+  const handleDeleteOne = (id: number) => {
+    deleteProgress(id)
+      .then(() => {
+        setItems((prev) => prev.filter((x) => x.id !== id));
+        toastSuccess("已删除播放记录");
+      })
+      .catch(() => alert("删除失败"));
+  };
+
   return (
     <div
       style={{
@@ -243,6 +338,12 @@ export default function Progress() {
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+        @media (max-width: 767px) {
+          .progress-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px;
           }
         }
       `}</style>
@@ -297,6 +398,29 @@ export default function Progress() {
         danger
         onConfirm={handleClear}
         onCancel={() => setShowClearDialog(false)}
+      />
+
+      <ActionSheet
+        open={menuId != null}
+        title={menuItem ? `${menuItem.title} · ${menuItem.episode_name}` : undefined}
+        actions={[
+          {
+            key: "resume",
+            label: "继续播放",
+            onClick: () => {
+              if (menuItem) handleActivate(menuItem);
+            },
+          },
+          {
+            key: "delete",
+            label: "删除记录",
+            danger: true,
+            onClick: () => {
+              if (menuId != null) handleDeleteOne(menuId);
+            },
+          },
+        ]}
+        onClose={() => setMenuId(null)}
       />
 
       {/* Content */}
@@ -372,6 +496,7 @@ export default function Progress() {
               </div>
 
               <div
+                className="progress-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
@@ -379,7 +504,14 @@ export default function Progress() {
                 }}
               >
                 {groups[label].map((item, idx) => (
-                  <ProgressCard key={item.id} item={item} index={idx} />
+                  <ProgressCard
+                    key={item.id}
+                    item={item}
+                    index={idx}
+                    isMobile={isMobile}
+                    onOpenMenu={setMenuId}
+                    onDeleteOne={handleDeleteOne}
+                  />
                 ))}
               </div>
             </section>

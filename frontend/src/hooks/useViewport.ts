@@ -88,3 +88,25 @@ export function useViewport(): ViewportInfo {
 
   return info;
 }
+
+export type LayoutType = "mobile" | "tablet" | "desktop";
+
+export interface MobileLayoutInfo {
+  type: LayoutType;
+  isMobile: boolean;
+  isTablet: boolean;
+  isDesktop: boolean;
+}
+
+/**
+ * 返回当前应该使用的布局形态。
+ * 在组件层面决定渲染 MobileLayout 还是 DesktopLayout，避免一份 DOM 内
+ * 同时存在两套导航并通过 CSS 隐藏。
+ */
+export function useMobileLayout(): MobileLayoutInfo {
+  const { isMobile, isTablet, isDesktop } = useViewport();
+  let type: LayoutType = "desktop";
+  if (isMobile) type = "mobile";
+  else if (isTablet) type = "tablet";
+  return { type, isMobile, isTablet, isDesktop };
+}

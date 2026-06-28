@@ -6,9 +6,13 @@ import {
   deleteDownload,
 } from "../api/downloads";
 import { onSseEvent } from "../api/sse";
+import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Fab from "../components/Fab";
+import { useIsMobile } from "../hooks/useViewport";
 import { toast, toastSuccess } from "../utils/toast";
 import type { DownloadTask } from "../types";
+import type { ActionSheetAction } from "../components/ActionSheet";
 
 const statusText: Record<string, string> = {
   queued: "排队中",
@@ -60,6 +64,52 @@ function TerminalIcon({ size = 72 }: { size?: number }) {
       <rect x="2" y="4" width="20" height="16" rx="2" />
       <path d="m6 8 4 4-4 4" />
       <line x1="13" y1="16" x2="18" y2="16" />
+    </svg>
+  );
+}
+
+function MoreIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="5" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="12" cy="19" r="1.5" />
+    </svg>
+  );
+}
+
+function PlayIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function PauseIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
     </svg>
   );
 }
@@ -131,6 +181,8 @@ function TaskRow({
   onPause,
   onResume,
   onDeleteRequest,
+  isMobile,
+  onOpenMenu,
 }: {
   t: DownloadTask;
   selected?: boolean;
@@ -138,6 +190,8 @@ function TaskRow({
   onPause: (id: number) => void;
   onResume: (id: number) => void;
   onDeleteRequest: (id: number) => void;
+  isMobile?: boolean;
+  onOpenMenu?: (id: number) => void;
 }) {
   const errorInfo = parseErrorType(t.error);
 
@@ -151,7 +205,6 @@ function TaskRow({
         transition: "background var(--transition-base)",
       }}
       onClick={(e) => {
-        // 点击行空白处切换选中，但排除按钮、复选框、链接等交互元素
         const target = e.target as HTMLElement;
         if (
           target.tagName === "BUTTON" ||
@@ -161,49 +214,57 @@ function TaskRow({
         ) {
           return;
         }
+        if (isMobile) {
+          onOpenMenu?.(t.id);
+          return;
+        }
         onToggleSelect?.();
       }}
     >
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: 16,
-          padding: "14px 18px 14px 22px",
+          alignItems: isMobile ? "flex-start" : "center",
+          gap: isMobile ? 12 : 16,
+          padding: isMobile ? "14px 16px" : "14px 18px 14px 22px",
+          flexDirection: isMobile ? "column" : "row",
         }}
       >
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 18,
-            height: 18,
-            flexShrink: 0,
-            cursor: "pointer",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggleSelect}
+        {!isMobile && (
+          <label
             style={{
-              width: 16,
-              height: 16,
-              accentColor: "var(--primary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 18,
+              height: 18,
+              flexShrink: 0,
               cursor: "pointer",
             }}
-          />
-        </label>
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelect}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: "var(--primary)",
+                cursor: "pointer",
+              }}
+            />
+          </label>
+        )}
 
         <div
           style={{
-            flex: "0 0 180px",
+            flex: isMobile ? 1 : "0 0 180px",
             minWidth: 0,
             display: "flex",
             alignItems: "center",
             gap: 10,
+            width: isMobile ? "100%" : undefined,
           }}
         >
           <span
@@ -233,100 +294,107 @@ function TaskRow({
           >
             {t.episode_name}
           </span>
+          {isMobile && (
+            <span style={{ marginLeft: "auto" }}>
+              <StatusLed status={t.status} />
+            </span>
+          )}
         </div>
 
         <TaskProgress t={t} />
 
-        <div
-          style={{
-            flex: "0 0 auto",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
+        {!isMobile && (
           <div
             style={{
+              flex: "0 0 auto",
               display: "flex",
               alignItems: "center",
-              gap: 6,
-              padding: "4px 10px",
-              borderRadius: 100,
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid var(--glass-border)",
-              fontSize: 11,
-              color: statusColor[t.status] || "var(--text-secondary)",
-              fontWeight: 500,
+              gap: 10,
             }}
           >
-            <StatusLed status={t.status} />
-            <span>{statusText[t.status] || t.status}</span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {t.status === "downloading" && (
-              <button
-                className="btn"
-                aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPause(t.id);
-                }}
-                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
-              >
-                暂停
-              </button>
-            )}
-            {t.status === "paused" && (
-              <button
-                className="btn btn-primary"
-                aria-label={`继续下载 ${t.title} ${t.episode_name}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onResume(t.id);
-                }}
-                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
-              >
-                继续
-              </button>
-            )}
-            {t.status === "error" && errorInfo.retryable && (
-              <button
-                className="btn btn-primary"
-                aria-label={`重试下载 ${t.title} ${t.episode_name}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onResume(t.id);
-                }}
-                style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
-              >
-                重试
-              </button>
-            )}
-            <button
-              className="btn"
-              aria-label={`删除下载任务 ${t.title} ${t.episode_name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteRequest(t.id);
-              }}
+            <div
               style={{
-                minWidth: 60,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: 100,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid var(--glass-border)",
                 fontSize: 11,
-                minHeight: 30,
-                padding: "5px 10px",
-                color: "var(--danger)",
-                borderColor: "rgba(251,113,133,0.25)",
+                color: statusColor[t.status] || "var(--text-secondary)",
+                fontWeight: 500,
               }}
             >
-              删除
-            </button>
+              <StatusLed status={t.status} />
+              <span>{statusText[t.status] || t.status}</span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {t.status === "downloading" && (
+                <button
+                  className="btn"
+                  aria-label={`暂停下载 ${t.title} ${t.episode_name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPause(t.id);
+                  }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                >
+                  暂停
+                </button>
+              )}
+              {t.status === "paused" && (
+                <button
+                  className="btn btn-primary"
+                  aria-label={`继续下载 ${t.title} ${t.episode_name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResume(t.id);
+                  }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                >
+                  继续
+                </button>
+              )}
+              {t.status === "error" && errorInfo.retryable && (
+                <button
+                  className="btn btn-primary"
+                  aria-label={`重试下载 ${t.title} ${t.episode_name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResume(t.id);
+                  }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                >
+                  重试
+                </button>
+              )}
+              <button
+                className="btn"
+                aria-label={`删除下载任务 ${t.title} ${t.episode_name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteRequest(t.id);
+                }}
+                style={{
+                  minWidth: 60,
+                  fontSize: 11,
+                  minHeight: 30,
+                  padding: "5px 10px",
+                  color: "var(--danger)",
+                  borderColor: "rgba(251,113,133,0.25)",
+                }}
+              >
+                删除
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {t.status === "error" && (
-        <div style={{ padding: "0 18px 12px 22px" }}>
+        <div style={{ padding: isMobile ? "0 16px 12px" : "0 18px 12px 22px" }}>
           <div
             style={{
               padding: "8px 12px",
@@ -398,6 +466,9 @@ function VideoDownloadCard({
   onBatchResume,
   onBatchPause,
   onBatchDelete,
+  isMobile,
+  onBatchMenu,
+  onOpenMenu,
 }: {
   title: string;
   items: DownloadTask[];
@@ -412,6 +483,9 @@ function VideoDownloadCard({
   onBatchResume: (title: string) => void;
   onBatchPause: (title: string) => void;
   onBatchDelete: (title: string) => void;
+  isMobile?: boolean;
+  onBatchMenu?: (title: string) => void;
+  onOpenMenu?: (taskId: number) => void;
 }) {
   const totalBytes = useMemo(
     () => items.reduce((sum, t) => sum + (t.total_bytes ?? 0), 0),
@@ -568,45 +642,69 @@ function VideoDownloadCard({
                   flexShrink: 0,
                 }}
               >
-                <button
-                  className="btn btn-primary"
-                  aria-label={`继续下载 ${title} 下可继续的任务`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBatchResume(title);
-                  }}
-                  style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
-                >
-                  继续
-                </button>
-                <button
-                  className="btn"
-                  aria-label={`暂停下载 ${title} 下可暂停的任务`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBatchPause(title);
-                  }}
-                  style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
-                >
-                  暂停
-                </button>
-                <button
-                  className="btn"
-                  aria-label={`删除 ${title} 下选中的任务`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBatchDelete(title);
-                  }}
-                  style={{
-                    fontSize: 12,
-                    minHeight: 32,
-                    padding: "5px 12px",
-                    color: "var(--danger)",
-                    borderColor: "rgba(251,113,133,0.25)",
-                  }}
-                >
-                  删除
-                </button>
+                {isMobile ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-label={`更多操作 ${title}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBatchMenu?.(title);
+                    }}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <MoreIcon size={18} />
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="btn btn-primary"
+                      aria-label={`继续下载 ${title} 下可继续的任务`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onBatchResume(title);
+                      }}
+                      style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                    >
+                      继续
+                    </button>
+                    <button
+                      className="btn"
+                      aria-label={`暂停下载 ${title} 下可暂停的任务`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onBatchPause(title);
+                      }}
+                      style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                    >
+                      暂停
+                    </button>
+                    <button
+                      className="btn"
+                      aria-label={`删除 ${title} 下选中的任务`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onBatchDelete(title);
+                      }}
+                      style={{
+                        fontSize: 12,
+                        minHeight: 32,
+                        padding: "5px 12px",
+                        color: "var(--danger)",
+                        borderColor: "rgba(251,113,133,0.25)",
+                      }}
+                    >
+                      删除
+                    </button>
+                  </>
+                )}
               </div>
 
               <span
@@ -663,6 +761,8 @@ function VideoDownloadCard({
                   onPause={onPause}
                   onResume={onResume}
                   onDeleteRequest={onDeleteRequest}
+                  isMobile={isMobile}
+                  onOpenMenu={onOpenMenu}
                 />
               </div>
             ))}
@@ -682,6 +782,10 @@ export default function Downloads() {
   const [selectedMap, setSelectedMap] = useState<Record<string, Set<number>>>({});
   const [batchDelete, setBatchDelete] = useState<{ title: string; ids: number[] } | null>(null);
   const [batchDeleteFile, setBatchDeleteFile] = useState(false);
+  const [menuTaskId, setMenuTaskId] = useState<number | null>(null);
+  const [menuTitle, setMenuTitle] = useState<string | null>(null);
+
+  const isMobile = useIsMobile();
 
   const refresh = () => listDownloads().then(setTasks);
 
@@ -941,6 +1045,27 @@ export default function Downloads() {
       });
   };
 
+  const handleGlobalPause = () => {
+    const targets = tasks.filter((t) => t.status === "downloading");
+    if (targets.length === 0) return;
+    Promise.all(targets.map((t) => pauseDownload(t.id))).then(() => {
+      refresh();
+      toastSuccess(`已暂停 ${targets.length} 个任务`);
+    });
+  };
+
+  const handleGlobalResume = () => {
+    const targets = tasks.filter((t) => t.status !== "downloading" && t.status !== "done");
+    if (targets.length === 0) return;
+    Promise.all(targets.map((t) => resumeDownload(t.id))).then(() => {
+      refresh();
+      toastSuccess(`已继续 ${targets.length} 个任务`);
+    });
+  };
+
+  const menuTask = tasks.find((t) => t.id === menuTaskId);
+  const menuGroup = groups.find((g) => g.title === menuTitle);
+
   return (
     <div
       style={{
@@ -1002,14 +1127,6 @@ export default function Downloads() {
         @media (max-width: 767px) {
           .video-list {
             gap: 14px;
-          }
-          .batch-actions {
-            flex-wrap: wrap;
-            justify-content: flex-end;
-          }
-          .batch-actions button {
-            min-width: 56px;
-            padding: 5px 8px;
           }
           .task-row > div:first-child {
             flex-direction: column;
@@ -1163,6 +1280,80 @@ export default function Downloads() {
         }}
       />
 
+      <ActionSheet
+        open={menuTaskId != null}
+        title={menuTask ? `${menuTask.title} · ${menuTask.episode_name}` : undefined}
+        actions={(() => {
+          if (!menuTask) return [];
+          const errorInfo = parseErrorType(menuTask.error);
+          const actions: ActionSheetAction[] = [];
+          if (menuTask.status === "downloading") {
+            actions.push({
+              key: "pause",
+              label: "暂停",
+              onClick: () => handlePause(menuTask.id),
+            });
+          } else if (menuTask.status === "paused") {
+            actions.push({
+              key: "resume",
+              label: "继续",
+              onClick: () => handleResume(menuTask.id),
+            });
+          } else if (menuTask.status === "error" && errorInfo.retryable) {
+            actions.push({
+              key: "retry",
+              label: "重试",
+              onClick: () => handleResume(menuTask.id),
+            });
+          }
+          actions.push({
+            key: "delete",
+            label: "删除",
+            danger: true,
+            onClick: () => handleDeleteRequest(menuTask.id),
+          });
+          return actions;
+        })()}
+        onClose={() => setMenuTaskId(null)}
+      />
+
+      <ActionSheet
+        open={menuTitle != null}
+        title={menuGroup ? menuGroup.title : undefined}
+        actions={(() => {
+          if (!menuGroup) return [];
+          const actions: ActionSheetAction[] = [];
+          const anyResume = menuGroup.items.some(
+            (t) => t.status !== "downloading" && t.status !== "done"
+          );
+          const anyPause = menuGroup.items.some(
+            (t) => t.status !== "paused" && t.status !== "done"
+          );
+          if (anyResume) {
+            actions.push({
+              key: "resume",
+              label: "全部继续",
+              onClick: () => handleBatchResume(menuGroup.title),
+            });
+          }
+          if (anyPause) {
+            actions.push({
+              key: "pause",
+              label: "全部暂停",
+              onClick: () => handleBatchPause(menuGroup.title),
+            });
+          }
+          actions.push({
+            key: "delete",
+            label: "全部删除",
+            danger: true,
+            onClick: () => handleBatchDeleteRequest(menuGroup.title),
+          });
+          return actions;
+        })()}
+        onClose={() => setMenuTitle(null)}
+      />
+
       <ConfirmDialog
         open={batchDelete != null}
         title="批量删除传输任务"
@@ -1303,9 +1494,21 @@ export default function Downloads() {
               onBatchResume={handleBatchResume}
               onBatchPause={handleBatchPause}
               onBatchDelete={handleBatchDeleteRequest}
+              isMobile={isMobile}
+              onBatchMenu={setMenuTitle}
+              onOpenMenu={setMenuTaskId}
             />
           ))}
         </div>
+      )}
+
+      {isMobile && tasks.length > 0 && (
+        <Fab
+          onClick={stats.downloading > 0 ? handleGlobalPause : handleGlobalResume}
+          ariaLabel={stats.downloading > 0 ? "全部暂停" : "全部继续"}
+        >
+          {stats.downloading > 0 ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
+        </Fab>
       )}
     </div>
   );

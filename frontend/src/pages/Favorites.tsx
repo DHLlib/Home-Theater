@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listFavorites, removeFavorite } from "../api/favorites";
+import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { useLongPress } from "../hooks/useLongPress";
+import { useIsMobile } from "../hooks/useViewport";
 import type { Favorite } from "../types";
 
 function formatDate(iso: string | null | undefined): string {
@@ -40,13 +43,22 @@ function ArchiveCard({
   item,
   index,
   onRemove,
+  isMobile,
+  onOpenMenu,
 }: {
   item: Favorite;
   index: number;
   onRemove: (id: number) => void;
+  isMobile?: boolean;
+  onOpenMenu?: (id: number) => void;
 }) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
+  const longPress = useLongPress({
+    onLongPress: () => {
+      if (isMobile) onOpenMenu?.(item.id);
+    },
+  });
 
   const handleClick = () => {
     navigate("/detail", {
@@ -79,6 +91,7 @@ function ArchiveCard({
           handleClick();
         }
       }}
+      {...longPress}
       style={{
         marginBottom: 24,
         position: "relative",
@@ -90,6 +103,9 @@ function ArchiveCard({
         transition: "all var(--transition-slow)",
         animation: `archiveReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both`,
         animationDelay: `${index * 70}ms`,
+        touchAction: "manipulation",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
       <div className="perf perf-left" aria-hidden="true" />
@@ -109,32 +125,35 @@ function ArchiveCard({
         }}
       />
 
-      <button
-        className="btn"
-        onClick={handleRemove}
-        aria-label={`取消收藏 ${item.title}`}
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          zIndex: 3,
-          width: 32,
-          height: 32,
-          minHeight: 32,
-          padding: 0,
-          borderRadius: "50%",
-          opacity: 1,
-          transform: "scale(1)",
-          transition: "all var(--transition-fast)",
-          background: "rgba(0,0,0,0.75)",
-          borderColor: "var(--glass-border-bright)",
-          color: "var(--text-secondary)",
-          fontSize: 18,
-          lineHeight: 1,
-        }}
-      >
-        ×
-      </button>
+      {!isMobile && (
+        <button
+          className="btn"
+          onClick={handleRemove}
+          aria-label={`取消收藏 ${item.title}`}
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            zIndex: 3,
+            width: 32,
+            height: 32,
+            minHeight: 32,
+            padding: 0,
+            borderRadius: "50%",
+            opacity: hovered ? 1 : 0,
+            transform: hovered ? "scale(1)" : "scale(0.85)",
+            transition: "all var(--transition-fast)",
+            background: "rgba(0,0,0,0.75)",
+            borderColor: "var(--glass-border-bright)",
+            color: "var(--text-secondary)",
+            fontSize: 18,
+            lineHeight: 1,
+            pointerEvents: hovered ? "auto" : "none",
+          }}
+        >
+          ×
+        </button>
+      )}
 
       <div
         style={{
@@ -265,6 +284,8 @@ export default function Favorites() {
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<number | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [menuId, setMenuId] = useState<number | null>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     setLoading(true);
@@ -285,6 +306,11 @@ export default function Favorites() {
   const activeItem = useMemo(
     () => items.find((x) => x.id === removingId),
     [items, removingId]
+  );
+
+  const menuItem = useMemo(
+    () => items.find((x) => x.id === menuId),
+    [items, menuId]
   );
 
   const handleRemoveRequest = (id: number) => {
@@ -428,6 +454,22 @@ export default function Favorites() {
         onCancel={handleCancelRemove}
       />
 
+      <ActionSheet
+        open={menuId != null}
+        title={menuItem?.title}
+        actions={[
+          {
+            key: "remove",
+            label: "移出珍藏",
+            danger: true,
+            onClick: () => {
+              if (menuId != null) handleRemoveRequest(menuId);
+            },
+          },
+        ]}
+        onClose={() => setMenuId(null)}
+      />
+
       {loading ? (
         <div className="archive-grid">
           {[...Array(8)].map((_, i) => (
@@ -486,6 +528,8 @@ export default function Favorites() {
               item={item}
               index={idx}
               onRemove={handleRemoveRequest}
+              isMobile={isMobile}
+              onOpenMenu={setMenuId}
             />
           ))}
         </div>

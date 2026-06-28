@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { getDownloadRoot } from "../api/settings";
@@ -32,6 +32,32 @@ export interface DetailContentProps {
   variant?: DetailVariant;
 }
 
+function sourceKey(s: SourceDetail | SourceRef): string {
+  return `${s.site_id}-${s.original_id}`;
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: open ? "rotate(180deg)" : "rotate(0deg)",
+        transition: "transform 200ms ease",
+      }}
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 /**
  * 详情内容主体：海报 / 简介 / 选源 / 选集 / 播放 / 下载 / 收藏。
  *
@@ -45,6 +71,7 @@ export default function DetailContent({
 }: DetailContentProps) {
   const navigate = useNavigate();
   const isMountedRef = useRef(true);
+  const isSheet = variant === "sheet";
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
@@ -70,6 +97,30 @@ export default function DetailContent({
   >(new Set());
   const [downloading, setDownloading] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
+
+  // sheet 模式下默认只展开第一个来源，避免小屏下选集区过长
+  const defaultExpanded = useMemo(() => {
+    if (!isSheet || detail.length === 0) {
+      return new Set(detail.map(sourceKey));
+    }
+    return new Set([sourceKey(detail[0])]);
+  }, [isSheet, detail]);
+
+  const [expandedSources, setExpandedSources] = useState(defaultExpanded);
+
+  // detail 加载完成后同步默认展开态
+  useEffect(() => {
+    setExpandedSources(defaultExpanded);
+  }, [defaultExpanded]);
+
+  const toggleSource = (key: string) => {
+    setExpandedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -231,6 +282,40 @@ export default function DetailContent({
     createTasksAsync(source, indices, item);
   };
 
+  const actionBar = (
+    <div
+      className="row detail-actions"
+      style={{
+        marginTop: isSheet ? 0 : 8,
+        gap: isSheet ? 12 : undefined,
+      }}
+    >
+      <button
+        className="btn btn-primary"
+        onClick={handlePlay}
+        disabled={!detailReady}
+        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+      >
+        播放
+      </button>
+      <button
+        className="btn"
+        onClick={handleDownload}
+        disabled={!detailReady}
+        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+      >
+        下载
+      </button>
+      <button
+        className="btn"
+        onClick={handleFavorite}
+        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+      >
+        {isFavorited ? "已收藏" : "收藏"}
+      </button>
+    </div>
+  );
+
   return (
     <div className={variant === "page" ? "col" : "detail-content"}>
       {variant === "page" && (
@@ -254,8 +339,21 @@ export default function DetailContent({
           ← 返回
         </button>
       )}
-      <div className="row detail-layout" style={{ alignItems: "flex-start" }}>
-        <div className="detail-poster-wrap" style={{ width: 220, flexShrink: 0 }}>
+      <div
+        className="row detail-layout"
+        style={{
+          alignItems: isSheet ? "stretch" : "flex-start",
+          flexDirection: isSheet ? "column" : "row",
+        }}
+      >
+        <div
+          className="detail-poster-wrap"
+          style={{
+            width: isSheet ? "100%" : 220,
+            flexShrink: 0,
+            maxHeight: isSheet ? "45vh" : undefined,
+          }}
+        >
           {variant === "page" ? (
             <PosterImage
               title={item.title}
@@ -272,7 +370,7 @@ export default function DetailContent({
               }
             />
           ) : (
-            // 弹窗形态：海报包共享 layoutId 容器，与卡片端补间生长
+            // 弹窗/抽屉形态：海报包共享 layoutId 容器，与卡片端补间生长
             <motion.div
               layoutId={posterLayoutId(item.title, item.year)}
               style={{
@@ -288,7 +386,12 @@ export default function DetailContent({
                 posterUrls={item.poster_urls}
                 alt={item.title}
                 loading="eager"
-                style={{ width: "100%", minHeight: 300 }}
+                style={{
+                  width: "100%",
+                  minHeight: isSheet ? 200 : 300,
+                  maxHeight: isSheet ? "45vh" : undefined,
+                  objectFit: isSheet ? "contain" : undefined,
+                }}
                 placeholder={
                   <div className="empty" style={{ height: "100%" }}>
                     无封面
@@ -300,7 +403,12 @@ export default function DetailContent({
         </div>
         <motion.div
           className="col detail-info-wrap"
-          style={{ flex: 1, gap: 8 }}
+          style={{
+            flex: 1,
+            gap: 8,
+            width: isSheet ? "100%" : undefined,
+            marginTop: isSheet ? 12 : undefined,
+          }}
           initial={variant === "page" ? false : { opacity: 0, y: 8 }}
           animate={variant === "page" ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.25, delay: 0.12 }}
@@ -335,21 +443,7 @@ export default function DetailContent({
               {detail[0].intro.replace(/<[^>]*>/g, "")}
             </div>
           )}
-          <div className="row detail-actions" style={{ marginTop: 8 }}>
-            <button
-              className="btn btn-primary"
-              onClick={handlePlay}
-              disabled={!detailReady}
-            >
-              播放
-            </button>
-            <button className="btn" onClick={handleDownload} disabled={!detailReady}>
-              下载
-            </button>
-            <button className="btn" onClick={handleFavorite}>
-              {isFavorited ? "已收藏" : "收藏"}
-            </button>
-          </div>
+          {!isSheet && actionBar}
 
           {isLoading && (
             <div
@@ -383,19 +477,65 @@ export default function DetailContent({
         </motion.div>
       </div>
 
+      {isSheet && (
+        <div
+          style={{
+            position: "sticky",
+            bottom: 0,
+            padding: "12px 0",
+            background: "linear-gradient(to top, var(--bg-elevated) 70%, transparent)",
+            zIndex: 5,
+          }}
+        >
+          {actionBar}
+        </div>
+      )}
+
       {!isLoading &&
         detail.length > 0 &&
-        detail.map((s) => (
-          <div key={`${s.site_id}-${s.original_id}`} style={{ marginTop: 16 }}>
-            <h4 style={{ margin: 0, marginBottom: 8 }}>
-              {s.site_name || `站点 #${s.site_id}`}
-            </h4>
-            <EpisodeList
-              episodes={s.episodes}
-              onPick={(index) => handlePlayEpisode(s, index)}
-            />
-          </div>
-        ))}
+        detail.map((s) => {
+          const key = sourceKey(s);
+          const expanded = expandedSources.has(key);
+          return (
+            <div key={key} style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className="source-header"
+                onClick={() => toggleSource(key)}
+                style={{
+                  padding: isSheet ? "12px 0" : "0 0 8px",
+                  fontSize: isSheet ? 15 : 14,
+                  borderBottom: isSheet
+                    ? "1px solid var(--glass-border)"
+                    : undefined,
+                }}
+                aria-expanded={expanded}
+              >
+                <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 400,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    {s.episodes.length} 集
+                  </span>
+                  <ChevronIcon open={expanded} />
+                </span>
+              </button>
+              {expanded && (
+                <div style={{ marginTop: isSheet ? 8 : undefined }}>
+                  <EpisodeList
+                    episodes={s.episodes}
+                    onPick={(index) => handlePlayEpisode(s, index)}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
 
       <SourcePicker
         open={pickerOpen}
