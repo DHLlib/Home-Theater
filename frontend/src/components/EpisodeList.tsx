@@ -78,7 +78,10 @@ export default function EpisodeList({
               {group.label}
             </div>
           )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div
+            className="episode-grid"
+            style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+          >
             {group.eps.map((ep) => {
               const isSelected = selected.has(ep.index);
               return (

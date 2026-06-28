@@ -70,6 +70,9 @@ export default function Home() {
     return data?.pages.flat() ?? [];
   }, [data]);
 
+  const mobileCardWidth = isMobile ? 140 : 160;
+  const mobileGridMinWidth = isMobile ? 130 : 160;
+
   const latestSection = useMemo(() => {
     const sorted = [...videos].sort((a, b) => {
       const ta = getLatestUpdatedAt(a);
@@ -373,8 +376,8 @@ export default function Home() {
             {latestSection.length > 0 && (
               <ScrollRow title="最新更新" titleColor="var(--primary)">
                 {latestSection.map((v) => (
-                  <div key={videoKey(v)} style={{ width: 160 }}>
-                    <VideoCard item={v} width={160} />
+                  <div key={videoKey(v)} style={{ width: mobileCardWidth }}>
+                    <VideoCard item={v} width={mobileCardWidth} />
                   </div>
                 ))}
               </ScrollRow>
@@ -425,9 +428,9 @@ export default function Home() {
                 items={allSection}
                 itemKey={videoKey}
                 renderItem={renderGridItem}
-                minItemWidth={160}
-                gap={24}
-                overscan={3}
+                minItemWidth={mobileGridMinWidth}
+                gap={isMobile ? 12 : 24}
+                overscan={isMobile ? 2 : 3}
               />
             </section>
           </>
@@ -472,8 +475,10 @@ export default function Home() {
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           style={{
             position: "fixed",
-            right: 20,
-            bottom: 24,
+            right: isMobile ? 16 : 20,
+            bottom: isMobile
+              ? "calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 16px)"
+              : 24,
             zIndex: 100,
             width: 44,
             height: 44,

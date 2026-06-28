@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Drawer } from "vaul";
 import { getEpisodes, getSources } from "../api/play";
 import { getProgress, upsertProgress } from "../api/progress";
 import type { VideoPlayerHandle } from "../components/VideoPlayer";
@@ -11,6 +12,11 @@ import type { Episode, PlayProgress, PlaySource } from "../types";
 
 // 按需加载播放器：xgplayer + xgplayer-hls.js 体积较大，仅进播放页时才加载
 const VideoPlayer = lazy(() => import("../components/VideoPlayer"));
+
+const DOUBLE_TAP_THRESHOLD = 300;
+const SWIPE_UP_THRESHOLD = 60;
+const TAP_MAX_MOVE = 10;
+const SEEK_SECONDS = 10;
 
 export default function Player() {
   const location = useLocation();
@@ -41,6 +47,10 @@ export default function Player() {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const passedConsumedRef = useRef(false);
   const userPickedRef = useRef(false);
+
+  // 手势触摸记录
+  const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const lastTapRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   const { isFullscreen, isFakeLandscape, isSimulatedFullscreen, toggleFullscreen } = useFullscreen();
   const sidebarOpenRef = useRef(sidebarOpen);
@@ -360,6 +370,74 @@ export default function Player() {
     [isMobile]
   );
 
+  // PiP：查找播放器容器内的 video 元素并请求画中画
+  const handlePiP = useCallback(async () => {
+    const container = playerContainerRef.current;
+    if (!container) return;
+    const video = container.querySelector("video") as HTMLVideoElement | null;
+    if (!video) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch {
+      // 浏览器不支持或用户未交互时静默失败
+    }
+  }, []);
+
+  // 移动端手势：双击快进/快退，上滑打开选集
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!isMobile) return;
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isMobile || !touchStartRef.current) return;
+    const start = touchStartRef.current;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const dt = Date.now() - start.t;
+    touchStartRef.current = null;
+
+    // 滑动：上滑打开选集
+    if (dy < -SWIPE_UP_THRESHOLD && Math.abs(dy) > Math.abs(dx)) {
+      setSidebarOpen(true);
+      return;
+    }
+
+    // 点击：检测双击
+    if (Math.abs(dx) < TAP_MAX_MOVE && Math.abs(dy) < TAP_MAX_MOVE && dt < 400) {
+      const now = Date.now();
+      const width = (e.currentTarget as HTMLElement).clientWidth;
+      const xRatio = t.clientX / width;
+      if (
+        lastTapRef.current &&
+        now - lastTapRef.current.t < DOUBLE_TAP_THRESHOLD &&
+        Math.abs(t.clientX - lastTapRef.current.x) < TAP_MAX_MOVE &&
+        Math.abs(t.clientY - lastTapRef.current.y) < TAP_MAX_MOVE
+      ) {
+        lastTapRef.current = null;
+        const delta = xRatio < 0.5 ? -SEEK_SECONDS : SEEK_SECONDS;
+        const video = playerRef.current;
+        if (!video) return;
+        const next = Math.max(
+          0,
+          Math.min(
+            video.getCurrentTime() + delta,
+            video.getDuration() || 0
+          )
+        );
+        video.seekTo(next);
+      } else {
+        lastTapRef.current = { x: t.clientX, y: t.clientY, t: now };
+      }
+    }
+  };
+
   if (!site_id || !original_id) {
     return <div className="empty">参数缺失</div>;
   }
@@ -401,7 +479,12 @@ export default function Player() {
 
       {/* 左侧：播放器 + 控制条 */}
       <div className="player-main" ref={playerContainerRef}>
-        <div className={`player-video-wrap ${isSimulatedFullscreen ? "simulated-fullscreen" : ""} ${isFakeLandscape ? "fake-landscape" : ""}`}>
+        <div
+          className={`player-video-wrap ${isSimulatedFullscreen ? "simulated-fullscreen" : ""} ${isFakeLandscape ? "fake-landscape" : ""}`}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          style={{ touchAction: "manipulation" }}
+        >
           <Suspense fallback={<div className="spinner" style={{ margin: "auto" }} />}>
             <VideoPlayer
               ref={playerRef}
@@ -415,7 +498,7 @@ export default function Player() {
         </div>
 
         <div
-          className="row"
+          className="row player-controls-bar"
           style={{ justifyContent: "space-between", padding: "10px 0", flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}
         >
           <button
@@ -425,6 +508,7 @@ export default function Player() {
               userPickedRef.current = true;
               setCurrentIndex((i) => i - 1);
             }}
+            style={isMobile ? { minHeight: 48, minWidth: 48, padding: "8px 12px" } : undefined}
           >
             上一集
           </button>
@@ -439,15 +523,26 @@ export default function Player() {
               <button
                 className="btn"
                 onClick={() => setSidebarOpen(true)}
-                style={{ padding: "4px 12px", minHeight: 44, fontSize: 13 }}
+                style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
               >
                 选集
+              </button>
+            )}
+            {isMobile && (
+              <button
+                className="btn"
+                onClick={handlePiP}
+                style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
+                aria-label="画中画"
+                title="画中画"
+              >
+                PiP
               </button>
             )}
             <button
               className="btn"
               onClick={handleToggleFullscreen}
-              style={{ padding: "4px 12px", minHeight: 44, fontSize: 13 }}
+              style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
               aria-label={isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
             >
               {isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
@@ -459,6 +554,7 @@ export default function Player() {
                 userPickedRef.current = true;
                 setCurrentIndex((i) => i + 1);
               }}
+              style={isMobile ? { minHeight: 48, minWidth: 48, padding: "8px 12px" } : undefined}
             >
               下一集
             </button>
@@ -601,151 +697,174 @@ export default function Player() {
         </button>
       )}
 
-      {/* 移动端：底部抽屉 */}
+      {/* 移动端：vaul 底部选集抽屉 */}
       {isMobile && (
-        <>
-          {/* 遮罩层 */}
-          {sidebarOpen && (
-            <div
-              className="episode-drawer-backdrop"
+        <Drawer.Root
+          open={sidebarOpen}
+          onOpenChange={(nextOpen) => setSidebarOpen(nextOpen)}
+          direction="bottom"
+        >
+          <Drawer.Portal>
+            <Drawer.Overlay
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0, 0, 0, 0.7)",
+                zIndex: 999,
+              }}
               onClick={() => setSidebarOpen(false)}
             />
-          )}
-          {/* 抽屉 */}
-          <div className={`episode-drawer ${sidebarOpen ? "open" : ""}`}>
-            <div
-              className="row"
+            <Drawer.Content
               style={{
-                justifyContent: "space-between",
-                flexShrink: 0,
-                padding: "12px 16px",
-                borderBottom: "1px solid var(--glass-border)",
+                position: "fixed",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1000,
+                display: "flex",
+                flexDirection: "column",
+                maxHeight: "70vh",
+                background: "var(--bg-elevated)",
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                border: "1px solid var(--glass-border)",
+                borderBottom: "none",
               }}
             >
-              <h4 style={{ margin: 0, fontSize: 15 }}>
-                {sourcePanelOpen ? "选择来源" : "选集"}
-              </h4>
-              <div className="row" style={{ gap: 6 }}>
-                {!sourcePanelOpen && sources.length > 1 && (
+              <div
+                className="row"
+                style={{
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                  padding: "12px 16px",
+                  borderBottom: "1px solid var(--glass-border)",
+                }}
+              >
+                <h4 style={{ margin: 0, fontSize: 15 }}>
+                  {sourcePanelOpen ? "选择来源" : "选集"}
+                </h4>
+                <div className="row" style={{ gap: 6 }}>
+                  {!sourcePanelOpen && sources.length > 1 && (
+                    <button
+                      className="btn"
+                      onClick={() => setSourcePanelOpen(true)}
+                      style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
+                    >
+                      换源
+                    </button>
+                  )}
+                  {sourcePanelOpen && (
+                    <button
+                      className="btn"
+                      onClick={() => setSourcePanelOpen(false)}
+                      style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
+                    >
+                      返回
+                    </button>
+                  )}
                   <button
                     className="btn"
-                    onClick={() => setSourcePanelOpen(true)}
+                    onClick={() => setSidebarOpen(false)}
                     style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
+                    aria-label="关闭选集"
                   >
-                    换源
+                    关闭
                   </button>
-                )}
-                {sourcePanelOpen && (
-                  <button
-                    className="btn"
-                    onClick={() => setSourcePanelOpen(false)}
-                    style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
-                  >
-                    返回
-                  </button>
-                )}
-                <button
-                  className="btn"
-                  onClick={() => setSidebarOpen(false)}
-                  style={{ padding: "4px 8px", minHeight: 44, fontSize: 12 }}
-                  aria-label="关闭选集"
-                >
-                  关闭
-                </button>
+                </div>
               </div>
-            </div>
-            <div className="episode-list" style={{ padding: "12px 16px" }}>
-              {sourcePanelOpen ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {sources.map((src) => {
-                    const isCurrent =
-                      src.site_id === site_id && src.original_id === original_id;
-                    return (
-                      <button
-                        key={`${src.site_id}-${src.original_id}`}
-                        className="btn"
-                        style={{
-                          justifyContent: "flex-start",
-                          borderColor: isCurrent ? "var(--primary)" : undefined,
-                          fontSize: 13,
-                          padding: "10px 12px",
-                          minHeight: 44,
-                        }}
-                        onClick={() => handleSwitchSource(src)}
-                      >
+              <div className="episode-list" style={{ padding: "12px 16px" }}>
+                {sourcePanelOpen ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {sources.map((src) => {
+                      const isCurrent =
+                        src.site_id === site_id && src.original_id === original_id;
+                      return (
+                        <button
+                          key={`${src.site_id}-${src.original_id}`}
+                          className="btn"
+                          style={{
+                            justifyContent: "flex-start",
+                            borderColor: isCurrent ? "var(--primary)" : undefined,
+                            fontSize: 13,
+                            padding: "10px 12px",
+                            minHeight: 48,
+                          }}
+                          onClick={() => handleSwitchSource(src)}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                              gap: 2,
+                            }}
+                          >
+                            <span>{src.site_name}</span>
+                            <span
+                              style={{ fontSize: 11, color: "var(--text-muted)" }}
+                            >
+                              {src.episode_count}集 · {src.suffix}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    {groupedEpisodes.length > 1 && (
+                      <OnboardingHint storageKey="player-lines">
+                        同一视频可能有多个播放线路，切换线路可尝试不同播放地址
+                      </OnboardingHint>
+                    )}
+                    {groupedEpisodes.map((group, gi) => (
+                      <div key={gi} style={{ marginBottom: 12 }}>
                         <div
                           style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            gap: 2,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--text-muted)",
+                            marginBottom: 6,
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
                           }}
                         >
-                          <span>{src.site_name}</span>
-                          <span
-                            style={{ fontSize: 11, color: "var(--text-muted)" }}
-                          >
-                            {src.episode_count}集 · {src.suffix}
-                          </span>
+                          {group.label}
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <>
-                  {groupedEpisodes.length > 1 && (
-                    <OnboardingHint storageKey="player-lines">
-                      同一视频可能有多个播放线路，切换线路可尝试不同播放地址
-                    </OnboardingHint>
-                  )}
-                  {groupedEpisodes.map((group, gi) => (
-                    <div key={gi} style={{ marginBottom: 12 }}>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "var(--text-muted)",
-                          marginBottom: 6,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        {group.label}
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(4, 1fr)",
+                            gap: 8,
+                          }}
+                        >
+                          {group.eps.map((ep) => (
+                            <button
+                              key={ep.index}
+                              className="btn"
+                              style={{
+                                borderColor:
+                                  ep.index === currentIndex
+                                    ? "var(--primary)"
+                                    : undefined,
+                                fontSize: 12,
+                                padding: "8px 4px",
+                                minHeight: 48,
+                              }}
+                              onClick={() => handleEpisodeClick(ep.index)}
+                            >
+                              {ep.ep_name}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(4, 1fr)",
-                          gap: 8,
-                        }}
-                      >
-                        {group.eps.map((ep) => (
-                          <button
-                            key={ep.index}
-                            className="btn"
-                            style={{
-                              borderColor:
-                                ep.index === currentIndex
-                                  ? "var(--primary)"
-                                  : undefined,
-                              fontSize: 12,
-                              padding: "8px 4px",
-                              minHeight: 44,
-                            }}
-                            onClick={() => handleEpisodeClick(ep.index)}
-                          >
-                            {ep.ep_name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          </div>
-        </>
+                    ))}
+                  </>
+                )}
+              </div>
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer.Root>
       )}
     </div>
   );

@@ -344,6 +344,27 @@ export default function Settings() {
 
   return (
     <div className="col settings-form" style={{ gap: 20 }}>
+      <style>{`
+        @media (max-width: 767px) {
+          .settings-tab-bar .tab-label {
+            display: none;
+          }
+          .site-row {
+            flex-wrap: wrap;
+            align-items: flex-start;
+          }
+          .site-row .site-info {
+            flex: 1;
+            min-width: 0;
+          }
+          .site-row .site-actions {
+            width: 100%;
+            justify-content: flex-end;
+            margin-top: 10px;
+          }
+        }
+      `}</style>
+
       {/* Tab 菜单 */}
       <div
         className="row settings-tab-bar"
@@ -372,7 +393,7 @@ export default function Settings() {
               }}
             >
               {t.icon}
-              {t.label}
+              <span className="tab-label">{t.label}</span>
             </button>
           );
         })}
@@ -474,6 +495,7 @@ export default function Settings() {
               return (
                 <div
                   key={s.id}
+                  className="site-row"
                   style={{
                     ...rowBaseStyle,
                     border: s.enabled
@@ -513,7 +535,7 @@ export default function Settings() {
                   />
 
                   {/* 信息 / 编辑表单 */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="site-info" style={{ flex: 1, minWidth: 0 }}>
                     {isEditing ? (
                       <div className="col" style={{ gap: 8 }}>
                         <input
@@ -602,7 +624,7 @@ export default function Settings() {
 
                   {/* 操作按钮 */}
                   <div
-                    className="row"
+                    className="row site-actions"
                     style={{ gap: 6, flexShrink: 0 }}
                     onClick={(e) => e.stopPropagation()}
                   >

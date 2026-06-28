@@ -2,9 +2,11 @@ import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useVideosInfinite } from "../hooks/useVideos";
 import VideoCard from "../components/VideoCard";
+import { useIsMobile } from "../hooks/useViewport";
 
 export default function Search() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [wd, setWd] = useState("");
   const [submittedWd, setSubmittedWd] = useState("");
 
@@ -28,7 +30,7 @@ export default function Search() {
   const hasSearched = submittedWd.length > 0;
 
   return (
-    <div>
+    <div style={{ paddingBottom: isMobile ? 16 : 0 }}>
       <button
         className="btn"
         onClick={() => navigate("/")}
@@ -40,7 +42,11 @@ export default function Search() {
       <form
         onSubmit={handleSearch}
         className="row search-page"
-        style={{ marginBottom: 16 }}
+        style={{
+          marginBottom: 16,
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+        }}
       >
         <input
           type="text"
@@ -49,14 +55,21 @@ export default function Search() {
           placeholder="输入关键字搜索..."
           style={{
             flex: 1,
+            width: isMobile ? "100%" : undefined,
             padding: "8px 12px",
             borderRadius: 4,
             border: "1px solid var(--glass-border-bright)",
             background: "var(--glass-border)",
             color: "var(--text-primary)",
+            minHeight: isMobile ? 44 : undefined,
           }}
         />
-        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={isLoading}
+          style={{ width: isMobile ? "100%" : undefined, minHeight: isMobile ? 44 : undefined }}
+        >
           {isLoading ? "搜索中..." : "搜索"}
         </button>
       </form>
