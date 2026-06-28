@@ -118,25 +118,69 @@ export default function DetailModalHost() {
               onDragEnd={onSheetDragEnd}
               style={{
                 width: "100%",
-                maxHeight: "92vh",
-                overflowY: "auto",
+                maxHeight:
+                  "calc(100dvh - 56px - env(safe-area-inset-bottom))",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
                 background: "var(--bg-elevated)",
                 borderTopLeftRadius: 16,
                 borderTopRightRadius: 16,
                 border: "1px solid var(--glass-border)",
-                padding: 20,
               }}
             >
               <div
                 style={{
-                  width: 40,
-                  height: 4,
-                  borderRadius: 2,
-                  background: "var(--text-muted)",
-                  margin: "0 auto 16px",
+                  flexShrink: 0,
+                  padding: "12px 20px 8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  position: "relative",
                 }}
-              />
-              <DetailContent item={item} variant="sheet" />
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 4,
+                    borderRadius: 2,
+                    background: "var(--text-muted)",
+                  }}
+                />
+                <button
+                  onClick={close}
+                  aria-label="关闭"
+                  style={{
+                    position: "absolute",
+                    right: 16,
+                    top: 12,
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    border: "1px solid var(--glass-border)",
+                    background: "var(--bg)",
+                    color: "var(--text-primary)",
+                    fontSize: 20,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: "auto",
+                  padding: "0 20px 20px",
+                }}
+              >
+                <DetailContent item={item} variant="sheet" />
+              </div>
             </motion.div>
           ) : (
             <motion.div
