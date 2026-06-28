@@ -82,6 +82,18 @@ async def get_progress(
     return row
 
 
+@router.delete("/{progress_id}")
+async def delete_progress(progress_id: int, db: AsyncSession = Depends(get_db)):
+    """删除单条播放记录。"""
+    result = await db.execute(
+        delete(PlayProgress).where(PlayProgress.id == progress_id)
+    )
+    await db.commit()
+    deleted = result.rowcount
+    logger.info("progress_deleted id=%d count=%d", progress_id, deleted)
+    return {"deleted": deleted}
+
+
 @router.delete("")
 async def clear_progress(db: AsyncSession = Depends(get_db)):
     """清空所有最近播放记录。"""
