@@ -98,13 +98,8 @@ export default function DetailContent({
   const [downloading, setDownloading] = useState(false);
   const [isFavorited, setIsFavorited] = useState(false);
 
-  // sheet 模式下默认只展开第一个来源，避免小屏下选集区过长
-  const defaultExpanded = useMemo(() => {
-    if (!isSheet || detail.length === 0) {
-      return new Set(detail.map(sourceKey));
-    }
-    return new Set([sourceKey(detail[0])]);
-  }, [isSheet, detail]);
+  // 打开详情时所有来源默认折叠，由用户手动展开
+  const defaultExpanded = useMemo(() => new Set<string>(), []);
 
   const [expandedSources, setExpandedSources] = useState(defaultExpanded);
 
@@ -491,51 +486,49 @@ export default function DetailContent({
         </div>
       )}
 
-      {!isLoading &&
-        detail.length > 0 &&
-        detail.map((s) => {
-          const key = sourceKey(s);
-          const expanded = expandedSources.has(key);
-          return (
-            <div key={key} style={{ marginTop: 16 }}>
-              <button
-                type="button"
-                className="source-header"
-                onClick={() => toggleSource(key)}
-                style={{
-                  padding: isSheet ? "12px 0" : "0 0 8px",
-                  fontSize: isSheet ? 15 : 14,
-                  borderBottom: isSheet
-                    ? "1px solid var(--glass-border)"
-                    : undefined,
-                }}
-                aria-expanded={expanded}
+      {!isLoading && detail.length > 0 && (
+        <div className="source-list">
+          {detail.map((s) => {
+            const key = sourceKey(s);
+            const expanded = expandedSources.has(key);
+            return (
+              <div
+                key={key}
+                className={`source-block${expanded ? " expanded" : ""}`}
               >
-                <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 400,
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    {s.episodes.length} 集
+                <button
+                  type="button"
+                  className="source-header"
+                  onClick={() => toggleSource(key)}
+                  aria-expanded={expanded}
+                >
+                  <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 400,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      {s.episodes.length} 集
+                    </span>
+                    <ChevronIcon open={expanded} />
                   </span>
-                  <ChevronIcon open={expanded} />
-                </span>
-              </button>
-              {expanded && (
-                <div style={{ marginTop: isSheet ? 8 : undefined }}>
-                  <EpisodeList
-                    episodes={s.episodes}
-                    onPick={(index) => handlePlayEpisode(s, index)}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+                </button>
+                {expanded && (
+                  <div className="source-body">
+                    <EpisodeList
+                      episodes={s.episodes}
+                      onPick={(index) => handlePlayEpisode(s, index)}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <SourcePicker
         open={pickerOpen}
