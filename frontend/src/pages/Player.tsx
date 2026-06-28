@@ -370,23 +370,6 @@ export default function Player() {
     [isMobile]
   );
 
-  // PiP：查找播放器容器内的 video 元素并请求画中画
-  const handlePiP = useCallback(async () => {
-    const container = playerContainerRef.current;
-    if (!container) return;
-    const video = container.querySelector("video") as HTMLVideoElement | null;
-    if (!video) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await video.requestPictureInPicture();
-      }
-    } catch {
-      // 浏览器不支持或用户未交互时静默失败
-    }
-  }, []);
-
   // 移动端手势：双击快进/快退，上滑打开选集
   const handleTouchStart = (e: React.TouchEvent) => {
     if (!isMobile) return;
@@ -526,17 +509,6 @@ export default function Player() {
                 style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
               >
                 选集
-              </button>
-            )}
-            {isMobile && (
-              <button
-                className="btn"
-                onClick={handlePiP}
-                style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
-                aria-label="画中画"
-                title="画中画"
-              >
-                PiP
               </button>
             )}
             <button
