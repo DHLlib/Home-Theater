@@ -1,64 +1,9 @@
-import { useEffect, Suspense } from "react";
-import { RouterProvider } from "react-router-dom";
-import { router } from "./router";
-import { subscribe, type ToastType } from "./utils/toast";
-import { connectSse, disconnectSse } from "./api/sse";
-import { useState } from "react";
-import { applyTheme, getStoredTheme } from "./lib/theme";
-
-interface ToastItem {
-  id: number;
-  type: ToastType;
-  message: string;
-}
-
-function ToastContainer() {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  useEffect(() => {
-    return subscribe(setToasts);
-  }, []);
-  return (
-    <div className="toast-container">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.type}`}>
-          {t.message}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PageLoading() {
-  return (
-    <div className="page-loading" style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-    }}>
-      <div className="spinner" />
-    </div>
-  );
-}
+import { useMemo } from "react";
+import { isMobileUA } from "./utils/ua";
+import DesktopApp from "./desktop/App";
+import MobileApp from "./mobile/App";
 
 export default function App() {
-  useEffect(() => {
-    // 清除旧版主题键，并应用已存储的主题（默认深黑影院）
-    localStorage.removeItem("theme");
-    applyTheme(getStoredTheme());
-  }, []);
-
-  useEffect(() => {
-    connectSse();
-    return () => disconnectSse();
-  }, []);
-
-  return (
-    <>
-      <Suspense fallback={<PageLoading />}>
-        <RouterProvider router={router} />
-      </Suspense>
-      <ToastContainer />
-    </>
-  );
+  const isMobile = useMemo(() => isMobileUA(), []);
+  return isMobile ? <MobileApp /> : <DesktopApp />;
 }
