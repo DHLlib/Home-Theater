@@ -227,6 +227,49 @@ class SitePatch(BaseModel):
     categories: list[dict] | None = None
 
 
+class SiteExportMapping(BaseModel):
+    remote_id: str
+    remote_name: str | None = None
+    system_name: str
+    enabled: bool = True
+
+
+class SiteExportSite(BaseModel):
+    name: str
+    base_url: str
+    enabled: bool = True
+    sort: int = 0
+    categories: list[dict] | None = None
+    mappings: list[SiteExportMapping] = []
+
+
+class SiteExportOut(BaseModel):
+    version: int = 1
+    exported_at: str
+    sites: list[SiteExportSite]
+
+
+class SiteImportSite(BaseModel):
+    name: str = Field(..., min_length=1)
+    base_url: str = Field(..., min_length=1)
+    enabled: bool = True
+    sort: int = 0
+    categories: list[dict] | None = None
+    mappings: list[SiteExportMapping] = []
+
+
+class SiteImportIn(BaseModel):
+    sites: list[SiteImportSite]
+    mode: str = "skip"  # skip | overwrite
+
+
+class SiteImportResult(BaseModel):
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    errors: list[str] = []
+
+
 class CrawlerLog(BaseModel):
     timestamp: str
     site_id: int
