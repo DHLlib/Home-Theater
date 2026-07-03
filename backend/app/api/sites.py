@@ -2,11 +2,11 @@ import logging
 
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func, desc, Integer, cast
+from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import Site, SystemCategory, SiteProbeLog, _utcnow
+from app.models import Site, SystemCategory, SiteProbeLog, SiteCategoryMapping, _utcnow
 import asyncio
 
 import app.services.scheduler as scheduler_module
@@ -17,6 +17,8 @@ from app.schemas import (
     SiteCategoriesFetchOut, SiteCategoriesUpdate,
     SiteCreate, SitePatch, BatchProbeItem, BatchProbeResult, BatchProbeResponse,
     SiteProbeResult, ProbeSitesBatchRequest, SiteHealthOut, SiteProbeLogEntry,
+    SiteExportOut, SiteExportSite, SiteExportMapping,
+    SiteImportIn, SiteImportResult,
 )
 from app.services.health import probe as health_probe
 from app.services.source_client import SourceClient
@@ -597,3 +599,118 @@ async def batch_probe(
 
     logger.info("batch_probe total=%d success=%d added=%d", len(items), sum(1 for r in results if r.ok), len(new_sites))
     return BatchProbeResponse(results=final)
+
+
+@router.get("/export", response_model=SiteExportOut)
+async def export_sites(db: AsyncSession = Depends(get_db)):
+    """导出所有站点及其分类映射，用于迁移到其他环境。"""
+    result = await db.execute(select(Site).order_by(Site.sort, Site.id))
+    sites = result.scalars().all()
+
+    exported_sites = []
+    for site in sites:
+        mappings_result = await db.execute(
+            select(SiteCategoryMapping)
+            .where(SiteCategoryMapping.site_id == site.id)
+            .order_by(SiteCategoryMapping.remote_id)
+        )
+        mappings = mappings_result.scalars().all()
+        exported_sites.append(SiteExportSite(
+            name=site.name,
+            base_url=site.base_url,
+            enabled=site.enabled,
+            sort=site.sort,
+            categories=site.categories,
+            mappings=[
+                SiteExportMapping(
+                    remote_id=m.remote_id,
+                    remote_name=m.remote_name,
+                    system_name=m.system_name,
+                    enabled=m.enabled,
+                )
+                for m in mappings
+            ],
+        ))
+
+    return SiteExportOut(
+        exported_at=_utcnow().isoformat(),
+        sites=exported_sites,
+    )
+
+
+@router.post("/import", response_model=SiteImportResult)
+async def import_sites(req: SiteImportIn, db: AsyncSession = Depends(get_db)):
+    """从导出的 JSON 导入站点及其分类映射。"""
+    if req.mode not in {"skip", "overwrite"}:
+        raise HTTPException(status_code=400, detail="mode 必须是 skip 或 overwrite")
+
+    # 预加载现有站点用于去重
+    existing_result = await db.execute(select(Site))
+    existing_sites = existing_result.scalars().all()
+    existing_by_name = {s.name: s for s in existing_sites}
+    existing_by_url = {s.base_url.rstrip("/"): s for s in existing_sites}
+
+    result = SiteImportResult()
+
+    for item in req.sites:
+        try:
+            url_normalized = item.base_url.rstrip("/")
+            existing = existing_by_name.get(item.name) or existing_by_url.get(url_normalized)
+
+            if existing and req.mode == "skip":
+                result.skipped += 1
+                continue
+
+            if existing and req.mode == "overwrite":
+                existing.name = item.name
+                existing.base_url = item.base_url
+                existing.enabled = item.enabled
+                existing.sort = item.sort
+                existing.categories = item.categories
+                db_site = existing
+                # 删除旧映射，后续重建
+                await db.execute(
+                    delete(SiteCategoryMapping).where(
+                        SiteCategoryMapping.site_id == db_site.id
+                    )
+                )
+                result.updated += 1
+            else:
+                db_site = Site(
+                    name=item.name,
+                    base_url=item.base_url,
+                    enabled=item.enabled,
+                    sort=item.sort,
+                    categories=item.categories,
+                )
+                db.add(db_site)
+                await db.flush()
+                await db.refresh(db_site)
+                existing_by_name[db_site.name] = db_site
+                existing_by_url[db_site.base_url.rstrip("/")] = db_site
+                result.created += 1
+
+            # 重建分类映射
+            if item.mappings:
+                seen_remote_ids = set()
+                for m in item.mappings:
+                    if m.remote_id in seen_remote_ids:
+                        continue
+                    seen_remote_ids.add(m.remote_id)
+                    db.add(SiteCategoryMapping(
+                        site_id=db_site.id,
+                        remote_id=m.remote_id,
+                        remote_name=m.remote_name,
+                        system_name=m.system_name,
+                        enabled=m.enabled,
+                    ))
+        except Exception as exc:
+            logger.exception("site_import_failed name=%s", item.name)
+            result.errors.append(f"{item.name}: {exc}")
+
+    await db.commit()
+    logger.info(
+        "sites_import created=%d updated=%d skipped=%d errors=%d",
+        result.created, result.updated, result.skipped, len(result.errors),
+    )
+    return result
