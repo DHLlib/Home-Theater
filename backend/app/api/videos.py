@@ -858,6 +858,7 @@ async def video_detail(
                 "area": cached.area,
                 "actors": cached.actors,
                 "director": cached.director,
+                "type_name": cached.type_name,
                 "episodes": episodes,
             }, None, None
 
@@ -897,6 +898,7 @@ async def video_detail(
                     "area": item.get("area"),
                     "actors": item.get("actors"),
                     "director": item.get("director"),
+                    "type_name": item.get("type_name") or item.get("type"),
                     "episodes": [
                         {"ep_name": e.ep_name, "url": e.url, "suffix": e.suffix, "index": e.index}
                         for e in episodes
@@ -913,6 +915,8 @@ async def video_detail(
                     "actors": item.get("actors"),
                     "director": item.get("director"),
                     "play_url_raw": play_raw,
+                    "type_id": item.get("type_id"),
+                    "type_name": item.get("type_name") or item.get("type"),
                     "source_updated_at": item.get("updated_at"),
                     "cached_at": _utcnow(),
                     "has_detail": True,
@@ -959,6 +963,11 @@ async def video_detail(
             "cached_at": entry["cached_at"],
             "has_detail": True,
         }
+        # 避免 videolist 未返回分类信息时把已有值覆盖为 None
+        if entry.get("type_id") is not None:
+            set_["type_id"] = entry["type_id"]
+        if entry.get("type_name") is not None:
+            set_["type_name"] = entry["type_name"]
         # 避免 videolist 未返回 updated_at 时把已有值覆盖为 None
         if entry.get("source_updated_at"):
             set_["source_updated_at"] = entry["source_updated_at"]

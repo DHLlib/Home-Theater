@@ -201,6 +201,8 @@ class SourceClient:
             "title": raw.get("vod_name") or raw.get("name") or "",
             "year": _safe_year(raw.get("vod_year") or raw.get("year")),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
+            "type": raw.get("type_name") or raw.get("type"),
+            "type_id": raw.get("type_id"),
             "intro": raw.get("vod_content") or raw.get("vod_blurb"),
             "area": raw.get("vod_area"),
             "actors": raw.get("vod_actor"),
