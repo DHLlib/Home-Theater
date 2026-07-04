@@ -46,6 +46,7 @@ class SourceDetail(BaseModel):
     area: str | None = None
     actors: str | None = None
     director: str | None = None
+    type_name: str | None = None
     episodes: list[Episode] = Field(default_factory=list)
 
 

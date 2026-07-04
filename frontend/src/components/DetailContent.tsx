@@ -502,7 +502,23 @@ export default function DetailContent({
                   onClick={() => toggleSource(key)}
                   aria-expanded={expanded}
                 >
-                  <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                  <span className="row" style={{ alignItems: "center", gap: 8 }}>
+                    <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                    {s.type_name && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--text-muted)",
+                          padding: "1px 6px",
+                          background: "rgba(255,255,255,0.05)",
+                          borderRadius: 4,
+                          border: "1px solid var(--glass-border)",
+                        }}
+                      >
+                        {s.type_name}
+                      </span>
+                    )}
+                  </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span
                       style={{

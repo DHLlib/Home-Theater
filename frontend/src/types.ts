@@ -50,6 +50,7 @@ export interface SourceDetail {
   area?: string | null;
   actors?: string | null;
   director?: string | null;
+  type_name?: string | null;
   episodes: Episode[];
 }
 
