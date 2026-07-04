@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   listSites,
   createSite,
   deleteSite,
   updateSite,
   probeSitesBatch,
+  exportSites,
+  importSites,
 } from "../api/sites";
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
@@ -215,6 +217,11 @@ export default function Settings() {
   const [batchDetectLoading, setBatchDetectLoading] = useState(false);
   const [showBatchDetectDialog, setShowBatchDetectDialog] = useState(false);
 
+  /* ---- import / export state ---- */
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     listSites().then(setSites).catch(() => {});
   }, []);
@@ -331,6 +338,73 @@ export default function Settings() {
       .finally(() => setBatchDetectLoading(false));
   };
 
+  const handleExportSites = () => {
+    setExporting(true);
+    exportSites()
+      .then((data) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sites-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toastSuccess("站点配置已导出");
+      })
+      .catch(() => toastError("导出站点失败"))
+      .finally(() => setExporting(false));
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm("确定要导入所选文件吗？同名或同地址的站点将被跳过。")) {
+      e.target.value = "";
+      return;
+    }
+
+    setImporting(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (!Array.isArray(parsed.sites)) {
+          throw new Error("文件格式错误：缺少 sites 数组");
+        }
+        importSites(parsed.sites)
+          .then((res) => {
+            const parts: string[] = [];
+            if (res.created) parts.push(`新建 ${res.created} 个`);
+            if (res.updated) parts.push(`更新 ${res.updated} 个`);
+            if (res.skipped) parts.push(`跳过 ${res.skipped} 个`);
+            if (res.errors.length) parts.push(`失败 ${res.errors.length} 个`);
+            toastSuccess(parts.length ? parts.join("，") : "导入完成");
+            listSites().then(setSites).catch(() => {});
+          })
+          .catch(() => toastError("导入站点失败"))
+          .finally(() => setImporting(false));
+      } catch (err) {
+        toastError(err instanceof Error ? err.message : "文件解析失败");
+        setImporting(false);
+      }
+    };
+    reader.onerror = () => {
+      toastError("读取文件失败");
+      setImporting(false);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
 
   const rowBaseStyle: React.CSSProperties = {
     display: "flex",
@@ -436,6 +510,39 @@ export default function Settings() {
               </h3>
             </div>
             <div className="row" style={{ gap: 4, alignItems: "center" }}>
+              <button
+                className="btn"
+                onClick={handleExportSites}
+                disabled={exporting || sites.length === 0}
+                style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {exporting ? "导出中..." : "导出站点"}
+              </button>
+              <button
+                className="btn"
+                onClick={handleImportClick}
+                disabled={importing}
+                style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                {importing ? "导入中..." : "导入站点"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleImportFile}
+                style={{ display: "none" }}
+              />
               {sites.length > 0 && (
                 <button
                   className="btn"
