@@ -303,6 +303,37 @@ export interface BatchProbeResponse {
   results: BatchProbeResult[];
 }
 
+// ===== 站点导入导出 =====
+
+export interface SiteExportMapping {
+  remote_id: string;
+  remote_name: string | null;
+  system_name: string;
+  enabled: boolean;
+}
+
+export interface SiteExportSite {
+  name: string;
+  base_url: string;
+  enabled: boolean;
+  sort: number;
+  categories?: Record<string, unknown>[] | null;
+  mappings: SiteExportMapping[];
+}
+
+export interface SiteExportOut {
+  version: number;
+  exported_at: string;
+  sites: SiteExportSite[];
+}
+
+export interface SiteImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
 // ===== AC-026 智能分类映射 =====
 
 export interface SmartMatchItem {

@@ -1,5 +1,5 @@
 import { get, post, put, patch, del } from "./client";
-import type { Site, ProbeResult, SiteProbeResult, CategoryMapping, FetchCategoriesResponse, BatchProbeItem, BatchProbeResponse, SmartMatchResponse, TemplatePreviewResponse, TemplateApplyResponse, SiteHealth } from "../types";
+import type { Site, ProbeResult, SiteProbeResult, CategoryMapping, FetchCategoriesResponse, BatchProbeItem, BatchProbeResponse, SmartMatchResponse, TemplatePreviewResponse, TemplateApplyResponse, SiteHealth, SiteExportOut, SiteImportResult } from "../types";
 
 export const listSites = () => get<Site[]>("/api/sites");
 export const createSite = (body: Omit<Site, "id" | "created_at">) =>
@@ -37,3 +37,9 @@ export const previewTemplate = (id: number) =>
 
 export const applyTemplate = (id: number) =>
   post<TemplateApplyResponse>(`/api/sites/${id}/apply-template`);
+
+export const exportSites = () =>
+  get<SiteExportOut>("/api/sites/export");
+
+export const importSites = (sites: SiteExportOut["sites"], mode: "skip" | "overwrite" = "skip") =>
+  post<SiteImportResult>("/api/sites/import", { sites, mode });
