@@ -1,4 +1,4 @@
-﻿# Home Theater Start Script
+# Home Theater Start Script
 # Usage: .\start.ps1           -> Production mode, keeps the terminal
 # Usage: .\start.ps1 -Dev      -> Development mode, keeps the terminal
 # Usage: .\start.ps1 -Detach   -> Run in background and return immediately
@@ -38,6 +38,15 @@ $FRONTEND_DEV_PORT = 5173
 
 function Test-Command($cmd) {
     return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
+}
+
+$venvPython = [System.IO.Path]::Combine($backendDir, ".venv", "Scripts", "python.exe")
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+} elseif (Test-Command "python") {
+    $pythonExe = "python"
+} else {
+    $pythonExe = $null
 }
 
 function Get-ProcessCommandLine($id) {
@@ -135,12 +144,12 @@ function Wait-ForHealth($port, $timeoutSeconds = 120) {
 }
 
 # Environment checks
-if (-not (Test-Command "python")) {
-    Write-Host "[ERROR] python not found in PATH" -ForegroundColor Red
+if (-not $pythonExe) {
+    Write-Host "[ERROR] python not found in PATH and no backend/.venv detected" -ForegroundColor Red
     exit 1
 }
 
-$pyVersion = (python --version 2>&1)
+$pyVersion = (& $pythonExe --version 2>&1)
 if ($pyVersion -notmatch "Python 3\.(1[1-9]|[2-9][0-9])") {
     Write-Host "[WARN] Python 3.11+ recommended (found: $pyVersion)" -ForegroundColor Yellow
 }
@@ -233,11 +242,11 @@ $backendLog = Join-Path $backendLogDir "uvicorn.log"
 $backendErrLog = Join-Path $backendLogDir "uvicorn.err.log"
 
 if ($Detach) {
-    $procBackend = Start-Process python -ArgumentList $backendArgs `
+    $procBackend = Start-Process $pythonExe -ArgumentList $backendArgs `
         -WorkingDirectory $backendDir `
         -WindowStyle Hidden -RedirectStandardOutput $backendLog -RedirectStandardError $backendErrLog -PassThru
 } else {
-    $procBackend = Start-Process python -ArgumentList $backendArgs `
+    $procBackend = Start-Process $pythonExe -ArgumentList $backendArgs `
         -WorkingDirectory $backendDir `
         -NoNewWindow -PassThru
 }

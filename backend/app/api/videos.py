@@ -234,15 +234,31 @@ async def _resolve_remote_categories(
     """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。
 
     跳过 enabled=False 的映射条目，优先读中间表。
+    如果 category 是父分类（如"电影"），自动展开为其所有启用的子分类名进行匹配。
     """
     if not category:
         return []
+    target_names = {category}
+    # 若 category 是父分类，展开为其所有启用的子分类名
+    parent_result = await db.execute(
+        select(SystemCategory.id).where(SystemCategory.name == category, SystemCategory.parent_id.is_(None))
+    )
+    parent_id = parent_result.scalar_one_or_none()
+    if parent_id is not None:
+        child_result = await db.execute(
+            select(SystemCategory.name).where(
+                SystemCategory.parent_id == parent_id,
+                SystemCategory.enabled.is_(True),
+            )
+        )
+        target_names.update({row[0] for row in child_result.all()})
+
     results = []
     mappings = await get_site_category_mappings(db, site.id)
     for c in mappings:
         if c.get("enabled") is False:
             continue
-        if c.get("name") == category:
+        if c.get("name") in target_names:
             rid = c.get("remote_id")
             if rid is not None:
                 results.append(rid)
@@ -535,6 +551,8 @@ async def _query_aggregated_cache(
                     source_count=len(sources),
                 )
             )
+            if len(items) >= per_page:
+                break
 
         response = AggregatedListResponse(items=items, failed_sources=[])
         await _enrich_poster_urls(db, response.items)
