@@ -6,6 +6,7 @@ import { toastError, toastSuccess } from "../utils/toast";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
 import { posterLayoutId } from "./DetailContent";
+import { HeartIcon, PlayIcon } from "./icons";
 import type { AggregatedVideo } from "../types";
 
 export interface VideoCardProps {
@@ -16,21 +17,7 @@ export interface VideoCardProps {
 
 // 3D 倾斜动效参数（克制版）
 const springValues = { damping: 30, stiffness: 100, mass: 2 };
-const ROTATE_AMPLITUDE = 8;
-
-function HeartIcon({ size = 12, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill={color}
-      aria-hidden="true"
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
+const ROTATE_AMPLITUDE = 6;
 
 function PosterPlaceholder() {
   return (
@@ -42,7 +29,7 @@ function PosterPlaceholder() {
         justifyContent: "center",
         flexDirection: "column",
         gap: 8,
-        color: "var(--text-secondary)",
+        color: "var(--text-muted)",
       }}
     >
       <svg
@@ -52,7 +39,9 @@ function PosterPlaceholder() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
-        style={{ color: "var(--text-muted)" }}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ opacity: 0.5 }}
         aria-hidden="true"
       >
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -166,21 +155,40 @@ function VideoCard({
         {showOverlay && !isMobile && (
           <div className="card-info-actions">
             <button
-              className="action-btn secondary"
+              className="action-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 openDetail();
               }}
               aria-label={`查看 ${item.title} 详情`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
             >
+              <PlayIcon size={12} />
               详情
             </button>
             <button
               className="action-btn secondary"
               onClick={handleFavorite}
               aria-label={`收藏 ${item.title}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                padding: 0,
+              }}
             >
-              <HeartIcon size={12} color={favorited ? "var(--danger)" : "currentColor"} />
+              <HeartIcon
+                size={14}
+                style={{
+                  fill: favorited ? "var(--primary)" : "none",
+                  color: favorited ? "var(--primary)" : "currentColor",
+                }}
+              />
             </button>
           </div>
         )}

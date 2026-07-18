@@ -101,7 +101,7 @@ export default function CategoryBar({
           alignItems: "center",
           borderBottom: isInline
             ? "none"
-            : "1px solid rgba(255,255,255,0.06)",
+            : "1px solid var(--border)",
           paddingBottom: isInline ? 0 : 1,
         }}
       >
@@ -145,7 +145,7 @@ export default function CategoryBar({
                   borderBottom: isActive
                     ? "2px solid var(--primary)"
                     : isOpen
-                    ? "2px solid rgba(255,255,255,0.15)"
+                    ? "2px solid var(--border-hover)"
                     : "2px solid transparent",
                   marginBottom: -1,
                 }}

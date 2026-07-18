@@ -16,6 +16,7 @@ export interface VideoPlayerHandle {
   play: () => void;
   pause: () => void;
   togglePlay: () => boolean;
+  getPaused: () => boolean;
 }
 
 interface VideoPlayerProps {
@@ -152,6 +153,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           return true;
         }
       },
+      getPaused: () => playerRef.current?.paused ?? true,
     }));
 
     // 组件卸载时统一清理

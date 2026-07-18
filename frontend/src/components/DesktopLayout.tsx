@@ -11,87 +11,14 @@ import CategoryBar from "./CategoryBar";
 import DetailModalHost from "./DetailModalHost";
 import { useSitesQuery } from "../hooks/useVideos";
 import { useTheme } from "../lib/theme";
+import { useAutoHideNav } from "../hooks/useAutoHideNav";
 import { useState, useEffect } from "react";
-
-function SearchIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
-
-function MenuIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="3" y1="18" x2="21" y2="18" />
-    </svg>
-  );
-}
-
-function CloseIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function ThemeIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="8" r="2" fill="currentColor" />
-      <circle cx="8" cy="13" r="2" fill="currentColor" />
-      <circle cx="16" cy="13" r="2" fill="currentColor" />
-      <path d="M12 21a5 5 0 0 0 0-10 5 5 0 0 0 0 10z" fill="currentColor" />
-    </svg>
-  );
-}
+import {
+  MenuIcon,
+  CloseIcon,
+  ThemeIcon,
+  SearchIcon,
+} from "./icons";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -99,7 +26,7 @@ function ThemeToggle() {
     <button
       type="button"
       className="nav-menu-btn"
-      title={theme === "cinema" ? "切换为绯红影院" : "切换为深黑影院"}
+      title={theme === "cinema" ? "切换为暖黑影院" : "切换为深黑影院"}
       onClick={() => setTheme(theme === "cinema" ? "crimson" : "cinema")}
       style={{ marginLeft: 8 }}
     >
@@ -118,15 +45,13 @@ const GLOBAL_LINKS = [
 ];
 
 const pageVariants = {
-  initial: { opacity: 0, x: 20 },
-  animate: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: -20 },
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
 };
 
 const pageTransition = {
-  type: "tween" as const,
-  ease: [0.4, 0, 0.2, 1] as [number, number, number, number],
-  duration: 0.3,
+  duration: 0.2,
 };
 
 export default function DesktopLayout() {
@@ -134,6 +59,7 @@ export default function DesktopLayout() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { data: sites = [] } = useSitesQuery();
+  const isNavVisible = useAutoHideNav();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [query, setQuery] = useState(searchParams.get("wd") || "");
@@ -170,14 +96,17 @@ export default function DesktopLayout() {
 
   return (
     <div>
-      <nav className="top-nav top-nav--single" aria-label="顶部导航">
+      <nav
+        className={`top-nav top-nav--single ${isNavVisible ? "" : "hidden"}`}
+        aria-label="顶部导航"
+      >
         <div className="top-nav-left">
           <button
             className="nav-menu-btn"
             aria-label="打开菜单"
             onClick={() => setDrawerOpen(true)}
           >
-            <MenuIcon />
+            <MenuIcon size={20} />
           </button>
           <Link to="/" className="nav-brand">
             Home Theater
@@ -201,11 +130,11 @@ export default function DesktopLayout() {
                 left: 12,
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "var(--text-secondary)",
+                color: "var(--text-muted)",
                 pointerEvents: "none",
               }}
             >
-              <SearchIcon />
+              <SearchIcon size={16} />
             </div>
             <input
               type="search"
@@ -243,7 +172,7 @@ export default function DesktopLayout() {
               aria-label="关闭菜单"
               onClick={() => setDrawerOpen(false)}
             >
-              <CloseIcon />
+              <CloseIcon size={20} />
             </button>
           </div>
           <nav className="drawer-nav">

@@ -11,6 +11,14 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import Fab from "../components/Fab";
 import { useIsMobile } from "../hooks/useViewport";
 import { toast, toastSuccess } from "../utils/toast";
+import {
+  PlayIcon,
+  PauseIcon,
+  TrashIcon,
+  RefreshIcon,
+  MoreIcon,
+  TerminalIcon,
+} from "../components/icons";
 import type { DownloadTask } from "../types";
 import type { ActionSheetAction } from "../components/ActionSheet";
 
@@ -49,73 +57,7 @@ function parseErrorType(error?: string | null) {
   return { type: "unknown", message: error, retryable: false };
 }
 
-function TerminalIcon({ size = 72 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <path d="m6 8 4 4-4 4" />
-      <line x1="13" y1="16" x2="18" y2="16" />
-    </svg>
-  );
-}
-
-function MoreIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="5" r="1.5" />
-      <circle cx="12" cy="12" r="1.5" />
-      <circle cx="12" cy="19" r="1.5" />
-    </svg>
-  );
-}
-
-function PlayIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function PauseIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
-}
-
 function StatusLed({ status }: { status: string }) {
-  const active = status === "downloading" || status === "error";
   const color = statusColor[status] || "var(--text-muted)";
   return (
     <span
@@ -126,9 +68,7 @@ function StatusLed({ status }: { status: string }) {
         height: 8,
         borderRadius: "50%",
         background: color,
-        boxShadow: `0 0 8px ${color}`,
       }}
-      data-active={active}
     />
   );
 }
@@ -201,8 +141,8 @@ function TaskRow({
       style={{
         display: "flex",
         flexDirection: "column",
-        borderBottom: "1px solid var(--glass-border)",
-        transition: "background var(--transition-base)",
+        borderBottom: "1px solid var(--border)",
+        transition: "background var(--transition-fast)",
       }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -271,8 +211,8 @@ function TaskRow({
             style={{
               padding: "3px 8px",
               borderRadius: 4,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--glass-border)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
               fontSize: 11,
               color: "var(--text-secondary)",
               fontFamily: "monospace",
@@ -318,9 +258,9 @@ function TaskRow({
                 alignItems: "center",
                 gap: 6,
                 padding: "4px 10px",
-                borderRadius: 100,
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid var(--glass-border)",
+                borderRadius: 4,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
                 fontSize: 11,
                 color: statusColor[t.status] || "var(--text-secondary)",
                 fontWeight: 500,
@@ -339,8 +279,9 @@ function TaskRow({
                     e.stopPropagation();
                     onPause(t.id);
                   }}
-                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px", gap: 4 }}
                 >
+                  <PauseIcon size={12} />
                   暂停
                 </button>
               )}
@@ -352,8 +293,9 @@ function TaskRow({
                     e.stopPropagation();
                     onResume(t.id);
                   }}
-                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px", gap: 4 }}
                 >
+                  <PlayIcon size={12} />
                   继续
                 </button>
               )}
@@ -365,8 +307,9 @@ function TaskRow({
                     e.stopPropagation();
                     onResume(t.id);
                   }}
-                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px" }}
+                  style={{ minWidth: 60, fontSize: 11, minHeight: 30, padding: "5px 10px", gap: 4 }}
                 >
+                  <RefreshIcon size={12} />
                   重试
                 </button>
               )}
@@ -383,9 +326,11 @@ function TaskRow({
                   minHeight: 30,
                   padding: "5px 10px",
                   color: "var(--danger)",
-                  borderColor: "rgba(251,113,133,0.25)",
+                  borderColor: "var(--danger)",
+                  gap: 4,
                 }}
               >
+                <TrashIcon size={12} />
                 删除
               </button>
             </div>
@@ -400,7 +345,7 @@ function TaskRow({
               padding: "8px 12px",
               borderRadius: 4,
               background: "var(--danger-dim)",
-              border: "1px solid rgba(251,113,133,0.15)",
+              border: "1px solid var(--danger)",
               fontSize: 11,
               color: "var(--danger)",
               lineHeight: 1.5,
