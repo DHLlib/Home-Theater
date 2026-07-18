@@ -8,6 +8,16 @@ import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useIsMobile } from "../hooks/useViewport";
 import OnboardingHint from "../components/OnboardingHint";
+import {
+  ArrowLeftIcon,
+  MaximizeIcon,
+  MinimizeIcon,
+  PlayIcon,
+  PauseIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+  ListIcon,
+} from "../components/icons";
 import type { Episode, PlayProgress, PlaySource } from "../types";
 
 // 按需加载播放器：xgplayer + xgplayer-hls.js 体积较大，仅进播放页时才加载
@@ -17,6 +27,7 @@ const DOUBLE_TAP_THRESHOLD = 300;
 const SWIPE_UP_THRESHOLD = 60;
 const TAP_MAX_MOVE = 10;
 const SEEK_SECONDS = 10;
+const CONTROLS_HIDE_DELAY = 3000;
 
 export default function Player() {
   const location = useLocation();
@@ -38,8 +49,11 @@ export default function Player() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sources, setSources] = useState<PlaySource[]>([]);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keyDownTime = useRef<Record<string, number>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -56,12 +70,35 @@ export default function Player() {
   const sidebarOpenRef = useRef(sidebarOpen);
   sidebarOpenRef.current = sidebarOpen;
 
+  // 自动隐藏控制层
+  const resetControlsTimer = useCallback(() => {
+    if (controlsTimer.current) {
+      clearTimeout(controlsTimer.current);
+    }
+    setControlsVisible(true);
+    controlsTimer.current = setTimeout(() => {
+      if (!sidebarOpenRef.current) {
+        setControlsVisible(false);
+      }
+    }, CONTROLS_HIDE_DELAY);
+  }, []);
+
   // 进入移动端时自动收起选集，避免全屏方向变化导致选集被重新打开后遮挡视频
   useEffect(() => {
     if (isMobile && sidebarOpenRef.current) {
       setSidebarOpen(false);
     }
   }, [isMobile]);
+
+  // 初始化控制层定时器
+  useEffect(() => {
+    resetControlsTimer();
+    return () => {
+      if (controlsTimer.current) {
+        clearTimeout(controlsTimer.current);
+      }
+    };
+  }, [resetControlsTimer]);
 
   useEffect(() => {
     if (!site_id || !original_id) return;
@@ -238,6 +275,7 @@ export default function Player() {
     );
   }, [currentIndex, setSearchParams]);
 
+  // 键盘控制
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -262,7 +300,6 @@ export default function Player() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -273,6 +310,41 @@ export default function Player() {
         target.isContentEditable
       )
         return;
+
+      // 空格键：播放/暂停
+      if (e.key === " ") {
+        e.preventDefault();
+        const video = playerRef.current;
+        if (video) {
+          if (video.getPaused()) {
+            video.play();
+          } else {
+            video.pause();
+          }
+        }
+        resetControlsTimer();
+        return;
+      }
+
+      // F 键：全屏
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        toggleFullscreen(playerContainerRef.current);
+        resetControlsTimer();
+        return;
+      }
+
+      // Esc 键：退出全屏或关闭面板
+      if (e.key === "Escape") {
+        if (sidebarOpen) {
+          setSidebarOpen(false);
+        }
+        resetControlsTimer();
+        return;
+      }
+
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+
       // 仅当焦点在播放器容器内或为 body 时拦截，避免劫持页面其他焦点元素
       if (target !== document.body && !containerRef.current?.contains(target))
         return;
@@ -290,6 +362,8 @@ export default function Player() {
           seek(continuousDelta);
         }, CONTINUOUS_INTERVAL);
       }, LONG_PRESS_THRESHOLD);
+
+      resetControlsTimer();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -327,7 +401,7 @@ export default function Player() {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
       if (repeatInterval.current) clearInterval(repeatInterval.current);
     };
-  }, []);
+  }, [sidebarOpen, toggleFullscreen, resetControlsTimer]);
 
   const handleEnded = () => {
     if (currentIndex < episodes.length - 1) {
@@ -337,7 +411,8 @@ export default function Player() {
 
   const handleToggleFullscreen = useCallback(() => {
     toggleFullscreen(playerContainerRef.current);
-  }, [toggleFullscreen]);
+    resetControlsTimer();
+  }, [toggleFullscreen, resetControlsTimer]);
 
   const handleSwitchSource = useCallback(
     (source: PlaySource) => {
@@ -419,11 +494,19 @@ export default function Player() {
         lastTapRef.current = { x: t.clientX, y: t.clientY, t: now };
       }
     }
+    resetControlsTimer();
+  };
+
+  // 鼠标移动显示控制层
+  const handleMouseMove = () => {
+    resetControlsTimer();
   };
 
   if (!site_id || !original_id) {
     return <div className="empty">参数缺失</div>;
   }
+
+  const showControls = controlsVisible || sidebarOpen;
 
   return (
     <div
@@ -434,8 +517,10 @@ export default function Player() {
         minHeight: 0,
         position: "relative",
       }}
+      onMouseMove={handleMouseMove}
+      onClick={resetControlsTimer}
     >
-      {/* 返回按钮 */}
+      {/* 返回按钮 - 控制层显示时可见 */}
       <button
         className="btn"
         onClick={() => {
@@ -450,14 +535,20 @@ export default function Player() {
           top: "max(8px, env(safe-area-inset-top))",
           left: "max(8px, env(safe-area-inset-left))",
           zIndex: 10,
-          padding: "4px 12px",
+          padding: "8px 12px",
           fontSize: 13,
-          background: "var(--glass-bg)",
-          backdropFilter: "blur(12px)",
+          background: "rgba(0,0,0,0.7)",
+          border: "1px solid var(--border)",
+          opacity: showControls ? 1 : 0,
+          transform: showControls ? "translateY(0)" : "translateY(-8px)",
+          transition: "opacity var(--transition-base), transform var(--transition-base)",
+          pointerEvents: showControls ? "auto" : "none",
+          gap: 4,
         }}
         aria-label="返回"
       >
-        ← 返回
+        <ArrowLeftIcon size={16} />
+        返回
       </button>
 
       {/* 左侧：播放器 + 控制条 */}
@@ -478,11 +569,67 @@ export default function Player() {
               onEnded={handleEnded}
             />
           </Suspense>
+
+          {/* 中央播放/暂停大按钮 */}
+          {showControls && (
+            <button
+              onClick={() => {
+                const video = playerRef.current;
+                if (video) {
+                  if (video.getPaused()) {
+                    video.play();
+                    setIsPlaying(true);
+                  } else {
+                    video.pause();
+                    setIsPlaying(false);
+                  }
+                }
+                resetControlsTimer();
+              }}
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.6)",
+                border: "1px solid var(--border-hover)",
+                color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                opacity: showControls ? 1 : 0,
+                transition: "opacity var(--transition-base)",
+                zIndex: 5,
+              }}
+              aria-label={isPlaying ? "暂停" : "播放"}
+            >
+              {isPlaying ? (
+                <PauseIcon size={28} />
+              ) : (
+                <PlayIcon size={28} style={{ marginLeft: 2 }} />
+              )}
+            </button>
+          )}
         </div>
 
+        {/* 底部控制条 */}
         <div
           className="row player-controls-bar"
-          style={{ justifyContent: "space-between", padding: "10px 0", flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}
+          style={{
+            justifyContent: "space-between",
+            padding: "10px 0",
+            flexShrink: 0,
+            flexWrap: "wrap",
+            rowGap: 8,
+            opacity: showControls ? 1 : 0,
+            transform: showControls ? "translateY(0)" : "translateY(8px)",
+            transition: "opacity var(--transition-base), transform var(--transition-base)",
+            pointerEvents: showControls ? "auto" : "none",
+          }}
         >
           <button
             className="btn"
@@ -491,8 +638,14 @@ export default function Player() {
               userPickedRef.current = true;
               setCurrentIndex((i) => i - 1);
             }}
-            style={isMobile ? { minHeight: 48, minWidth: 48, padding: "8px 12px" } : undefined}
+            style={{
+              minHeight: isMobile ? 48 : 40,
+              minWidth: isMobile ? 48 : 40,
+              padding: "8px 12px",
+              gap: 4,
+            }}
           >
+            <SkipBackIcon size={16} />
             上一集
           </button>
           <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
@@ -506,18 +659,29 @@ export default function Player() {
               <button
                 className="btn"
                 onClick={() => setSidebarOpen(true)}
-                style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
+                style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13, gap: 4 }}
               >
+                <ListIcon size={16} />
                 选集
               </button>
             )}
             <button
               className="btn"
               onClick={handleToggleFullscreen}
-              style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13 }}
+              style={{ minHeight: 48, minWidth: 48, padding: "8px 12px", fontSize: 13, gap: 4 }}
               aria-label={isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
             >
-              {isFullscreen || isSimulatedFullscreen ? "退出全屏" : "全屏"}
+              {isFullscreen || isSimulatedFullscreen ? (
+                <>
+                  <MinimizeIcon size={16} />
+                  退出全屏
+                </>
+              ) : (
+                <>
+                  <MaximizeIcon size={16} />
+                  全屏
+                </>
+              )}
             </button>
             <button
               className="btn"
@@ -526,9 +690,15 @@ export default function Player() {
                 userPickedRef.current = true;
                 setCurrentIndex((i) => i + 1);
               }}
-              style={isMobile ? { minHeight: 48, minWidth: 48, padding: "8px 12px" } : undefined}
+              style={{
+                minHeight: isMobile ? 48 : 40,
+                minWidth: isMobile ? 48 : 40,
+                padding: "8px 12px",
+                gap: 4,
+              }}
             >
               下一集
+              <SkipForwardIcon size={16} />
             </button>
           </div>
         </div>
@@ -536,7 +706,12 @@ export default function Player() {
 
       {/* 桌面端：右侧 sidebar */}
       {!isMobile && sidebarOpen && (
-        <div className="episode-sidebar">
+        <div className="episode-sidebar" style={{
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--border)",
+          borderRadius: 4,
+          padding: 12,
+        }}>
           <div
             className="row"
             style={{ justifyContent: "space-between", flexShrink: 0 }}
@@ -662,6 +837,8 @@ export default function Player() {
             padding: "12px 4px",
             alignSelf: "flex-start",
             fontSize: 12,
+            opacity: showControls ? 1 : 0,
+            transition: "opacity var(--transition-base)",
           }}
           aria-label="展开选集"
         >
@@ -681,7 +858,7 @@ export default function Player() {
               style={{
                 position: "fixed",
                 inset: 0,
-                background: "rgba(0, 0, 0, 0.7)",
+                background: "rgba(0, 0, 0, 0.8)",
                 zIndex: 999,
               }}
               onClick={() => setSidebarOpen(false)}
@@ -699,7 +876,7 @@ export default function Player() {
                 background: "var(--bg-elevated)",
                 borderTopLeftRadius: 16,
                 borderTopRightRadius: 16,
-                border: "1px solid var(--glass-border)",
+                border: "1px solid var(--border)",
                 borderBottom: "none",
               }}
             >
@@ -709,7 +886,7 @@ export default function Player() {
                   justifyContent: "space-between",
                   flexShrink: 0,
                   padding: "12px 16px",
-                  borderBottom: "1px solid var(--glass-border)",
+                  borderBottom: "1px solid var(--border)",
                 }}
               >
                 <h4 style={{ margin: 0, fontSize: 15 }}>

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
 import RecommendedCarousel from "../components/RecommendedCarousel";
-import ScrollRow from "../components/ScrollRow";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
@@ -70,24 +69,10 @@ export default function Home() {
     return data?.pages.flat() ?? [];
   }, [data]);
 
-  const mobileCardWidth = isMobile ? 140 : 160;
   const mobileGridMinWidth = isMobile ? 130 : 160;
 
-  const latestSection = useMemo(() => {
-    const sorted = [...videos].sort((a, b) => {
-      const ta = getLatestUpdatedAt(a);
-      const tb = getLatestUpdatedAt(b);
-      if (!ta && !tb) return 0;
-      if (!ta) return 1;
-      if (!tb) return -1;
-      return tb.localeCompare(ta);
-    });
-    return sorted.slice(0, 12);
-  }, [videos]);
-
   const allSection = useMemo(() => {
-    const featured = new Set(latestSection.map((v) => videoKey(v)));
-    const list = [...videos].filter((v) => !featured.has(videoKey(v)));
+    const list = [...videos];
     if (sort === "year") {
       list.sort(compareByYearDescNullLast);
     } else {
@@ -101,7 +86,7 @@ export default function Home() {
       });
     }
     return list;
-  }, [videos, latestSection, sort]);
+  }, [videos, sort]);
 
   // 稳定的 renderItem 引用，避免每次渲染重建所有 VideoCard 使其 React.memo 失效
   const renderGridItem = useCallback(
@@ -209,9 +194,7 @@ export default function Home() {
   }
 
   const hasContent =
-    recommendedVideos.length > 0 ||
-    latestSection.length > 0 ||
-    allSection.length > 0;
+    recommendedVideos.length > 0 || allSection.length > 0;
 
   const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
     (s) => s === "full_crawling" || s === "incremental_running"
@@ -308,7 +291,7 @@ export default function Home() {
         </>
       )}
 
-      {/* ===== 首页模式：三区域 ===== */}
+      {/* ===== 首页模式 ===== */}
       {!isLoading && !wdFromUrl.trim() && (
         <>
           {/* 推荐视频轮播 */}
@@ -371,69 +354,56 @@ export default function Home() {
             </div>
           )}
 
-          <>
-            {/* 区域一：最新更新 */}
-            {latestSection.length > 0 && (
-              <ScrollRow title="最新更新" titleColor="var(--primary)">
-                {latestSection.map((v) => (
-                  <div key={videoKey(v)} style={{ width: mobileCardWidth }}>
-                    <VideoCard item={v} width={mobileCardWidth} />
-                  </div>
-                ))}
-              </ScrollRow>
-            )}
-
-            {/* 区域二：全部视频 */}
-            <section style={{ marginBottom: 24 }}>
-              <div className="section-title">
-                <span
-                  className="section-title-bar"
-                  style={{ background: "var(--text-secondary)" }}
-                />
-                全部视频
-                <div style={{ flex: 1 }} />
-                <div className="sort-toggle-group">
-                  <button
-                    className={`sort-toggle${
-                      sort === "updated" ? " active" : ""
-                    }`}
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      next.delete("sort");
-                      setSearchParams(next, { replace: true });
-                    }}
-                  >
-                    按更新时间
-                  </button>
-                  <button
-                    className={`sort-toggle${
-                      sort === "year" ? " active" : ""
-                    }`}
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      next.set("sort", "year");
-                      setSearchParams(next, { replace: true });
-                    }}
-                  >
-                    按年份
-                  </button>
-                </div>
-              </div>
-              {allSection.length === 0 && !isFetchingNextPage && (
-                <div className="empty" style={{ padding: 20 }}>
-                  <p>该条件下暂无更新</p>
-                </div>
-              )}
-              <VirtualGrid
-                items={allSection}
-                itemKey={videoKey}
-                renderItem={renderGridItem}
-                minItemWidth={mobileGridMinWidth}
-                gap={isMobile ? 12 : 24}
-                overscan={isMobile ? 2 : 3}
+          {/* 全部视频 */}
+          <section style={{ marginBottom: 24 }}>
+            <div className="section-title">
+              <span
+                className="section-title-bar"
+                style={{ background: "var(--text-secondary)" }}
               />
-            </section>
-          </>
+              全部视频
+              <div style={{ flex: 1 }} />
+              <div className="sort-toggle-group">
+                <button
+                  className={`sort-toggle${
+                    sort === "updated" ? " active" : ""
+                  }`}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.delete("sort");
+                    setSearchParams(next, { replace: true });
+                  }}
+                >
+                  按更新时间
+                </button>
+                <button
+                  className={`sort-toggle${
+                    sort === "year" ? " active" : ""
+                  }`}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("sort", "year");
+                    setSearchParams(next, { replace: true });
+                  }}
+                >
+                  按年份
+                </button>
+              </div>
+            </div>
+            {allSection.length === 0 && !isFetchingNextPage && (
+              <div className="empty" style={{ padding: 20 }}>
+                <p>该条件下暂无更新</p>
+              </div>
+            )}
+            <VirtualGrid
+              items={allSection}
+              itemKey={videoKey}
+              renderItem={renderGridItem}
+              minItemWidth={mobileGridMinWidth}
+              gap={isMobile ? 12 : 24}
+              overscan={isMobile ? 2 : 3}
+            />
+          </section>
         </>
       )}
 
@@ -486,9 +456,8 @@ export default function Home() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "var(--glass-bg)",
-            backdropFilter: "blur(12px)",
-            border: "1px solid var(--glass-border)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--border)",
             padding: 0,
           }}
         >
@@ -498,7 +467,7 @@ export default function Home() {
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.5"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
           >

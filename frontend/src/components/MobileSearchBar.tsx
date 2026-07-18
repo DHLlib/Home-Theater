@@ -1,24 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-function SearchIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
+import { SearchIcon } from "./icons";
 
 export default function MobileSearchBar() {
   const navigate = useNavigate();
@@ -49,11 +31,11 @@ export default function MobileSearchBar() {
             left: 12,
             top: "50%",
             transform: "translateY(-50%)",
-            color: "var(--text-secondary)",
+            color: "var(--text-muted)",
             pointerEvents: "none",
           }}
         >
-          <SearchIcon />
+          <SearchIcon size={18} />
         </div>
         <input
           type="search"
@@ -64,8 +46,8 @@ export default function MobileSearchBar() {
             width: "100%",
             padding: "10px 12px 10px 40px",
             borderRadius: 4,
-            border: "1px solid rgba(255,255,255,0.1)",
-            background: "rgba(255,255,255,0.06)",
+            border: "1px solid var(--border-hover)",
+            background: "var(--bg-elevated)",
             color: "var(--text-primary)",
             fontSize: 16,
             fontFamily: "inherit",

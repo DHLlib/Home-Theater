@@ -229,29 +229,31 @@ async def _enrich_poster_urls(
 # ------------------------------------------------------------------
 
 async def _resolve_remote_categories(
-    db: AsyncSession, site: Site, category: str | None
+    db: AsyncSession, site: Site, category: str | None, expand_children: bool = True
 ) -> list[str | int]:
     """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。
 
     跳过 enabled=False 的映射条目，优先读中间表。
-    如果 category 是父分类（如"电影"），自动展开为其所有启用的子分类名进行匹配。
+    如果 category 是父分类（如"电影"）且 expand_children=True，自动展开为其所有启用的子分类名进行匹配。
+    当 expand_children=False 时，即使 category 是父分类也只匹配其本身，不展开子分类。
     """
     if not category:
         return []
     target_names = {category}
-    # 若 category 是父分类，展开为其所有启用的子分类名
-    parent_result = await db.execute(
-        select(SystemCategory.id).where(SystemCategory.name == category, SystemCategory.parent_id.is_(None))
-    )
-    parent_id = parent_result.scalar_one_or_none()
-    if parent_id is not None:
-        child_result = await db.execute(
-            select(SystemCategory.name).where(
-                SystemCategory.parent_id == parent_id,
-                SystemCategory.enabled.is_(True),
-            )
+    # 若 category 是父分类且允许展开，展开为其所有启用的子分类名
+    if expand_children:
+        parent_result = await db.execute(
+            select(SystemCategory.id).where(SystemCategory.name == category, SystemCategory.parent_id.is_(None))
         )
-        target_names.update({row[0] for row in child_result.all()})
+        parent_id = parent_result.scalar_one_or_none()
+        if parent_id is not None:
+            child_result = await db.execute(
+                select(SystemCategory.name).where(
+                    SystemCategory.parent_id == parent_id,
+                    SystemCategory.enabled.is_(True),
+                )
+            )
+            target_names.update({row[0] for row in child_result.all()})
 
     results = []
     mappings = await get_site_category_mappings(db, site.id)
@@ -338,6 +340,9 @@ async def _query_and_aggregate(
     if not filters:
         return AggregatedListResponse(items=[], failed_sources=[])
 
+    # 构建分类过滤集合，用于过滤 sources
+    filter_set: set[tuple[int, int | None]] = set(filters)
+
     conditions = []
     for site_id, type_id in filters:
         if type_id is not None:
@@ -387,6 +392,19 @@ async def _query_and_aggregate(
         )
     else:
         aggregated = [item for _, _, item, _ in sorted_items]
+
+    # 分类过滤：只保留符合当前分类的 sources
+    if filter_set and not wd:
+        filtered_aggregated = []
+        for item in aggregated:
+            filtered_sources = [
+                s for s in item["sources"]
+                if (s["site_id"], s.get("type_id")) in filter_set
+            ]
+            if filtered_sources:
+                item["sources"] = filtered_sources
+                filtered_aggregated.append(item)
+        aggregated = filtered_aggregated
 
     # 聚合后取前 per_page 条即可；原始记录的分页已在查询层面完成
     page_items = aggregated[:per_page]
@@ -465,7 +483,8 @@ async def _query_aggregated_cache(
             for site in sites or []:
                 remote_cats = await _resolve_remote_categories(db, site, category)
                 if not remote_cats and fallback_category:
-                    remote_cats = await _resolve_remote_categories(db, site, fallback_category)
+                    # fallback 到父分类时，不展开子分类，避免匹配过宽
+                    remote_cats = await _resolve_remote_categories(db, site, fallback_category, expand_children=False)
                 for rid in remote_cats:
                     tid = int(rid) if isinstance(rid, str) and rid.isdigit() else rid
                     cat_filters.append((site.id, tid))
@@ -516,6 +535,9 @@ async def _query_aggregated_cache(
         )
         rows = result.scalars().all()
 
+        # 构建分类过滤集合，用于过滤 sources
+        cat_filter_set: set[tuple[int, int | str]] = set(cat_filters) if category else set()
+
         items = []
         for r in rows:
             sources = [
@@ -532,6 +554,13 @@ async def _query_aggregated_cache(
                 for s in r.sources_rel
             ]
 
+            # 分类过滤：只保留符合当前分类的 sources
+            if cat_filter_set:
+                sources = [
+                    s for s in sources
+                    if (s.site_id, s.type_id) in cat_filter_set
+                ]
+
             # AC-031: 分类禁用过滤——所有 source 都被禁用时整体过滤
             if not _video_has_enabled_source(
                 sources, system_by_name, system_by_id, site_mappings
@@ -541,6 +570,10 @@ async def _query_aggregated_cache(
             # site_id 已在 SQL 层过滤，这里做双重保险
             if site_id is not None:
                 sources = _filter_sources_by_site_id(sources, site_id)
+
+            # 过滤后无来源则跳过
+            if not sources:
+                continue
 
             items.append(
                 AggregatedVideo(
@@ -638,9 +671,9 @@ async def list_videos(
     for site in sites:
         if category:
             remote_cats = await _resolve_remote_categories(db, site, category)
-            # 子分类无映射时回退到父分类
+            # 子分类无映射时回退到父分类，但不展开子分类避免匹配过宽
             if not remote_cats and fallback_category:
-                remote_cats = await _resolve_remote_categories(db, site, fallback_category)
+                remote_cats = await _resolve_remote_categories(db, site, fallback_category, expand_children=False)
             if not remote_cats:
                 continue
             for rid in remote_cats:

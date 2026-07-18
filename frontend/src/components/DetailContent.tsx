@@ -10,6 +10,12 @@ import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "./EpisodeList";
 import PosterImage from "./PosterImage";
 import SourcePicker from "./SourcePicker";
+import {
+  ChevronDownIcon,
+  HeartIcon,
+  PlayIcon,
+  DownloadIcon,
+} from "./icons";
 import type {
   AggregatedVideo,
   DownloadBatchItem,
@@ -34,28 +40,6 @@ export interface DetailContentProps {
 
 function sourceKey(s: SourceDetail | SourceRef): string {
   return `${s.site_id}-${s.original_id}`;
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{
-        transform: open ? "rotate(180deg)" : "rotate(0deg)",
-        transition: "transform 200ms ease",
-      }}
-      aria-hidden="true"
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
 }
 
 /**
@@ -282,30 +266,51 @@ export default function DetailContent({
       className="row detail-actions"
       style={{
         marginTop: isSheet ? 0 : 8,
-        gap: isSheet ? 12 : undefined,
+        gap: isSheet ? 12 : 8,
       }}
     >
       <button
         className="btn btn-primary"
         onClick={handlePlay}
         disabled={!detailReady}
-        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+        style={{
+          flex: isSheet ? 1 : undefined,
+          minHeight: isSheet ? 48 : 40,
+          gap: 6,
+        }}
       >
+        <PlayIcon size={16} />
         播放
       </button>
       <button
         className="btn"
         onClick={handleDownload}
         disabled={!detailReady}
-        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+        style={{
+          flex: isSheet ? 1 : undefined,
+          minHeight: isSheet ? 48 : 40,
+          gap: 6,
+        }}
       >
+        <DownloadIcon size={16} />
         下载
       </button>
       <button
         className="btn"
         onClick={handleFavorite}
-        style={isSheet ? { flex: 1, minHeight: 48 } : undefined}
+        style={{
+          flex: isSheet ? 1 : undefined,
+          minHeight: isSheet ? 48 : 40,
+          gap: 6,
+        }}
       >
+        <HeartIcon
+          size={16}
+          style={{
+            fill: isFavorited ? "var(--primary)" : "none",
+            color: isFavorited ? "var(--primary)" : "currentColor",
+          }}
+        />
         {isFavorited ? "已收藏" : "收藏"}
       </button>
     </div>
@@ -328,10 +333,24 @@ export default function DetailContent({
             padding: "4px 12px",
             fontSize: 13,
             marginBottom: 4,
+            gap: 4,
           }}
           aria-label="返回"
         >
-          ← 返回
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          返回
         </button>
       )}
       <div
@@ -406,9 +425,9 @@ export default function DetailContent({
           }}
           initial={variant === "page" ? false : { opacity: 0, y: 8 }}
           animate={variant === "page" ? undefined : { opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.12 }}
+          transition={{ duration: 0.2, delay: 0.1 }}
         >
-          <h2 style={{ margin: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
             {item.title} {item.year ? `(${item.year})` : ""}
           </h2>
           {detail[0]?.area && (
@@ -478,7 +497,8 @@ export default function DetailContent({
             position: "sticky",
             bottom: 0,
             padding: "12px 0",
-            background: "linear-gradient(to top, var(--bg-elevated) 70%, transparent)",
+            background: "var(--bg-elevated)",
+            borderTop: "1px solid var(--border)",
             zIndex: 5,
           }}
         >
@@ -510,9 +530,9 @@ export default function DetailContent({
                           fontSize: 11,
                           color: "var(--text-muted)",
                           padding: "1px 6px",
-                          background: "rgba(255,255,255,0.05)",
+                          background: "var(--bg-surface)",
                           borderRadius: 4,
-                          border: "1px solid var(--glass-border)",
+                          border: "1px solid var(--border)",
                         }}
                       >
                         {s.type_name}
@@ -529,7 +549,13 @@ export default function DetailContent({
                     >
                       {s.episodes.length} 集
                     </span>
-                    <ChevronIcon open={expanded} />
+                    <ChevronDownIcon
+                      size={16}
+                      style={{
+                        transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform var(--transition-fast)",
+                      }}
+                    />
                   </span>
                 </button>
                 {expanded && (
@@ -560,7 +586,7 @@ export default function DetailContent({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.55)",
+            background: "rgba(0,0,0,0.85)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -577,7 +603,7 @@ export default function DetailContent({
               padding: 20,
               borderRadius: 4,
               width: "min(520px, 92vw)",
-              border: "1px solid var(--glass-border)",
+              border: "1px solid var(--border)",
               maxHeight: "80vh",
               display: "flex",
               flexDirection: "column",
