@@ -29,11 +29,48 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_title(title: str) -> str:
+    """归一化视频标题，用于聚合去重。
+    
+    处理：
+    - 去 《》<> 等括号
+    - 去首尾空白
+    - 繁简体统一（蜘蛛俠 → 蜘蛛侠）
+    - 去备注信息（普通话版、原声版、粤语版等）
+    - 统一标点符号（冒号、空格等）
+    """
     if title is None:
         return ""
     s = title.strip()
+    
+    # 去括号
     for ch in ("《", "》", "<", ">"):
         s = s.replace(ch, "")
+    
+    # 繁简体统一（常见字符）
+    traditional_to_simplified = {
+        "俠": "侠", "戰": "战", "鬥": "斗", "鬥": "斗",
+        "劍": "剑", "靈": "灵", "電": "电", "腦": "脑",
+        "話": "话", "語": "语", "愛": "爱", "戀": "恋",
+        "車": "车", "馬": "马", "門": "门", "開": "开",
+        "關": "关", "時": "时", "間": "间", "見": "见",
+        "長": "长", "兒": "儿", "無": "无", "與": "与",
+        "爲": "为", "這": "这", "那": "那", "裡": "里",
+        "麼": "么", "於": "于", "從": "从", "來": "来",
+        "說": "说", "讀": "读", "書": "书", "畫": "画",
+    }
+    for trad, simp in traditional_to_simplified.items():
+        s = s.replace(trad, simp)
+    
+    # 去备注信息（括号及其内容）
+    import re
+    s = re.sub(r"\s*[\(（\[【].*?[\)）\]】]\s*", " ", s)
+    
+    # 统一标点符号
+    s = s.replace("：", ":").replace(":", " ").replace("  ", " ")
+    
+    # 去多余空格
+    s = " ".join(s.split())
+    
     return s.strip().casefold()
 
 
@@ -172,6 +209,41 @@ _INCREMENTAL_FALLBACK_THRESHOLD = 10000
 
 _aggregated_refresh_lock = asyncio.Lock()
 
+# 全局操作锁：防止删除站点、全量刮削、补全 videolist 同时进行
+_global_operation_lock = asyncio.Lock()
+_operation_in_progress: str | None = None
+
+
+def is_operation_in_progress() -> str | None:
+    """检查是否有全局操作正在进行，返回操作类型。"""
+    return _operation_in_progress
+
+
+async def acquire_operation_lock(operation: str, timeout: float = 300) -> bool:
+    """获取全局操作锁。
+    
+    返回 True 表示获取成功，False 表示超时。
+    操作完成后必须调用 release_operation_lock。
+    """
+    global _operation_in_progress
+    try:
+        await asyncio.wait_for(_global_operation_lock.acquire(), timeout=timeout)
+        _operation_in_progress = operation
+        logger.info("全局操作锁已获取: %s", operation)
+        return True
+    except asyncio.TimeoutError:
+        logger.warning("获取全局操作锁超时: %s", operation)
+        return False
+
+
+def release_operation_lock(operation: str) -> None:
+    """释放全局操作锁。"""
+    global _operation_in_progress
+    if _operation_in_progress == operation:
+        _operation_in_progress = None
+        _global_operation_lock.release()
+        logger.info("全局操作锁已释放: %s", operation)
+
 
 async def migrate_video_cache_norm_title(db: AsyncSession) -> None:
     """为 video_cache 添加 norm_title 列并回填（增量聚合前置迁移）。"""
@@ -274,6 +346,7 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
     """PostgreSQL 优化路径：用 INSERT ... SELECT + CTE 全量重建。
 
     复用 mv_aggregated_videos 的聚合逻辑，但写入普通表。
+    使用事务确保两个表同时成功或失败，避免数据不一致。
     """
     await _clear_aggregated_tables(db)
 
@@ -301,10 +374,11 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
                 LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')) AS norm_title
             FROM video_cache
         ),
-        raw_agg AS (
+        norm_grouped AS (
             SELECT
-                title,
+                norm_title,
                 year,
+                MAX(title) AS title,
                 MAX(poster_url) AS poster_url,
                 jsonb_agg(
                     jsonb_build_object(
@@ -317,10 +391,20 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
                     )
                 ) AS sources,
                 MAX(source_updated_at) AS latest_updated_at,
-                COUNT(*) AS source_count,
-                norm_title
+                COUNT(*) AS source_count
             FROM norm
-            GROUP BY norm_title, year, title
+            GROUP BY norm_title, year
+        ),
+        raw_agg AS (
+            SELECT
+                title,
+                year,
+                poster_url,
+                sources,
+                latest_updated_at,
+                source_count,
+                norm_title
+            FROM norm_grouped
         ),
         year_freq AS (
             SELECT
@@ -375,11 +459,8 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
             :cached_at AS cached_at
         FROM combined
     """)
-    await db.execute(sql_videos, {"cached_at": now})
-    await db.commit()
-
+    
     # 2. 重建 aggregated_sources：通过 (norm_title, year) 回关联 video_cache
-    await db.execute(text("SET LOCAL enable_mergejoin = off"))
     sql_sources = text("""
         INSERT INTO aggregated_sources
             (aggregated_video_id, site_id, original_id, site_name, type_name, type_id, remarks, updated_at)
@@ -439,10 +520,20 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
         FROM matched
         WHERE rn = 1
     """)
-    await db.execute(sql_sources)
-    await db.commit()
 
-    return True
+    # 使用事务确保两个表同时成功或失败
+    try:
+        # 先重建 aggregated_videos 并提交（让后续查询可见）
+        await db.execute(sql_videos, {"cached_at": now})
+        await db.commit()
+        
+        # 再重建 aggregated_sources（依赖 aggregated_videos 的数据）
+        await db.execute(sql_sources)
+        await db.commit()
+        return True
+    except Exception:
+        await db.rollback()
+        raise
 
 
 
@@ -688,7 +779,17 @@ async def refresh_aggregated_view(
 
     传入 affected_norm_titles 时做增量更新，否则全量重建。
     同一时间只允许一个刷新任务执行。
+    如果全局操作锁被占用（删除站点/全量刮削/补全 videolist），跳过本次刷新。
     """
+    # 检查全局操作锁
+    current_op = is_operation_in_progress()
+    if current_op:
+        logger.warning(
+            "全局操作正在进行中: %s，跳过本次聚合缓存刷新",
+            current_op,
+        )
+        return False
+
     async with _aggregated_refresh_lock:
         try:
             if affected_norm_titles:

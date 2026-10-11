@@ -12,6 +12,7 @@ from sqlalchemy.orm import DeclarativeBase
 from app.db import async_session_factory
 from app.models import (
     AggregatedSource,
+    AggregatedVideoV3,
     DownloadTask,
     Favorite,
     PlayProgress,
@@ -20,7 +21,7 @@ from app.models import (
     SiteProbeLog,
     VideoCache,
 )
-from app.services.aggregator import refresh_aggregated_view
+from app.services.aggregator import acquire_operation_lock, release_operation_lock, refresh_aggregated_view
 from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,12 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
     logger.info("site_delete_started site_id=%d name=%s", site_id, site_name)
     await _send_progress(site_id, "running", 0, "开始删除站点")
 
+    # 获取全局操作锁，防止与其他操作冲突
+    if not await acquire_operation_lock(f"delete_site_{site_id}", timeout=60):
+        await _send_progress(site_id, "failed", 0, "有其他操作正在进行，请稍后重试")
+        logger.warning("删除站点失败：全局操作锁被占用 site_id=%d", site_id)
+        return
+
     try:
         async with async_session_factory() as db:
             # 先禁用站点，防止删除过程中调度器继续刮削
@@ -140,12 +147,22 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
             await db.commit()
             await _send_progress(site_id, "running", 10, "已删除分类映射")
 
-            # 3. 删除聚合来源
+            # 3. 删除聚合视频和来源（保持两表一致）
+            # 先删除聚合视频（会级联删除来源）
+            await db.execute(
+                delete(AggregatedVideoV3).where(
+                    AggregatedVideoV3.id.in_(
+                        select(AggregatedSource.aggregated_video_id).where(
+                            AggregatedSource.site_id == site_id
+                        )
+                    )
+                )
+            )
             await db.execute(
                 delete(AggregatedSource).where(AggregatedSource.site_id == site_id)
             )
             await db.commit()
-            await _send_progress(site_id, "running", 15, "已删除聚合来源")
+            await _send_progress(site_id, "running", 15, "已删除聚合数据")
 
             # 4. 删除播放进度
             await db.execute(
@@ -216,3 +233,5 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
         logger.exception("site_delete_failed site_id=%d name=%s", site_id, site_name)
         await _send_progress(site_id, "failed", 0, f"删除失败: {exc}")
         raise
+    finally:
+        release_operation_lock(f"delete_site_{site_id}")
