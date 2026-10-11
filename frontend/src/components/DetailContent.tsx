@@ -22,6 +22,7 @@ import type {
   SourceDetail,
   SourceRef,
 } from "../types";
+import "./DetailContent.css";
 
 export type DetailVariant = "page" | "modal" | "sheet";
 

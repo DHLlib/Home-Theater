@@ -1,0 +1,146 @@
+/* Home 页面样式 */
+
+.home-container {
+  min-height: 100vh;
+}
+
+.home-empty {
+  text-align: center;
+  padding: 64px 16px;
+  color: var(--text-muted);
+}
+
+.home-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.home-empty-text {
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+}
+
+.home-section {
+  margin-bottom: 24px;
+}
+
+.home-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.home-section-bar {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--primary);
+  display: inline-block;
+  opacity: 0.6;
+}
+
+.home-section-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.home-sort-toggle {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.home-sort-toggle:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-bright);
+}
+
+.home-sort-toggle.active {
+  background: var(--primary-dim);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.home-loading {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  margin-top: 8px;
+}
+
+.home-loading-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-loading-poster {
+  aspect-ratio: 2/3;
+  border-radius: 4px;
+}
+
+.home-loading-title {
+  height: 16px;
+  width: 80%;
+  border-radius: 4px;
+}
+
+.home-loading-meta {
+  height: 12px;
+  width: 40%;
+  border-radius: 4px;
+}
+
+.home-back-top {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 100;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 0;
+}
+
+.home-back-top.mobile {
+  right: 16px;
+  bottom: calc(var(--bottom-nav-height) + 16px);
+}
+
+.home-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  gap: 8px;
+}
+
+.home-end-text {
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 移动端适配 */
+@media (max-width: 767px) {
+  .home-section-header {
+    font-size: 16px;
+    margin-bottom: 16px;
+  }
+}

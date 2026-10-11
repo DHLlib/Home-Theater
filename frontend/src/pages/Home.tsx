@@ -13,6 +13,7 @@ import {
   useVideosInfinite,
 } from "../hooks/useVideos";
 import type { AggregatedVideo } from "../types";
+import "./Home.css";
 
 function videoKey(item: AggregatedVideo): string {
   return `${item.title}-${item.year ?? "null"}`;
@@ -159,7 +160,7 @@ export default function Home() {
 
   if (sites.length === 0) {
     return (
-      <div className="empty">
+      <div className="empty home-empty">
         <svg
           className="empty-icon"
           width="64"
@@ -176,16 +177,13 @@ export default function Home() {
           <circle cx="10" cy="10" r="1.5" fill="currentColor" />
           <path d="M14 10l-2.5 2.5L9 10" />
         </svg>
-        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>
-          暂无采集站
-        </h2>
-        <p style={{ marginBottom: 20, color: "var(--text-secondary)" }}>
+        <h2 className="home-empty-title">暂无采集站</h2>
+        <p className="home-empty-text">
           添加采集站后即可浏览聚合后的视频内容。采集站是提供影视资源的外部站点，支持 AppleCMS 接口规范。
         </p>
         <button
           className="btn btn-primary"
           onClick={() => navigate("/settings")}
-          style={{ minHeight: 44, padding: "10px 24px" }}
         >
           去设置
         </button>
@@ -223,31 +221,12 @@ export default function Home() {
 
       {/* ===== 加载骨架屏 ===== */}
       {isLoading && (
-        <div className="grid" style={{ marginTop: 8 }}>
+        <div className="home-loading">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i}>
-              <div
-                className="skeleton"
-                style={{ aspectRatio: "2/3", borderRadius: 4 }}
-              />
-              <div
-                className="skeleton"
-                style={{
-                  height: 16,
-                  marginTop: 10,
-                  width: "80%",
-                  borderRadius: 4,
-                }}
-              />
-              <div
-                className="skeleton"
-                style={{
-                  height: 12,
-                  marginTop: 6,
-                  width: "40%",
-                  borderRadius: 4,
-                }}
-              />
+            <div key={i} className="home-loading-item">
+              <div className="skeleton home-loading-poster" />
+              <div className="skeleton home-loading-title" />
+              <div className="skeleton home-loading-meta" />
             </div>
           ))}
         </div>
@@ -411,14 +390,8 @@ export default function Home() {
       <div ref={sentinelRef} style={{ height: 1 }} />
 
       {isFetchingNextPage && (
-        <div
-          className="row"
-          style={{ justifyContent: "center", padding: 20, gap: 8 }}
-        >
-          <div
-            className="spinner"
-            style={{ width: 20, height: 20, borderWidth: 2 }}
-          />
+        <div className="home-load-more">
+          <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }} />
           <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             加载中...
           </span>
@@ -426,40 +399,16 @@ export default function Home() {
       )}
 
       {(isCapped || !hasNextPage) && hasContent && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: 24,
-            fontSize: 13,
-            color: "var(--text-secondary)",
-          }}
-        >
+        <div className="home-end-text">
           {isCapped ? "— 已加载最大数量，请刷新或切换分类 —" : "— 已加载全部内容 —"}
         </div>
       )}
 
       {showBackTop && (
         <button
-          className="btn"
+          className={`btn home-back-top ${isMobile ? 'mobile' : ''}`}
           aria-label="返回顶部"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          style={{
-            position: "fixed",
-            right: isMobile ? 16 : 20,
-            bottom: isMobile
-              ? "calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 16px)"
-              : 24,
-            zIndex: 100,
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border)",
-            padding: 0,
-          }}
         >
           <svg
             width="20"

@@ -8,6 +8,7 @@ import PosterImage from "./PosterImage";
 import { posterLayoutId } from "./DetailContent";
 import { HeartIcon, PlayIcon } from "./icons";
 import type { AggregatedVideo } from "../types";
+import "./VideoCard.css";
 
 export interface VideoCardProps {
   item: AggregatedVideo;
@@ -21,17 +22,7 @@ const ROTATE_AMPLITUDE = 6;
 
 function PosterPlaceholder() {
   return (
-    <div
-      style={{
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column",
-        gap: 8,
-        color: "var(--text-muted)",
-      }}
-    >
+    <div className="poster-placeholder">
       <svg
         width="32"
         height="32"
@@ -41,7 +32,6 @@ function PosterPlaceholder() {
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        style={{ opacity: 0.5 }}
         aria-hidden="true"
       >
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -161,26 +151,14 @@ function VideoCard({
                 openDetail();
               }}
               aria-label={`查看 ${item.title} 详情`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-              }}
             >
               <PlayIcon size={12} />
               详情
             </button>
             <button
-              className="action-btn secondary"
+              className="action-btn secondary icon-only"
               onClick={handleFavorite}
               aria-label={`收藏 ${item.title}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 32,
-                padding: 0,
-              }}
             >
               <HeartIcon
                 size={14}
@@ -216,10 +194,6 @@ function VideoCard({
           ref={wrapRef}
           className="poster-wrap"
           style={{
-            aspectRatio: "2/3",
-            borderRadius: 4,
-            overflow: "hidden",
-            position: "relative",
             rotateX,
             rotateY,
             transformStyle: "preserve-3d",
@@ -230,15 +204,7 @@ function VideoCard({
           {posterInner}
         </motion.div>
       ) : (
-        <div
-          className="poster-wrap"
-          style={{
-            aspectRatio: "2/3",
-            borderRadius: 4,
-            overflow: "hidden",
-            position: "relative",
-          }}
-        >
+        <div className="poster-wrap">
           {posterInner}
         </div>
       )}

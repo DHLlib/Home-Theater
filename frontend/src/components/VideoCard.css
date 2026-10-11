@@ -1,0 +1,141 @@
+/* VideoCard 组件样式 */
+
+.video-card {
+  position: relative;
+  transition: transform var(--transition-base);
+}
+
+.video-card:hover {
+  transform: scale(1.02);
+}
+
+.video-card:active {
+  transform: scale(0.98);
+}
+
+.poster-wrap {
+  position: relative;
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.video-card:hover .poster-wrap {
+  border-color: var(--border-hover);
+}
+
+/* 海报内底部信息层 */
+.card-info {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 40%, transparent 70%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 12px;
+  border-radius: var(--card-radius);
+  pointer-events: none;
+}
+
+.card-info-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.video-card:hover .card-info-meta {
+  opacity: 1;
+}
+
+.card-info-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  transition: color var(--transition-fast);
+}
+
+.video-card:hover .card-info-title {
+  color: var(--primary);
+}
+
+.card-info-year {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  margin-top: 2px;
+}
+
+.card-info-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height var(--transition-base), opacity var(--transition-base);
+  pointer-events: auto;
+}
+
+.video-card:hover .card-info-actions {
+  max-height: 40px;
+  opacity: 1;
+}
+
+.action-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: var(--card-radius);
+  background: var(--primary);
+  color: #000;
+  border: none;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+  background: var(--primary-hover);
+}
+
+.action-btn.secondary {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+.action-btn.secondary:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+.action-btn.icon-only {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* 海报占位符 */
+.poster-placeholder {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.poster-placeholder svg {
+  opacity: 0.5;
+}
