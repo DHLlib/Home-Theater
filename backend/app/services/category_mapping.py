@@ -60,6 +60,8 @@ async def save_site_category_mappings(
 ) -> None:
     """保存站点分类映射到中间表，并可选同步回 JSON 字段。
 
+    注意：调用方负责事务管理（commit/rollback），此函数不主动开启新事务。
+
     参数:
         mappings: [{"remote_id": ..., "name": ..., "enabled": ...}, ...]
         sync_json: 是否同时更新 sites.categories 字段（双轨期建议 True）
