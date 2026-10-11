@@ -64,9 +64,14 @@ export default function CategoryBar({
     return result;
   }, [systemTree, availableCategories]);
 
-  // 当前选中的子类属于哪个父类
+  // 当前选中的分类属于哪个父类（支持一级分类直接选中）
   const activeParent = useMemo(() => {
     if (!activeCategory) return null;
+    // 如果选中的一级分类，直接返回
+    for (const g of groups) {
+      if (g.label === activeCategory) return g.label;
+    }
+    // 如果选中的二级分类，返回其父类
     for (const g of groups) {
       if (g.items.includes(activeCategory)) return g.label;
     }
@@ -137,8 +142,9 @@ export default function CategoryBar({
               <button
                 className="nav-link"
                 onClick={() => {
-                  // 点击父类不触发筛选，仅展开下拉
-                  setMenuOpen(group.label);
+                  // 点击父类：筛选该分类下的全部视频
+                  onSelect(group.label);
+                  setMenuOpen(null);
                 }}
                 style={{
                   color: isActive ? "var(--text-primary)" : undefined,
