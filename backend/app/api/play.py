@@ -5,7 +5,8 @@ from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
+from app.errors import site_not_found, video_not_found, external_error
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,7 +67,7 @@ async def proxy_m3u8(url: str, site_id: int, db: AsyncSession = Depends(get_db))
     site = await db.get(Site, site_id)
     if not site:
         logger.warning("proxy_m3u8_site_not_found site_id=%s", site_id)
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
@@ -76,7 +77,7 @@ async def proxy_m3u8(url: str, site_id: int, db: AsyncSession = Depends(get_db))
         text = await sanitize_m3u8(url, headers=headers, site_id=site_id)
     except Exception as exc:
         logger.warning("proxy_m3u8_failed site=%s url=%s error=%s", site.name, url, exc)
-        raise HTTPException(status_code=502, detail=f"m3u8 清洗失败：{exc}")
+        raise external_error("m3u8 清洗失败", {"reason": str(exc)})
 
     return Response(
         content=text,
@@ -138,7 +139,7 @@ async def get_episodes(
     site = await db.get(Site, site_id)
     if not site:
         logger.warning("play_site_not_found site_id=%s", site_id)
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     logger.info("play_get_episodes site=%s original_id=%s", site.name, original_id)
 
@@ -178,7 +179,7 @@ async def get_episodes(
             items = await client.videolist(ids=[original_id], op="play_resolve")
         if not items:
             logger.warning("play_videolist_empty site=%s original_id=%s", site.name, original_id)
-            raise HTTPException(status_code=404, detail="Video not found")
+            raise video_not_found(title)
 
         item = items[0]
         play_raw = item.get("play_url_raw", "")
@@ -224,7 +225,7 @@ async def get_episodes(
         logger.info("play_parsed site=%s episodes=%d", site.name, len(episodes))
     except ValueError as exc:
         logger.error("play_parse_error site=%s original_id=%s error=%s", site.name, original_id, exc)
-        raise HTTPException(status_code=502, detail=f"parse error: {exc}")
+        raise external_error("解析错误", {"reason": str(exc)})
 
     # 解析 feifan / dytt / 360zy 分享页获取真实 m3u8 地址
     share_suffixes = ("feifan", "dytt", "360zy")

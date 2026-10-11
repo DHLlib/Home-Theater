@@ -4,7 +4,8 @@ import logging
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
+from app.errors import download_not_found, download_root_not_set
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,7 +68,7 @@ async def create_download(req: DownloadTaskCreate, db: AsyncSession = Depends(ge
     )
     root_row = result.scalar_one_or_none()
     if not root_row:
-        raise HTTPException(status_code=409, detail="download_root not configured")
+        raise download_root_not_set()
 
     file_path = _build_download_file_path(
         root_row.value, req.title, req.episode_name, req.suffix
@@ -111,7 +112,7 @@ async def create_download_batch(
     )
     root_row = result.scalar_one_or_none()
     if not root_row:
-        raise HTTPException(status_code=409, detail="download_root not configured")
+        raise download_root_not_set()
 
     logger.info(
         "download_batch_request site_id=%s original_id=%s title=%s episodes=%d",
@@ -226,7 +227,7 @@ async def _do_create_batch(
 async def pause_download(task_id: int, db: AsyncSession = Depends(get_db)):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise download_not_found(task_id)
     await dl_pause(task_id)
     # 状态在 downloader 的独立 session 中修改，重新查询以避免脏读
     task = await db.get(DownloadTask, task_id)
@@ -237,7 +238,7 @@ async def pause_download(task_id: int, db: AsyncSession = Depends(get_db)):
 async def resume_download(task_id: int, db: AsyncSession = Depends(get_db)):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise download_not_found(task_id)
     await dl_resume(task_id)
     # 状态在 downloader 的独立 session 中修改，重新查询以避免脏读
     task = await db.get(DownloadTask, task_id)
@@ -252,7 +253,7 @@ async def delete_download(
 ):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise download_not_found(task_id)
 
     # 先通知运行中的 worker 尽快释放文件句柄，再删 DB 与文件
     request_stop(task_id)

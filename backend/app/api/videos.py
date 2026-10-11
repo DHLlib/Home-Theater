@@ -4,7 +4,8 @@ import time
 from dataclasses import replace
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
+from app.errors import crawler_not_running, validation_error, video_not_found
 from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -787,7 +788,7 @@ async def search_videos(
     sort = _normalize_sort(sort)
     start = time.monotonic()
     if not wd or not wd.strip():
-        raise HTTPException(status_code=400, detail="搜索词不能为空")
+        raise validation_error("搜索词不能为空")
 
     per_page = _get_page_size(request, pg_size)
     logger.info("api_search_videos wd=%s category=%s pg=%s mode=%s sort=%s per_page=%s", wd, category, pg, mode, sort, per_page)
@@ -1066,7 +1067,7 @@ async def crawler_status():
 async def trigger_full():
     """手动触发所有站点的全量刮削。"""
     if scheduler_module.crawler is None:
-        raise HTTPException(status_code=503, detail="刮削器未启动")
+        raise crawler_not_running()
     asyncio.create_task(scheduler_module.crawler.run_full_crawl())
     return {"message": "全量刮削已启动"}
 
@@ -1075,7 +1076,7 @@ async def trigger_full():
 async def trigger_incremental(site_id: int):
     """手动触发指定站点的增量更新。"""
     if scheduler_module.crawler is None:
-        raise HTTPException(status_code=503, detail="刮削器未启动")
+        raise crawler_not_running()
     asyncio.create_task(scheduler_module.crawler.run_incremental(site_id))
     return {"message": f"站点 {site_id} 增量更新已启动"}
 
@@ -1089,7 +1090,7 @@ async def fill_videolist(
     后台运行，立即返回任务已启动。补全完成后会自动刷新聚合缓存与看板统计。
     """
     if scheduler_module.crawler is None:
-        raise HTTPException(status_code=503, detail="刮削器未启动")
+        raise crawler_not_running()
 
     site_id = req.site_id
     asyncio.create_task(scheduler_module.crawler.fill_missing_videolist(site_id))

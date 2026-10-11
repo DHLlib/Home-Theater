@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends
+from app.errors import validation_error
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,7 @@ async def get_download_root(db: AsyncSession = Depends(get_db)):
     )
     row = result.scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=404, detail="download_root not set")
+        raise validation_error("download_root not set")
     return {"value": row.value}
 
 
@@ -28,7 +29,7 @@ async def get_download_root(db: AsyncSession = Depends(get_db)):
 async def set_download_root(body: dict = Body(...), db: AsyncSession = Depends(get_db)):
     path = body.get("value", "").strip()
     if not path:
-        raise HTTPException(status_code=400, detail="value is required")
+        raise validation_error("value is required")
     p = Path(path)
     if not p.exists() or not p.is_dir():
         raise HTTPException(
@@ -77,9 +78,9 @@ async def set_max_concurrent_downloads(
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="value must be an integer")
+        raise validation_error("value must be an integer")
     if value < 1 or value > 50:
-        raise HTTPException(status_code=400, detail="value must be between 1 and 50")
+        raise validation_error("value must be between 1 and 50")
 
     result = await db.execute(
         select(AppConfig).where(AppConfig.key == "max_concurrent_downloads")
@@ -106,6 +107,6 @@ async def get_ad_filter_enabled_api():
 async def set_ad_filter_enabled_api(body: dict = Body(...)):
     raw = body.get("value")
     if not isinstance(raw, bool):
-        raise HTTPException(status_code=400, detail="value must be a boolean")
+        raise validation_error("value must be a boolean")
     await set_ad_filter_enabled(raw)
     return {"value": raw}

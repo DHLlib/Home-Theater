@@ -3,7 +3,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,7 @@ from starlette.responses import Response
 from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
 from app.config import settings
 from app.db import async_session_factory, engine, init_db
+from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
 from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
 from app.services.scheduler import init_scheduler
@@ -240,6 +241,11 @@ class CacheControlStaticFiles(StaticFiles):
 
 
 app = FastAPI(title="Home Theater", lifespan=lifespan)
+
+# 注册全局异常处理器（顺序：先具体后通用）
+app.add_exception_handler(ApiError, api_error_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,

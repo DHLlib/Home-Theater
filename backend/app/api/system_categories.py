@@ -1,6 +1,7 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
+from app.errors import category_not_found, category_exists, category_cycle
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,13 +71,13 @@ async def create_system_category(
     # 检查名称是否已存在
     existing = await db.execute(select(SystemCategory).where(SystemCategory.name == body.name))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail=f"系统分类 '{body.name}' 已存在")
+        raise category_exists(body.name)
 
     # 如果指定了 parent_id，检查父分类是否存在
     if body.parent_id is not None:
         parent = await db.get(SystemCategory, body.parent_id)
         if not parent:
-            raise HTTPException(status_code=404, detail="父分类不存在")
+            raise category_not_found("父分类")
 
     cat = SystemCategory(name=body.name, parent_id=body.parent_id, sort=body.sort)
     db.add(cat)
@@ -95,7 +96,7 @@ async def update_system_category(
     """修改系统分类。"""
     cat = await db.get(SystemCategory, cat_id)
     if not cat:
-        raise HTTPException(status_code=404, detail="分类不存在")
+        raise category_not_found(str(cat_id))
 
     data = body.model_dump(exclude_unset=True)
 
@@ -110,12 +111,12 @@ async def update_system_category(
     # 检查 parent_id 是否形成循环
     if "parent_id" in data and data["parent_id"] is not None:
         if data["parent_id"] == cat_id:
-            raise HTTPException(status_code=400, detail="不能将自己设为父分类")
+            raise category_cycle()
         parent = await db.get(SystemCategory, data["parent_id"])
         if not parent:
-            raise HTTPException(status_code=404, detail="父分类不存在")
+            raise category_not_found("父分类")
         if await _would_form_cycle(db, cat_id, data["parent_id"]):
-            raise HTTPException(status_code=400, detail="不能形成循环父子关系")
+            raise category_cycle()
 
     # 名称/父子关系/启用状态变更都会让分类过滤缓存的
     # system_by_name / system_by_id / enabled 判定过期，立即作废
@@ -135,7 +136,7 @@ async def delete_system_category(cat_id: int, db: AsyncSession = Depends(get_db)
     """删除系统分类（会级联删除子分类）。"""
     cat = await db.get(SystemCategory, cat_id)
     if not cat:
-        raise HTTPException(status_code=404, detail="分类不存在")
+        raise category_not_found(str(cat_id))
 
     # 级联删除子分类
     async def delete_children(parent_id: int):

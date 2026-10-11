@@ -1,11 +1,12 @@
 import logging
 
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.errors import ApiError, ErrorCode, site_not_found, validation_error
 from app.models import Site, SystemCategory, SiteProbeLog, SiteCategoryMapping, _utcnow
 import asyncio
 
@@ -96,7 +97,7 @@ async def probe_sites_batch(
 async def update_site(site_id: int, patch: SitePatch, db: AsyncSession = Depends(get_db)):
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     was_enabled = db_site.enabled
     for key, value in patch.model_dump(exclude_unset=True).items():
@@ -119,7 +120,7 @@ async def delete_site(site_id: int, db: AsyncSession = Depends(get_db)):
 
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     # 标记为删除中并立即返回，实际删除在后台执行
     asyncio.create_task(delete_site_background(site_id, db_site.name))
@@ -131,7 +132,7 @@ async def delete_site(site_id: int, db: AsyncSession = Depends(get_db)):
 async def probe_site(site_id: int, db: AsyncSession = Depends(get_db)):
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
     result = await health_probe(
         site_id=db_site.id,
         base_url=db_site.base_url,
@@ -146,7 +147,7 @@ async def get_site_health(site_id: int, db: AsyncSession = Depends(get_db)):
     """获取站点健康视图：最近探测日志与 24 小时可用率。"""
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     # 最近 50 条探测日志
     logs_result = await db.execute(
@@ -201,7 +202,7 @@ async def get_site_health(site_id: int, db: AsyncSession = Depends(get_db)):
 async def get_site_categories(site_id: int, db: AsyncSession = Depends(get_db)):
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
     cats = await get_site_category_mappings(db, db_site.id)
     return SiteCategoriesOut(
         site_id=db_site.id,
@@ -217,7 +218,7 @@ async def update_site_categories(
 ):
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     # AC-002 gap fix: server-side mutual exclusion validation
     seen: dict[str, str] = {}
@@ -245,7 +246,7 @@ async def fetch_remote_categories(site_id: int, db: AsyncSession = Depends(get_d
     """从资源站自动拉取分类列表，返回层级分组格式（AC-027）。"""
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
     async with SourceClient(
         site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
     ) as client:
@@ -255,7 +256,7 @@ async def fetch_remote_categories(site_id: int, db: AsyncSession = Depends(get_d
             raise HTTPException(status_code=502, detail=str(exc))
     class_list = data.get("class", [])
     if not isinstance(class_list, list):
-        raise HTTPException(status_code=502, detail="资源站未返回 class 分类列表")
+        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "资源站未返回 class 分类列表", 502)
 
     # 1. 提取父分类
     parents: dict[str, str] = {}
@@ -369,7 +370,7 @@ async def smart_match_categories(site_id: int, db: AsyncSession = Depends(get_db
     """对指定站点的远程分类执行智能匹配，返回推荐映射（AC-026）。"""
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     async with SourceClient(
         site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
@@ -381,7 +382,7 @@ async def smart_match_categories(site_id: int, db: AsyncSession = Depends(get_db
 
     class_list = data.get("class", [])
     if not isinstance(class_list, list) or not class_list:
-        raise HTTPException(status_code=502, detail="请先拉取远程分类列表")
+        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
 
     # 读取当前系统分类（子分类）用于动态规则生成
     sys_result = await db.execute(
@@ -403,14 +404,14 @@ async def apply_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
     """对指定站点应用分类映射模板（AC-028）。"""
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     # 检查是否有匹配模板
     load_templates(force=True)  # 热更新：每次调用重新加载
     from app.services.template_manager import match_template
     template = match_template(db_site.name, db_site.base_url)
     if not template:
-        raise HTTPException(status_code=404, detail="暂无该站点的预设模板")
+        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
 
     async with SourceClient(
         site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
@@ -422,7 +423,7 @@ async def apply_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
 
     class_list = data.get("class", [])
     if not isinstance(class_list, list) or not class_list:
-        raise HTTPException(status_code=502, detail="请先拉取远程分类列表")
+        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
 
     result = apply_template(
         site_id=db_site.id,
@@ -433,7 +434,7 @@ async def apply_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
     )
 
     if not result.template_matched:
-        raise HTTPException(status_code=404, detail="暂无该站点的预设模板")
+        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
 
     return result
 
@@ -443,13 +444,13 @@ async def preview_site_template(site_id: int, db: AsyncSession = Depends(get_db)
     """预览模板应用结果，不实际修改数据（AC-028）。"""
     db_site = await db.get(Site, site_id)
     if not db_site:
-        raise HTTPException(status_code=404, detail="Site not found")
+        raise site_not_found(site_id)
 
     load_templates(force=True)  # 热更新
     from app.services.template_manager import match_template
     template = match_template(db_site.name, db_site.base_url)
     if not template:
-        raise HTTPException(status_code=404, detail="暂无该站点的预设模板")
+        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
 
     async with SourceClient(
         site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
@@ -461,7 +462,7 @@ async def preview_site_template(site_id: int, db: AsyncSession = Depends(get_db)
 
     class_list = data.get("class", [])
     if not isinstance(class_list, list) or not class_list:
-        raise HTTPException(status_code=502, detail="请先拉取远程分类列表")
+        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
 
     result = preview_template(
         site_id=db_site.id,
