@@ -279,3 +279,21 @@ class AppConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow
     )
+
+
+class SiteHealthCounter(Base):
+    """站点健康计数器：持久化连续失败/成功计数，避免重启丢失。"""
+    __tablename__ = "site_health_counters"
+    __table_args__ = (
+        Index("ix_site_health_counters_site_id", "site_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    recovery_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )

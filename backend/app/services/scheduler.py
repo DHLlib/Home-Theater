@@ -14,10 +14,11 @@ from app.constants import (
 )
 from app.config import settings
 from app.db import async_session_factory
-from app.models import Site, SiteProbeLog, _utcnow
+from app.models import Site, SiteProbeLog, SiteHealthCounter, _utcnow
 from app.services.crawler import Crawler
 from app.services.health import ProbeResult, probe
 from app.services.notify_sender import Event, notify_sender
+from app.services.aggregator import is_operation_in_progress
 
 logger = logging.getLogger(__name__)
 PROBE_INTERVAL = settings.probe_interval  # 站点探测间隔（秒）
@@ -31,9 +32,52 @@ CHECK_MAX_INTERVAL = settings.check_max_interval  # 最大检测间隔（秒）
 CHECK_MISS_BACKOFF = 2  # 未命中时间隔乘数
 CHECK_LOOP_TICK = 60  # 主循环 tick 60 秒
 
-# 内存中的失败计数：site_id -> int
+# 内存中的失败计数：site_id -> int（已废弃，使用数据库持久化）
 _failure_counts: dict[int, int] = {}
 _recovery_counts: dict[int, int] = {}
+
+
+async def _get_health_counter(db, site_id: int) -> SiteHealthCounter:
+    """获取或创建站点健康计数器。"""
+    counter = await db.get(SiteHealthCounter, site_id)
+    if counter is None:
+        counter = SiteHealthCounter(site_id=site_id)
+        db.add(counter)
+        await db.flush()
+    return counter
+
+
+async def _increment_failure_count(db, site_id: int) -> int:
+    """增加失败计数，返回当前值。"""
+    counter = await _get_health_counter(db, site_id)
+    counter.failure_count += 1
+    counter.recovery_count = 0  # 重置恢复计数
+    await db.commit()
+    return counter.failure_count
+
+
+async def _increment_recovery_count(db, site_id: int) -> int:
+    """增加恢复计数，返回当前值。"""
+    counter = await _get_health_counter(db, site_id)
+    counter.recovery_count += 1
+    await db.commit()
+    return counter.recovery_count
+
+
+async def _reset_failure_count(db, site_id: int) -> None:
+    """重置失败计数。"""
+    counter = await db.get(SiteHealthCounter, site_id)
+    if counter:
+        counter.failure_count = 0
+        await db.commit()
+
+
+async def _reset_recovery_count(db, site_id: int) -> None:
+    """重置恢复计数。"""
+    counter = await db.get(SiteHealthCounter, site_id)
+    if counter:
+        counter.recovery_count = 0
+        await db.commit()
 
 # 站点检测状态：site_id -> {next_check_at, interval, miss_count}
 _check_state: dict[int, dict] = {}
@@ -135,9 +179,9 @@ async def _probe_all_sites() -> None:
 
 async def _on_probe_success(site_id: int, site_name: str) -> None:
     """探测成功：清理失败计数，检查是否可自动恢复。"""
-    _failure_counts.pop(site_id, None)
-
     async with async_session_factory() as session:
+        await _reset_failure_count(session, site_id)
+
         site = await session.get(Site, site_id)
         if not site:
             return
@@ -146,19 +190,19 @@ async def _on_probe_success(site_id: int, site_name: str) -> None:
         if site.enabled or site.auto_disabled_at is None:
             return
 
-        _recovery_counts[site_id] = _recovery_counts.get(site_id, 0) + 1
+        recovery_count = await _increment_recovery_count(session, site_id)
         logger.info(
             "站点探测成功 site=%s recovery_count=%s/%s",
             site_name,
-            _recovery_counts[site_id],
+            recovery_count,
             RECOVER_THRESHOLD,
         )
 
-        if _recovery_counts[site_id] >= RECOVER_THRESHOLD:
+        if recovery_count >= RECOVER_THRESHOLD:
             site.enabled = True
             site.auto_disabled_at = None
             await session.commit()
-            _recovery_counts.pop(site_id, None)
+            await _reset_recovery_count(session, site_id)
             await notify_sender.send(
                 "health_events",
                 Event(
@@ -171,19 +215,19 @@ async def _on_probe_success(site_id: int, site_name: str) -> None:
 
 async def _on_probe_failure(site_id: int, site_name: str, error: str) -> None:
     """探测失败：增加失败计数，检查是否需自动禁用。"""
-    _recovery_counts.pop(site_id, None)
-    _failure_counts[site_id] = _failure_counts.get(site_id, 0) + 1
+    async with async_session_factory() as session:
+        await _reset_recovery_count(session, site_id)
+        failure_count = await _increment_failure_count(session, site_id)
 
-    logger.warning(
-        "站点探测失败 site=%s error=%s failure_count=%s/%s",
-        site_name,
-        error,
-        _failure_counts[site_id],
-        FAIL_THRESHOLD,
-    )
+        logger.warning(
+            "站点探测失败 site=%s error=%s failure_count=%s/%s",
+            site_name,
+            error,
+            failure_count,
+            FAIL_THRESHOLD,
+        )
 
-    if _failure_counts[site_id] >= FAIL_THRESHOLD:
-        async with async_session_factory() as session:
+        if failure_count >= FAIL_THRESHOLD:
             site = await session.get(Site, site_id)
             if site and site.enabled:
                 site.enabled = False
@@ -346,6 +390,11 @@ async def _fill_videolist_loop() -> None:
 
         try:
             if crawler:
+                # 检查全局操作锁，防止与删除站点等操作冲突
+                current_op = is_operation_in_progress()
+                if current_op:
+                    logger.info("全局操作进行中 (%s)，跳过定时补 videolist", current_op)
+                    continue
                 logger.info("定时任务：开始自动全量补 videolist")
                 await crawler.fill_missing_videolist()
         except Exception:
