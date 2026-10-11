@@ -34,7 +34,13 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
 )
 from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
-from app.services.aggregator import normalize_title, refresh_aggregated_view
+from app.services.aggregator import (
+    acquire_operation_lock,
+    is_operation_in_progress,
+    normalize_title,
+    refresh_aggregated_view,
+    release_operation_lock,
+)
 from app.services.category_mapping import get_site_category_mappings
 from app.services.source_client import SourceClient
 
@@ -123,7 +129,16 @@ class Crawler:
             await self._crawl_site_full(site)
 
     async def run_full_crawl(self):
-        """首次全量刮削所有站点（站点间并发，最多 2 个同时）。"""
+        """首次全量刮削所有站点（站点间并发，最多 2 个同时）。
+        
+        使用全局操作锁，防止与删除站点、补全 videolist 等操作冲突。
+        """
+        # 检查全局操作锁
+        current_op = is_operation_in_progress()
+        if current_op:
+            logger.warning("全局操作正在进行中: %s，跳过全量刮削", current_op)
+            return
+
         async with self._db_factory() as db:
             sites = await self._get_enabled_sites(db)
         await self._run_full_crawl_for_sites(sites)
@@ -167,96 +182,105 @@ class Crawler:
 
         只处理已启用站点；可按 site_id 指定单个站点。
         站点间最多 2 个并发，每个站点内按 200 条/批次请求 videolist。
+        使用全局操作锁，防止与删除站点、全量刮削等操作冲突。
         """
         if self._fill_lock.locked():
             logger.info("fill_missing_videolist 已有任务在运行，跳过 site_id=%s", site_id)
             return {"site_id": site_id, "results": [], "skipped": True}
 
-        async with self._fill_lock:
-            logger.info("fill_missing_videolist started site_id=%s", site_id)
+        # 获取全局操作锁
+        if not await acquire_operation_lock(f"fill_videolist_{site_id or 'all'}", timeout=60):
+            logger.warning("fill_missing_videolist 全局操作锁被占用，跳过 site_id=%s", site_id)
+            return {"site_id": site_id, "results": [], "skipped": True}
 
-            async with self._db_factory() as db:
-                if site_id is not None:
-                    site = await db.get(Site, site_id)
-                    sites = [site] if site and site.enabled else []
-                else:
-                    sites = await self._get_enabled_sites(db)
+        try:
+            async with self._fill_lock:
+                logger.info("fill_missing_videolist started site_id=%s", site_id)
 
-            if not sites:
-                logger.info("fill_missing_videolist 无可用站点")
-                return {"site_id": site_id, "results": []}
+                async with self._db_factory() as db:
+                    if site_id is not None:
+                        site = await db.get(Site, site_id)
+                        sites = [site] if site and site.enabled else []
+                    else:
+                        sites = await self._get_enabled_sites(db)
 
-            affected_all: set[str] = set()
-            semaphore = asyncio.Semaphore(2)
+                if not sites:
+                    logger.info("fill_missing_videolist 无可用站点")
+                    return {"site_id": site_id, "results": []}
 
-            async def _fill_one(site: Site) -> dict:
-                async with semaphore:
-                    entries: list[dict] = []
-                    async with self._db_factory() as db:
-                        result = await db.execute(
-                            select(
-                                VideoCache.original_id,
-                                VideoCache.type_id,
-                                VideoCache.type_name,
-                            ).where(
-                                VideoCache.site_id == site.id,
-                                VideoCache.has_detail.is_(False),
+                affected_all: set[str] = set()
+                semaphore = asyncio.Semaphore(2)
+
+                async def _fill_one(site: Site) -> dict:
+                    async with semaphore:
+                        entries: list[dict] = []
+                        async with self._db_factory() as db:
+                            result = await db.execute(
+                                select(
+                                    VideoCache.original_id,
+                                    VideoCache.type_id,
+                                    VideoCache.type_name,
+                                ).where(
+                                    VideoCache.site_id == site.id,
+                                    VideoCache.has_detail.is_(False),
+                                )
                             )
-                        )
-                        entries = [
-                            {
-                                "original_id": str(r.original_id),
-                                "type_id": r.type_id,
-                                "type_name": r.type_name,
-                            }
-                            for r in result.all()
-                        ]
+                            entries = [
+                                {
+                                    "original_id": str(r.original_id),
+                                    "type_id": r.type_id,
+                                    "type_name": r.type_name,
+                                }
+                                for r in result.all()
+                            ]
 
-                    missing = len(entries)
-                    if missing == 0:
+                        missing = len(entries)
+                        if missing == 0:
+                            return {
+                                "site_id": site.id,
+                                "site_name": site.name,
+                                "missing": 0,
+                                "filled": 0,
+                                "failed": 0,
+                            }
+
+                        filled = 0
+                        client = SourceClient(
+                            site_id=site.id, base_url=site.base_url, name=site.name
+                        )
+                        try:
+                            for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
+                                chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
+                                res = await self._batch_videolist(
+                                    site, client, chunk, op="fill_videolist"
+                                )
+                                filled += res.filled
+                                affected_all.update(res.affected)
+                        finally:
+                            await client.aclose()
+
                         return {
                             "site_id": site.id,
                             "site_name": site.name,
-                            "missing": 0,
-                            "filled": 0,
-                            "failed": 0,
+                            "missing": missing,
+                            "filled": filled,
+                            "failed": max(0, missing - filled),
                         }
 
-                    filled = 0
-                    client = SourceClient(
-                        site_id=site.id, base_url=site.base_url, name=site.name
-                    )
-                    try:
-                        for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
-                            chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
-                            res = await self._batch_videolist(
-                                site, client, chunk, op="fill_videolist"
-                            )
-                            filled += res.filled
-                            affected_all.update(res.affected)
-                    finally:
-                        await client.aclose()
+                results = await asyncio.gather(*[_fill_one(s) for s in sites])
 
-                    return {
-                        "site_id": site.id,
-                        "site_name": site.name,
-                        "missing": missing,
-                        "filled": filled,
-                        "failed": max(0, missing - filled),
-                    }
+                if affected_all:
+                    async with self._db_factory() as db:
+                        await refresh_aggregated_view(db, affected_norm_titles=affected_all)
 
-            results = await asyncio.gather(*[_fill_one(s) for s in sites])
-
-            if affected_all:
-                async with self._db_factory() as db:
-                    await refresh_aggregated_view(db, affected_norm_titles=affected_all)
-
-            await self._update_stats_cache(force=True)
-            logger.info(
-                "fill_missing_videolist completed sites=%d affected=%d",
-                len(results), len(affected_all)
-            )
-            return {"site_id": site_id, "results": list(results)}
+                await self._update_stats_cache(force=True)
+                logger.info(
+                    "fill_missing_videolist completed sites=%d affected=%d",
+                    len(results), len(affected_all)
+                )
+                return {"site_id": site_id, "results": list(results)}
+        finally:
+            release_operation_lock(f"fill_videolist_{site_id or 'all'}")
 
     async def check_one_site(self, site: Site) -> bool:
         """检测单个站点是否有更新。返回 True 表示需要刮削。"""
