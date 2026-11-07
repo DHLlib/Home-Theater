@@ -197,9 +197,12 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_bootstrap_aggregated_tables())
 
     await listen_manager.start()
+    sse.reset_streams()
     worker_task = asyncio.create_task(download_coordinator())
     scheduler_task = await init_scheduler()
     yield
+    # 先让 SSE 流退出，否则 uvicorn 会一直等这条永不结束的响应
+    sse.shutdown_streams()
     worker_task.cancel()
     scheduler_task.cancel()
     try:
