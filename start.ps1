@@ -233,7 +233,9 @@ if (-not $Dev -and -not $NoBuild) {
 # Start backend
 Write-Host "[INFO] Starting Home Theater$(if ($Dev) { ' [DEV MODE]' }) on port $PORT..." -ForegroundColor Cyan
 
-$backendArgs = @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT")
+# --timeout-graceful-shutdown：SSE 长连接存在时，Ctrl+C 最多等 5 秒就强制关闭，
+# 否则 uvicorn 会一直停留在 "Waiting for connections to close"
+$backendArgs = @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT", "--timeout-graceful-shutdown", "5")
 if ($Dev) {
     $backendArgs += "--reload"
 }
