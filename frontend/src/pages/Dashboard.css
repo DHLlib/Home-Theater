@@ -30,6 +30,62 @@
   margin-top: 4px;
 }
 
+/* ---------- 汇总条 ---------- */
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border);
+}
+
+.stat-cell:first-child {
+  border-left: 0;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.stat-value.is-danger {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .stat-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stat-cell:nth-child(3) {
+    border-left: 0;
+  }
+  .stat-cell:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+  .stat-value {
+    font-size: 22px;
+  }
+}
+
 /* ---------- 站点明细表格 ---------- */
 
 .site-table-section {
@@ -55,17 +111,21 @@
 
 .site-table th,
 .site-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--glass-border);
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .site-table th {
   text-align: left;
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   white-space: nowrap;
+}
+
+.site-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .site-table td {
@@ -74,16 +134,16 @@
 }
 
 .site-table .cell-number {
-  font-family: monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .site-table .cell-rate {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 600;
-  font-family: monospace;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .site-table .cell-action {

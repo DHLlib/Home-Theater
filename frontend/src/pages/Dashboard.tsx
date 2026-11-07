@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fillMissingVideolist, getCrawlerStats } from "../api/videos";
+import { toastError, toastSuccess } from "../utils/toast";
 import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
 import "./Dashboard.css";
 
@@ -41,59 +42,40 @@ function SkeletonBar({ w, h = 12 }: { w: number | string; h?: number }) {
   return <div className="skeleton" style={{ width: w, height: h, borderRadius: 4 }} />;
 }
 
-/* ---------- KPI Cards ---------- */
-function KpiCards({ stats }: { stats: CrawlerStatsResponse }) {
-  const cards = [
-    { label: "总已收录数", value: stats.total, color: "var(--primary)" },
-    { label: "总已补全数", value: stats.with_detail, color: "var(--text-secondary)" },
-    { label: "总未补全", value: stats.without_detail, color: "var(--danger)" },
-    { label: "已聚合数", value: stats.aggregated_count, color: "var(--warning)" },
+/* ---------- 统计条（一条，不抢图表与表格的戏） ---------- */
+function StatStrip({ stats }: { stats: CrawlerStatsResponse }) {
+  const cells = [
+    { label: "已收录", value: stats.total },
+    { label: "已补全", value: stats.with_detail },
+    { label: "未补全", value: stats.without_detail, tone: "danger" as const },
+    { label: "已聚合", value: stats.aggregated_count },
   ];
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-        gap: 12,
-        marginBottom: 24,
-      }}
-      className="dashboard-kpi-grid"
-    >
-      {cards.map((c, i) => (
-        <div
-          key={i}
-          className="card-kpi"
-          style={{
-            borderTop: `3px solid ${c.color}`,
-          }}
-        >
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, textAlign: "center" }}>
-            {c.label}
-          </div>
-          <div
-            style={{
-              fontSize: 28,
-              fontWeight: 700,
-              color: "var(--text-primary)",
-              fontFamily: "monospace",
-              lineHeight: 1,
-              textAlign: "center",
-            }}
-          >
+    <div className="stat-strip">
+      {cells.map((c) => (
+        <div className="stat-cell" key={c.label}>
+          <span className="stat-label">{c.label}</span>
+          <span className={`stat-value tnum${c.tone ? " is-danger" : ""}`}>
             {fmt(c.value)}
-          </div>
+          </span>
         </div>
       ))}
     </div>
   );
 }
 
-function KpiCardSkeleton() {
+function StatStripSkeleton() {
   return (
-    <div className="card-kpi">
-      <SkeletonBar w={60} h={12} />
-      <div style={{ marginTop: 12 }}><SkeletonBar w="80%" h={28} /></div>
+    <div className="stat-strip">
+      {[0, 1, 2, 3].map((i) => (
+        <div className="stat-cell" key={i}>
+          <SkeletonBar w={48} h={11} />
+          <div style={{ marginTop: 8 }}>
+            <SkeletonBar w={72} h={24} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -304,21 +286,17 @@ function SiteTable({
                     {s.without_detail > 0 && onFill && (
                       <button
                         type="button"
+                        className="btn"
                         onClick={() => onFill(s.site_id)}
                         disabled={isFilling}
                         style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "none",
-                          background: isFilling ? "var(--text-muted)" : "var(--primary)",
-                          color: "#000",
+                          minHeight: 28,
+                          padding: "0 10px",
                           fontSize: 12,
-                          fontWeight: 600,
-                          cursor: isFilling ? "not-allowed" : "pointer",
-                          opacity: isFilling ? 0.7 : 1,
+                          borderRadius: 6,
                         }}
                       >
-                        {isFilling ? "补全中..." : "补全"}
+                        {isFilling ? "补全中…" : "补全"}
                       </button>
                     )}
                   </td>
@@ -363,11 +341,11 @@ export default function Dashboard() {
     }
     try {
       const res = await fillMissingVideolist(siteId);
-      alert(res.message);
+      toastSuccess(res.message);
       // 后台任务，稍后刷新看板
       setTimeout(() => refreshStats(), 3000);
     } catch (e: any) {
-      alert(`启动失败：${e?.message || String(e)}`);
+      toastError(`启动失败：${e?.message || String(e)}`);
     } finally {
       if (siteId != null) {
         setFillLoadingSiteId((prev) => (prev === siteId ? null : prev));
@@ -394,34 +372,19 @@ export default function Dashboard() {
         </div>
         <button
           type="button"
+          className="btn btn-primary"
           onClick={() => handleFill()}
           disabled={fillLoading}
-          style={{
-            padding: "8px 16px",
-            borderRadius: 6,
-            border: "none",
-            background: fillLoading ? "var(--text-muted)" : "var(--primary)",
-            color: "#000",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: fillLoading ? "not-allowed" : "pointer",
-            opacity: fillLoading ? 0.7 : 1,
-          }}
         >
-          {fillLoading ? "批量补全中..." : "批量补全 videolist"}
+          {fillLoading ? "批量补全中…" : "批量补全 videolist"}
         </button>
       </div>
 
-      {/* KPIs */}
+      {/* 汇总条 */}
       {loading ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
-          <KpiCardSkeleton />
-          <KpiCardSkeleton />
-          <KpiCardSkeleton />
-          <KpiCardSkeleton />
-        </div>
+        <StatStripSkeleton />
       ) : stats ? (
-        <KpiCards stats={stats} />
+        <StatStrip stats={stats} />
       ) : null}
 
       {/* Trend */}
