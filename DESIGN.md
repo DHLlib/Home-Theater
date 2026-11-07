@@ -1,226 +1,113 @@
 ---
 name: Home Theater
-description: 个人视频聚合系统的深黑影院主题界面
+description: 个人视频聚合系统的深色媒体库界面（品类标准件）
 colors:
-  primary: "#4ade80"
-  bg: "#000000"
-  bg-elevated: "#0a0a0a"
-  text-primary: "#ffffff"
-  text-secondary: "#a3a3a3"
-  text-muted: "#525252"
-  danger: "#fb7185"
-  warning: "#fbbf24"
-  success: "#4ade80"
+  bg: "#0A0A0B"
+  bg-elevated: "#121214"
+  bg-surface: "#17171A"
+  text-primary: "#F5F5F7"
+  text-secondary: "#A1A1AA"
+  text-muted: "#8A8A93"
+  border: "#232326"
+  border-hover: "#303036"
+  border-bright: "#43434B"
+  primary: "#4ADE80"
+  danger: "#F87171"
+  warning: "#FBBF24"
 typography:
   display:
     fontFamily: "'Cinzel', 'Noto Sans SC', serif"
-    fontSize: "clamp(1.5rem, 4vw, 3rem)"
-    fontWeight: 600
-    lineHeight: 1.1
-    letterSpacing: "0.02em"
-  headline:
-    fontFamily: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif"
-    fontSize: "18px"
-    fontWeight: 500
-    lineHeight: 1.3
-    letterSpacing: "0.02em"
+    usage: "仅品牌字标（HOME THEATER），字距 0.16–0.2em"
   title:
-    fontFamily: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif"
-    fontSize: "16px"
-    fontWeight: 500
-    lineHeight: 1.4
-    letterSpacing: "0.01em"
-  body:
-    fontFamily: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif"
-    fontSize: "14px"
-    fontWeight: 400
-    lineHeight: 1.6
-    letterSpacing: "normal"
-  label:
+    fontFamily: "'Noto Sans SC', -apple-system, sans-serif"
+    size: "24px / 600"
+    usage: "弹窗标题"
+  headline:
     fontFamily: "'Noto Sans SC', sans-serif"
-    fontSize: "12px"
-    fontWeight: 500
-    lineHeight: 1.4
-    letterSpacing: "0.04em"
+    size: "18px / 600"
+    usage: "分区标题（推荐、全部视频、来源）"
+  body:
+    fontFamily: "'Noto Sans SC', sans-serif"
+    size: "14px / 400"
+    lineHeight: 1.7
+    usage: "简介、来源行"
+  meta:
+    fontFamily: "'Noto Sans SC', sans-serif"
+    size: "12px / 400"
+    usage: "年份 · 分类 · 来源数；表格数字用 tabular-nums"
 rounded:
-  sm: "2px"
-  md: "4px"
-  lg: "16px"
-  full: "100px"
-spacing:
-  xs: "4px"
   sm: "8px"
-  md: "12px"
-  lg: "16px"
-  xl: "24px"
-  xxl: "48px"
-components:
-  button-default:
-    backgroundColor: "transparent"
-    textColor: "{colors.text-secondary}"
-    rounded: "{rounded.md}"
-    padding: "8px 20px"
-  button-default-hover:
-    textColor: "{colors.text-primary}"
-  button-primary:
-    backgroundColor: "transparent"
-    textColor: "{colors.primary}"
-    rounded: "{rounded.md}"
-    padding: "8px 20px"
-  input-default:
-    backgroundColor: "rgba(255,255,255,0.03)"
-    textColor: "{colors.text-primary}"
-    rounded: "{rounded.md}"
-    padding: "8px 12px"
-  chip-category:
-    backgroundColor: "rgba(255,255,255,0.05)"
-    textColor: "{colors.text-muted}"
-    rounded: "{rounded.full}"
-    padding: "6px 16px"
-  chip-category-active:
-    backgroundColor: "{colors.primary}"
-    textColor: "#000000"
-  card-video:
-    backgroundColor: "transparent"
-    rounded: "{rounded.md}"
-    padding: "0"
+  card: "12px"
+  dialog: "16px"
+  pill: "999px"
 ---
 
-# Design System: Home Theater
+# Design System: Home Theater（品类标准件）
 
-## 1. Overview
+## 1. 定位
 
-**Creative North Star: "The Private Cinema"**
+一个**个人视频聚合库**的界面。参照系是 Plex / Emby / Netflix 的工艺水准：封面是主角，界面是容器。系统不追求奇观，追求「一眼可用、久看不累」。
 
-Home Theater 的视觉系统像走进一间私人放映室：灯光熄灭，银幕亮起，所有装饰隐入黑暗，唯一的光来自内容本身和那一缕呼吸般的绿色。这不是仪表盘，也不是信息流；这是一个让人停下来、选一张海报、沉浸观看的空间。
+**它不是**：管理后台（表格与表单堆叠）、短视频信息流（无限刷）、或某种视觉世界的仿制品（报纸、航站楼、放映室）。
 
-系统极度克制。背景是绝对的黑色（`#000000`）， elevated 表面只比背景亮半步（`#0a0a0a`）。文字从纯白递减到深灰，像剧院里渐次暗下的观众席。唯一的色彩是绿色——不是霓虹绿，而是像放映机指示灯那样稳定、低饱和的呼吸绿（`#4ade80`），只在需要指引的地方出现。
+## 2. 颜色
 
-界面语言是**精密仪器**的质感：直角、细边框、精确对齐。按钮和导航像设备面板上的开关，不是圆润可爱的糖果。玻璃效果（液态玻璃）用于需要浮出黑暗的控件，但它是有节制的，不是为了炫技。
+三级表面 + 一级强调，全部来自同一中性色带（略带蓝的深灰），只有绿色承担语义。
 
-**Key Characteristics:**
-- 深黑底色，内容（海报/视频）是唯一主角
-- 呼吸绿作为唯一强调色，极度克制
-- 液态玻璃（backdrop-filter）替代传统阴影来表达层级
-- 精密仪器般的直角组件，拒绝圆润装饰
-- 动效缓慢而优雅，且必须响应 `prefers-reduced-motion`
-- 移动端与桌面端是同一套视觉语言，只在密度和布局上调整
+| Token | 值 | 用途 |
+|---|---|---|
+| `--bg` | `#0A0A0B` | 页面底 |
+| `--bg-elevated` | `#121214` | 卡片、弹窗、输入框 |
+| `--bg-surface` | `#17171A` | 悬浮态、次级块 |
+| `--border` / `-hover` / `-bright` | `#232326` / `#303036` / `#43434B` | 描边即层级 |
+| `--text-primary` | `#F5F5F7` | 标题、正文（17.8:1） |
+| `--text-secondary` | `#A1A1AA` | 说明（8.1:1） |
+| `--text-muted` | `#8A8A93` | 元信息（5.6:1） |
+| `--primary` | `#4ADE80` | 进度、选中、成功、新增 > 0 |
+| `--danger` | `#F87171` | 删除、错误、未补全 |
 
-## 2. Colors
+**规则**
+- **绿色只有一个工作**：表达「正在进行 / 已选中 / 有新增」。它不用于主操作按钮、不用于装饰、不做光晕。
+- **主操作用白**：`#F5F5F7` 底 + `#0A0A0B` 字（播放、搜索、确认）。次操作透明 + 描边。危险操作红描边。
+- 状态色只在**有值**时出现：日志里 `0` 用 `--text-muted`，`>0` 才点亮。
 
-系统的调色板只有三个角色：**背景**、**文字**、**强调**。没有辅助色、没有渐变、没有装饰色。
+## 3. 排版
 
-### Primary
-- **Breathing Green（呼吸绿）** (`#4ade80`): 唯一的强调色。用于 active 状态、进度条、分类 pill 的选中态、成功提示。它应该只出现在 ≤10% 的屏幕上；稀缺性就是它的力量。
+- 界面正文 Noto Sans SC；品牌字标 Cinzel（只出现在顶栏与移动首页页头）。
+- 层级靠字重与字号，不靠颜色堆叠：24 弹窗标题 / 18 分区 / 14 正文 / 12 元信息。
+- 数字（年份、集数、百分比、字节、耗时）一律 `font-variant-numeric: tabular-nums`，避免跳动。
+- 标题最多 2 行（`-webkit-line-clamp`），简介 4 行截断；资源站简介先去标签再**解码 HTML 实体**。
 
-### Neutral
-- **Void Black（虚空黑）** (`#000000`): 页面主背景。让海报和视频在暗室中自己发光。
-- **Elevated Black（微浮黑）** (`#0a0a0a`): 卡片、抽屉、 elevated 表面的背景。只比背景亮半步，避免明显的对比跳跃。
-- **Projection White（投影白）** (`#ffffff`): 主标题和重要文字。在黑色上像银幕反光。
-- **Silver Ash（银灰）** (`#a3a3a3`): 次要文字、描述、默认态的链接。
-- **Dim Glow（暗光灰）** (`#525252`): 辅助文字、placeholder、禁用态、图标默认色。
+## 4. 层级与圆角
 
-### Functional
-- **Warning Amber（琥珀黄）** (`#fbbf24`): 暂停、警告状态。
-- **Danger Rose（蔷薇红）** (`#fb7185`): 删除、错误、危险操作。只在需要打断用户时出现。
+- **描边即层级**：`1px` 描边 + 一档表面色。默认不用投影；只有真正浮起的层（弹窗、抽屉、Toast、选源浮层）允许一个大而软的投影，且不与描边重复声明。
+- 圆角只有四档：`8px`（按钮、输入）、`12px`（封面、卡片、来源块）、`16px`（弹窗、抽屉）、`999px`（胶囊、状态点）。
+- 不用发光、不用彩色 halo、不用渐变文字、不用玻璃拟态做装饰。
 
-### Named Rules
-**The One Breath Rule.** 绿色只出现在用户需要被引导的地方。如果一片屏幕上绿色超过一处，说明你的视觉重点太多了。
+## 5. 组件
 
-**The Black Hole Rule.** 背景保持 `#000000`。不要让深灰、深蓝或任何其他暗色混入背景；任何非纯黑都会破坏暗室体验。
+**顶栏**：品牌（Cinzel）+ 六个文字链接（当前项表面胶囊）+ 胶囊搜索 + 主题切换。播放页不挂顶栏。
+**封面卡**：2:3 海报（12px 圆角、1px 描边）+ 卡下两行标题 + `年份 · N 个来源`；hover 只放大海报（1.045）并从底部压暗浮出「选择来源 / 收藏」。
+**分类**：标签行，父类点击展开子类下拉（hover 仅增强），选中项绿色下划线。
+**详情弹窗**：880px，左侧 176px 海报（`aspect-ratio: 2/3`），右侧标题/元信息/简介/操作；下方「来源」区，每行展开即选集。
+**选源浮层**：Portal 挂 body，440px，行内给可比较信息（集数 · 分类 · 备注），点一行即开始；没有可比信息就不显示副标题，绝不暴露原始 ID。
+**选集**：92px 网格、36px 高的小卡；多选态左侧勾选框。
+**进度**：3–4px 轨道 + 绿色填充；阈值色：暂停黄、错误红。
+**移动**：底部五项导航；首页 = 品牌 + 一行搜索 + 分类 + 推荐横条 + 两列封面墙；详情是整页，播放走选源抽屉。
 
-## 3. Typography
+## 6. 动效
 
-**Display Font:** Cinzel (with Noto Sans SC fallback)
-**Body Font:** Noto Sans SC (with system sans-serif fallback)
+`120 / 200 / 320ms`，缓动 `cubic-bezier(0.16, 1, 0.3, 1)`。只做三件事：页面淡入（200ms）、海报 hover 放大、弹窗进出。全部响应 `prefers-reduced-motion`。
 
-Cinzel 是标题的点缀，只在少数地方出现（如品牌名、大标题），带来一种古典影院的庄重感。Noto Sans SC 承担所有正文和界面文字，清晰、中性、不抢戏。整体排版像电影字幕：低存在感，高可读性。
+## 7. Do / Don't
 
-### Hierarchy
-- **Display** (600 weight, clamp(1.5rem, 4vw, 3rem), line-height 1.1): 品牌标题、首屏大标题。Cinzel 字体，字间距略宽。
-- **Headline** (500 weight, 18px, line-height 1.3): 区块标题、页面标题。Noto Sans SC。
-- **Title** (500 weight, 16px, line-height 1.4): 卡片标题、视频名称。
-- **Body** (400 weight, 14px, line-height 1.6): 描述、元信息、正文。最大行宽控制在 65–75ch。
-- **Label** (500 weight, 12px, line-height 1.4, letter-spacing 0.04em): 按钮、导航、分类 pill、小标签。小写大写均可，保持清晰。
+- **Do** 用描边和一档表面色分层；**Don't** 用阴影或发光表达层级。
+- **Do** 让封面占满注意力；**Don't** 在海报上加角标堆叠（来源数放卡下）。
+- **Do** 把强制步骤（选源）做成一屏内可比较的列表；**Don't** 为同一步骤叠两层弹窗。
+- **Do** 用状态色表意（>0 才亮）；**Don't** 把 0 也染成成功色。
+- **Do** 统一空态为 `.poster-empty`（图标 + 暂无封面）；**Don't** 让 `<img>` alt 文本直接上屏。
+- **Don't** 使用 KPI 大数字卡、彩色顶边、eyebrow 小标题、01/02/03 编号。
 
-### Named Rules
-**The Subtitle Rule.** 正文和说明文字永远用 `text-secondary` 或更暗的灰，不要用纯白写大段文字。纯白在黑色上只适合短暂出现的标题。
+## 8. 无障碍
 
-## 4. Elevation
-
-系统**不使用传统阴影**来表达深度。在纯黑背景上，阴影会消失或显得脏。取而代之的是：
-
-1. **色调分层**：`bg` → `bg-elevated` 的微小区分
-2. **液态玻璃**：`backdrop-filter: blur(20px) saturate(1.2)` 让浮层从背景中轻微分离
-3. **半透明边框**：`rgba(255,255,255,0.06)` 的细线勾勒边缘
-4. **白色微光**：hover 时卡片边缘的 `rgba(255,255,255,0.08)` 光晕
-
-### Glass Vocabulary
-- **Navigation Glass** (`rgba(0,0,0,0.65)` + `blur(20px)`): 顶部导航、底部导航。
-- **Toast Glass** (`rgba(0,0,0,0.65)` + `blur(16px)`): Toast 提示。
-- **Dropdown Glass** (`#000000` + `blur(20px)`): 分类下拉菜单，需要更实心的背景以保证可读性。
-
-### Named Rules
-**The No-Shadow Rule.** 默认状态下不使用 `box-shadow`。只有当用户与元素交互（hover）时，才允许出现微妙的白色光晕。
-
-**The Glass Is a Tool Rule.** 液态玻璃只用于需要浮在内容之上的控件（导航、toast、下拉），不要把它当作卡片的默认样式。
-
-## 5. Components
-
-### Buttons
-- **Shape:** 小圆角（4px），细边框，直角气质。
-- **Default:** 透明背景，`text-secondary`，1px `glass-border` 边框。hover 时边框变亮、文字变白。
-- **Primary:** 透明背景，`primary` 文字，底部有一条 subtle 的绿色下划线。hover 时下划线变亮。没有填充背景，保持克制。
-- **Danger:** 透明背景，`danger` 文字，`danger` 色调的边框。hover 时填充 `danger-dim`。
-- **Disabled:** 透明度降至 0.3，cursor 为 not-allowed。
-- **Focus:** 绿色 outline，outline-offset 2px。
-
-### Chips / Category Pills
-- **Style:** 完全圆角（100px），`rgba(255,255,255,0.05)` 背景，`text-muted` 文字。
-- **Hover:** 背景略亮，文字变 `text-secondary`。
-- **Active:** 填充 `primary`，文字变黑。这是绿色最集中的使用场景之一。
-
-### Cards / Video Cards
-- **Shape:** 4px 圆角，2:3 的 poster 比例。
-- **Background:** 透明。卡片本身没有背景，海报就是内容。
-- **Border:** poster 上方叠加 1px `rgba(255,255,255,0.05)` 内阴影边框，hover 时变亮。
-- **Hover:** 整体 scale(1.05)，poster 边缘出现白色微光，标题变成绿色。
-- **Overlay:** hover 时从底部上升的渐变遮罩，显示元信息和操作按钮。
-- **Mobile:** 无 hover 覆盖层，点击时 scale(0.98) 反馈。
-
-### Inputs / Fields
-- **Style:** `rgba(255,255,255,0.03)` 背景，1px `glass-border` 边框，4px 圆角。
-- **Text:** `text-primary`。
-- **Placeholder:** `text-muted`。
-- **Focus:** 边框变亮为 `rgba(255,255,255,0.2)`，无 outline（避免双重 focus 环）。
-
-### Navigation
-- **Top Nav:** 粘性顶部，液态玻璃，`glass-border` 底边，内部带 subtle 的横向渐变线。
-- **Bottom Nav:** 移动端固定底部，液态玻璃，`glass-border` 顶边，图标 + 文字垂直排列。
-- **Nav Link:** 默认 `text-muted`，hover `text-secondary`，active `text-primary`。
-- **Active Indicator:** 底部 2px 绿色短线，带 `primary-glow` 光晕。
-
-### Signature Component: Video Player Shell
-- 播放器容器为纯黑背景，4px 圆角，1px 白色微边框。
-- 桌面端右侧为选集侧边栏；移动端侧边栏变为底部抽屉或独立页面。
-- 全屏时去除所有圆角和 chrome，让视频充满屏幕。
-
-## 6. Do's and Don'ts
-
-### Do:
-- **Do** 使用 `#000000` 作为任何全屏或沉浸式页面的背景。
-- **Do** 使用 `text-secondary` 写说明文字，保持纯白只用于最重要的标题。
-- **Do** 用 `primary` 绿来指示 active 状态、进度、成功——但只在必要处。
-- **Do** 用液态玻璃（`backdrop-filter: blur(20px)`）处理浮层控件。
-- **Do** 保持 4px 的小圆角一致性，除非是大面积底部抽屉（16px）。
-- **Do** 为所有动画提供 `prefers-reduced-motion` 降级。
-- **Do** 确保文字对比度 ≥ 4.5:1（`text-muted` 在 `#000000` 上约为 5.6:1，已满足）。
-
-### Don't:
-- **Don't** 使用大投影（`box-shadow`）作为默认 elevation 手段。阴影在纯黑上会失效或显脏。
-- **Don't** 引入除绿色以外的强调色。黄色和红色只用于功能状态，不能作为装饰。
-- **Don't** 让绿色超过屏幕的 10%。稀缺性是它的力量。
-- **Don't** 使用渐变文字（`background-clip: text`）。这是 AI 设计的常见痕迹。
-- **Don't** 让文字溢出容器或忽略移动端触摸目标（最小 44px）。
-- **Don't** 把这套 UI 做得像传统 CMS/管理后台（密密麻麻的表单、表格、按钮）。这不是管理工具，是观影入口。
-- **Don't** 使用短视频信息流的无限滚动和密集信息架构。用户来这里是为了静下来选片，不是为了刷。
+正文对比度 ≥ 4.5:1（实测 8.1）；焦点环 2px 绿色、offset 2px；封面卡可 Tab + Enter 打开；触摸目标 ≥ 44dp；图表与状态不单靠颜色（配合文字与图标）。
