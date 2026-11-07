@@ -141,10 +141,16 @@ export default function CategoryBar({
             >
               <button
                 className="nav-link"
+                aria-haspopup="true"
+                aria-expanded={isOpen}
                 onClick={() => {
-                  // 点击父类：筛选该分类下的全部视频
+                  // 点击/回车：先按父类筛选，同时展开子类（hover 只是增强，
+                  // 触屏与键盘用户也能到达二级分类）
                   onSelect(group.label);
-                  setMenuOpen(null);
+                  setMenuOpen(isOpen ? null : group.label);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setMenuOpen(null);
                 }}
                 style={{
                   color: isActive ? "var(--text-primary)" : undefined,
