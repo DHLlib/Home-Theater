@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -180,7 +181,12 @@ class SourceClient:
             "site_name": self.name,
             "original_id": _extract_original_id(raw),
             "title": raw.get("vod_name") or raw.get("name") or "",
-            "year": _safe_year(raw.get("vod_year") or raw.get("year")),
+            "year": _resolve_year(
+                raw.get("vod_year") or raw.get("year"),
+                pubdate=raw.get("vod_pubdate"),
+                name=raw.get("vod_name") or raw.get("name") or "",
+                updated_at=raw.get("vod_time") or raw.get("last"),
+            ),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
             "type": raw.get("type_name") or raw.get("type"),
             "type_id": raw.get("type_id"),
@@ -199,7 +205,12 @@ class SourceClient:
             "site_name": self.name,
             "original_id": _extract_original_id(raw),
             "title": raw.get("vod_name") or raw.get("name") or "",
-            "year": _safe_year(raw.get("vod_year") or raw.get("year")),
+            "year": _resolve_year(
+                raw.get("vod_year") or raw.get("year"),
+                pubdate=raw.get("vod_pubdate"),
+                name=raw.get("vod_name") or raw.get("name") or "",
+                updated_at=raw.get("vod_time") or raw.get("last"),
+            ),
             "poster_url": raw.get("vod_pic") or raw.get("pic"),
             "type": raw.get("type_name") or raw.get("type"),
             "type_id": raw.get("type_id"),
@@ -222,27 +233,78 @@ def _extract_original_id(raw: dict[str, Any]) -> str:
     return ""
 
 
-def _safe_year(v: Any) -> int | None:
-    """把资源站返回的年份字段归一化为 4 位年份整数。
+def _year_of(v: Any) -> int | None:
+    """从一个字段值里抠出前 4 位年份，不做合理性判断。
 
-    部分站点会把年份拼成 "201717"（yyyy-y-d 或 yyyy-yy），
-    这里先尝试提取前 4 位合法年份；否则回退到完整整数值。
+    部分站点会把年份拼成 "201717"（yyyy + 月日）或 "20240101"，取前四位即可。
     """
     if v is None or v == "":
         return None
-    s = str(v).strip()
-    m = re.match(r"(\d{4})", s)
-    if m:
-        year = int(m.group(1))
-        if 1900 <= year <= 2100:
-            return year
+    m = re.match(r"\s*(\d{4})", str(v))
+    if not m:
+        return None
     try:
-        year = int(s)
-        if 1900 <= year <= 2100:
-            return year
+        return int(m.group(1))
     except (TypeError, ValueError):
-        pass
+        return None
+
+
+def _year_from_title(name: str) -> int | None:
+    """标题末尾带分隔符的年份，例如「沙丘2 (2024)」「沙丘2 2024」「沙丘2【2024】」。
+
+    纯数字片名（1917、2046、2001 太空漫游）前面没有分隔符、也不在末尾，
+    因此不会被误当成年份。
+    """
+    if not name:
+        return None
+    m = re.search(r"[（(《【\s](\d{4})[）)》】\s]*$", name)
+    return int(m.group(1)) if m else None
+
+
+def _year_bounds(updated_at: Any = None) -> tuple[int, int]:
+    """年份的合理区间。
+
+    上界取「今年 + 1」（最常见的是明年待映）；若知道片源更新时间，
+    再收紧到「更新年 + 1」——2025 年更新的条目不可能在 2027 年上映。
+    """
+    upper = datetime.now().year + 1
+    updated_year = _year_of(updated_at)
+    if updated_year:
+        upper = min(upper, updated_year + 1)
+    return 1900, upper
+
+
+def _resolve_year(
+    raw_year: Any,
+    *,
+    pubdate: Any = None,
+    name: str = "",
+    updated_at: Any = None,
+) -> int | None:
+    """按可信度依次尝试：年份字段 → 上映日期 → 标题尾注。
+
+    任何一步落在合理区间内就采用；全部不合理才返回 None。
+    这样资源站把未定档写成 2028 时，还能从 `vod_pubdate` 或标题里救回真实年份，
+    而不是直接丢掉（年份是聚合键的一半，丢掉会拆片）。
+    """
+    low, high = _year_bounds(updated_at)
+    for candidate in (
+        _year_of(raw_year),
+        _year_of(pubdate),
+        _year_from_title(name),
+    ):
+        if candidate is not None and low <= candidate <= high:
+            return candidate
     return None
+
+
+def _safe_year(v: Any) -> int | None:
+    """单值年份归一化（保留旧签名，供其它模块直接调用）。
+
+    资源站常把未定档的片写成 2028/2030 之类的占位年份。年份是聚合去重键的
+    一半，放过去会把同一部片拆成多部，所以上界收在「今年 + 1」。
+    """
+    return _resolve_year(v)
 
 
 def _convert_play_url(raw: str, from_str: str) -> str:
