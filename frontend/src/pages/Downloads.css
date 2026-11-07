@@ -1,0 +1,26 @@
+/* Downloads —— 下载任务卡片 */
+
+.dl-card {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: var(--bg-elevated);
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
+}
+
+.dl-card:hover {
+  border-color: var(--border-hover);
+}
+
+.dl-card .task-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.dl-card .task-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.dl-card .task-row.selected {
+  background: var(--primary-dim);
+}

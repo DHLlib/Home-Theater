@@ -21,6 +21,7 @@ import {
 } from "../components/icons";
 import type { DownloadTask } from "../types";
 import type { ActionSheetAction } from "../components/ActionSheet";
+import "./Downloads.css";
 
 const statusText: Record<string, string> = {
   queued: "排队中",
@@ -352,47 +353,14 @@ function TaskRow({
             }}
           >
             {errorInfo.type === "site_unavailable" && <>站点不可用，请前往设置检查</>}
-            {errorInfo.type === "file_removed" && <>资源已失效</>}
-            {errorInfo.type !== "site_unavailable" &&
-              errorInfo.type !== "file_removed" &&
-              errorInfo.message}
+            {errorInfo.type === "file_removed" && <>资源已失效，请换一个来源</>}
+            {errorInfo.type === "connection_error" && (
+              <>连接中断，已自动重试 3 次</>
+            )}
+            {errorInfo.type === "unknown" && errorInfo.message}
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function FilmStripEdge() {
-  return (
-    <div
-      className="film-strip-edge"
-      style={{
-        width: 18,
-        flexShrink: 0,
-        alignSelf: "stretch",
-        background: "rgba(255,255,255,0.02)",
-        borderRight: "1px solid var(--glass-border)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "space-around",
-        padding: "10px 0",
-        gap: 8,
-      }}
-    >
-      {Array.from({ length: 8 }).map((_, i) => (
-        <span
-          key={i}
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: 1,
-            background: "var(--text-muted)",
-            opacity: 0.35,
-          }}
-        />
-      ))}
     </div>
   );
 }
@@ -441,40 +409,40 @@ function VideoDownloadCard({
     [items]
   );
   const byteProgress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
-  const doneProgress = Math.round((stats.done / stats.total) * 100);
-  const progress = totalBytes > 0 ? byteProgress : doneProgress;
+  // m3u8 任务没有 total_bytes，按分片数或任务完成度取平均，避免整组显示 0%
+  const taskPercent = (t: DownloadTask): number => {
+    if (t.total_segments && t.total_segments > 0) {
+      return (t.downloaded_segments / t.total_segments) * 100;
+    }
+    if (t.total_bytes && t.total_bytes > 0) {
+      return (t.downloaded_bytes / t.total_bytes) * 100;
+    }
+    return t.status === "done" ? 100 : 0;
+  };
+  const avgProgress =
+    items.length > 0
+      ? Math.round(
+          items.reduce((sum, t) => sum + taskPercent(t), 0) / items.length
+        )
+      : 0;
+  const progress = totalBytes > 0 ? byteProgress : avgProgress;
 
-  const activeStatus = stats.error > 0 ? "error" : stats.downloading > 0 ? "downloading" : "queued";
+  // 组头只显示当前状态真正可用的动作，并把作用域写进文案
+  const hasResumable = items.some(
+    (t) =>
+      t.status === "paused" ||
+      t.status === "queued" ||
+      (t.status === "error" && parseErrorType(t.error).retryable)
+  );
+  const hasActive = items.some((t) => t.status === "downloading");
+  const isSingle = stats.total === 1;
+  // 批量动作的实际作用域：有勾选只作用于勾选，标签必须说真话
+  const selectedCount = items.filter((t) => selectedIds.has(t.id)).length;
+  const scopeLabel = (verb: string) =>
+    selectedCount > 0 ? `${verb}选中 ${selectedCount} 项` : `全部${verb}`;
 
   return (
-    <article
-      className="video-card card-elevated"
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 2,
-          background:
-            activeStatus === "downloading"
-              ? "var(--primary)"
-              : activeStatus === "error"
-              ? "var(--danger)"
-              : stats.done === stats.total
-              ? "var(--success)"
-              : "transparent",
-          boxShadow:
-            activeStatus === "downloading"
-              ? "0 0 14px var(--primary-glow)"
-              : activeStatus === "error"
-              ? "0 0 14px rgba(251,113,133,0.35)"
-              : "none",
-          transition: "all var(--transition-base)",
-        }}
-      />
-
+    <article className="dl-card">
       <div
         onClick={onToggle}
         style={{
@@ -484,8 +452,6 @@ function VideoDownloadCard({
           userSelect: "none",
         }}
       >
-        <FilmStripEdge />
-
         <div
           style={{
             flex: 1,
@@ -609,31 +575,35 @@ function VideoDownloadCard({
                   </button>
                 ) : (
                   <>
-                    <button
-                      className="btn btn-primary"
-                      aria-label={`继续下载 ${title} 下可继续的任务`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onBatchResume(title);
-                      }}
-                      style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
-                    >
-                      继续
-                    </button>
+                    {hasResumable && (
+                      <button
+                        className="btn btn-primary"
+                        aria-label={`继续下载 ${title} 下可继续的任务`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBatchResume(title);
+                        }}
+                        style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                      >
+                        {isSingle ? "继续" : scopeLabel("继续")}
+                      </button>
+                    )}
+                    {hasActive && (
+                      <button
+                        className="btn"
+                        aria-label={`暂停下载 ${title} 下正在下载的任务`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBatchPause(title);
+                        }}
+                        style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
+                      >
+                        {isSingle ? "暂停" : scopeLabel("暂停")}
+                      </button>
+                    )}
                     <button
                       className="btn"
-                      aria-label={`暂停下载 ${title} 下可暂停的任务`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onBatchPause(title);
-                      }}
-                      style={{ fontSize: 12, minHeight: 32, padding: "5px 12px" }}
-                    >
-                      暂停
-                    </button>
-                    <button
-                      className="btn"
-                      aria-label={`删除 ${title} 下选中的任务`}
+                      aria-label={`删除 ${title} 下的任务`}
                       onClick={(e) => {
                         e.stopPropagation();
                         onBatchDelete(title);
@@ -646,7 +616,7 @@ function VideoDownloadCard({
                         borderColor: "rgba(251,113,133,0.25)",
                       }}
                     >
-                      删除
+                      {isSingle ? "删除" : scopeLabel("删除")}
                     </button>
                   </>
                 )}
