@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
-import RecommendedCarousel from "../components/RecommendedCarousel";
+import SpotlightRow from "../components/SpotlightRow";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
@@ -52,7 +52,7 @@ export default function Home() {
   const activeCategory = searchParams.get("category") || null;
   const sort = searchParams.get("sort") === "year" ? "year" : "updated";
 
-  const { data: sites = [] } = useSitesQuery();
+  const { data: sites = [], isLoading: sitesLoading } = useSitesQuery();
   const { data: recommendedVideos = [], isLoading: recommendedLoading } =
     useRecommendedVideosQuery();
   const { data: crawlerStatus } = useCrawlerStatusQuery();
@@ -159,6 +159,20 @@ export default function Home() {
   }, [hasNextPage, isLoading, videos.length, isCapped]);
 
   if (sites.length === 0) {
+    // 站点还在加载时不要谎报「暂无采集站」
+    if (sitesLoading) {
+      return (
+        <div className="home-loading" aria-busy="true" aria-label="正在加载">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="home-loading-item">
+              <div className="skeleton home-loading-poster" />
+              <div className="skeleton home-loading-title" />
+              <div className="skeleton home-loading-meta" />
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="empty home-empty">
         <svg
@@ -203,7 +217,7 @@ export default function Home() {
       {/* ===== 移动端顶部搜索栏 + 分类 ===== */}
       {isMobile && <MobileSearchBar />}
 
-      {isMobile && (
+      <div className="home-cats">
         <CategoryBar
           sites={sites}
           activeCategory={activeCategory}
@@ -217,7 +231,7 @@ export default function Home() {
             setSearchParams(next, { replace: true });
           }}
         />
-      )}
+      </div>
 
       {/* ===== 加载骨架屏 ===== */}
       {isLoading && (
@@ -273,21 +287,11 @@ export default function Home() {
       {/* ===== 首页模式 ===== */}
       {!isLoading && !wdFromUrl.trim() && (
         <>
-          {/* 推荐视频轮播 */}
+          {/* 推荐横条 */}
           {!activeCategory && (
-            <RecommendedCarousel
+            <SpotlightRow
               videos={recommendedVideos}
               loading={recommendedLoading}
-              onSelect={(v) => {
-                // 与 VideoCard 一致：停在当前 pathname，加 detail=1 触发弹窗，
-                // 完整 item 走 navigation state
-                const params = new URLSearchParams(searchParams);
-                params.set("detail", "1");
-                navigate(
-                  { search: `?${params.toString()}` },
-                  { state: { detailItem: v } }
-                );
-              }}
             />
           )}
 
@@ -334,38 +338,31 @@ export default function Home() {
           )}
 
           {/* 全部视频 */}
-          <section style={{ marginBottom: 24 }}>
-            <div className="section-title">
-              <span
-                className="section-title-bar"
-                style={{ background: "var(--text-secondary)" }}
-              />
-              全部视频
-              <div style={{ flex: 1 }} />
-              <div className="sort-toggle-group">
+          <section className="home-section">
+            <div className="home-section-head">
+              <h2 className="home-section-title">全部视频</h2>
+              <div className="sort-toggle-group" role="group" aria-label="排序方式">
                 <button
-                  className={`sort-toggle${
-                    sort === "updated" ? " active" : ""
-                  }`}
+                  className={`sort-toggle${sort === "updated" ? " active" : ""}`}
+                  aria-pressed={sort === "updated"}
                   onClick={() => {
                     const next = new URLSearchParams(searchParams);
                     next.delete("sort");
                     setSearchParams(next, { replace: true });
                   }}
                 >
-                  按更新时间
+                  最近更新
                 </button>
                 <button
-                  className={`sort-toggle${
-                    sort === "year" ? " active" : ""
-                  }`}
+                  className={`sort-toggle${sort === "year" ? " active" : ""}`}
+                  aria-pressed={sort === "year"}
                   onClick={() => {
                     const next = new URLSearchParams(searchParams);
                     next.set("sort", "year");
                     setSearchParams(next, { replace: true });
                   }}
                 >
-                  按年份
+                  年份
                 </button>
               </div>
             </div>
