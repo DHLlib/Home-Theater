@@ -105,7 +105,7 @@ export default function MobileSearch() {
       )}
 
       {isLoading && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        <div className="mobile-poster-grid">
           {Array.from({ length: 9 }).map((_, i) => (
             <div key={i}>
               <div className="skeleton" style={{ aspectRatio: "2/3", borderRadius: 8 }} />
@@ -115,7 +115,7 @@ export default function MobileSearch() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+      <div className="mobile-poster-grid">
         {videos.map((v) => (
           <MobileVideoCard key={videoKey(v)} item={v} />
         ))}

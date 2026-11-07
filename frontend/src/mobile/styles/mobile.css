@@ -277,6 +277,46 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 封面网格：列数跟随可用宽度，避免平板上三列就把一屏占满 */
+.mobile-poster-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (min-width: 600px) {
+  .mobile-poster-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 840px) {
+  .mobile-poster-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .mobile-poster-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .mobile-poster-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+/* 宽屏（平板横屏）左右留白加大，避免内容贴边 */
+@media (min-width: 840px) {
+  .mobile-page {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
 /* 璇︽儏椤?*/
 .mobile-detail {
   min-height: 100dvh;

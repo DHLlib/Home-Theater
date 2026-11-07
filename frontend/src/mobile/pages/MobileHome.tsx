@@ -335,13 +335,7 @@ export default function MobileHome() {
         </div>
 
         {isLoading && allSection.length === 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 10,
-            }}
-          >
+          <div className="mobile-poster-grid">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i}>
                 <div
@@ -378,13 +372,7 @@ export default function MobileHome() {
           </div>
         )}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 10,
-          }}
-        >
+        <div className="mobile-poster-grid">
           {allSection.map((v) => (
             <MobileVideoCard key={videoKey(v)} item={v} />
           ))}
