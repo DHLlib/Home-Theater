@@ -238,7 +238,6 @@ function ProgressCard({
               width: `${pct}%`,
               borderRadius: 2,
               background: "var(--primary)",
-              boxShadow: "0 0 8px var(--primary-glow)",
               transition: "width 0.6s ease",
             }}
           />
@@ -472,11 +471,10 @@ export default function Progress() {
               >
                 <div
                   style={{
-                    width: 4,
-                    height: 18,
+                    width: 3,
+                    height: 16,
                     borderRadius: 2,
-                    background: "var(--primary)",
-                    boxShadow: "0 0 8px var(--primary-glow)",
+                    background: "var(--border-bright)",
                   }}
                 />
                 <h2

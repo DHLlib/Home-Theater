@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { listFavorites, removeFavorite } from "../api/favorites";
 import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
+import PosterImage from "../components/PosterImage";
+import { displayYear } from "../utils/year";
 import { useLongPress } from "../hooks/useLongPress";
 import { useIsMobile } from "../hooks/useViewport";
 import type { Favorite } from "../types";
@@ -41,13 +43,11 @@ function FilmReelIcon({ size = 72 }: { size?: number }) {
 
 function ArchiveCard({
   item,
-  index,
   onRemove,
   isMobile,
   onOpenMenu,
 }: {
   item: Favorite;
-  index: number;
   onRemove: (id: number) => void;
   isMobile?: boolean;
   onOpenMenu?: (id: number) => void;
@@ -93,38 +93,16 @@ function ArchiveCard({
       }}
       {...longPress}
       style={{
-        marginBottom: 24,
         position: "relative",
-        borderRadius: 6,
-        border: "1px solid var(--glass-border)",
-        background: "var(--bg-elevated)",
-        overflow: "hidden",
+        borderRadius: "var(--card-radius)",
+        background: "transparent",
+        overflow: "visible",
         cursor: "pointer",
-        transition: "all var(--transition-slow)",
-        animation: `archiveReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both`,
-        animationDelay: `${index * 70}ms`,
         touchAction: "manipulation",
         userSelect: "none",
         WebkitUserSelect: "none",
       }}
     >
-      <div className="perf perf-left" aria-hidden="true" />
-      <div className="perf perf-right" aria-hidden="true" />
-
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 2,
-          background: hovered ? "var(--primary)" : "transparent",
-          boxShadow: hovered ? "0 0 12px var(--primary-glow)" : "none",
-          transition: "all var(--transition-base)",
-          zIndex: 2,
-        }}
-      />
-
       {!isMobile && (
         <button
           className="btn"
@@ -160,38 +138,30 @@ function ArchiveCard({
           position: "relative",
           aspectRatio: "2 / 3",
           overflow: "hidden",
+          borderRadius: "var(--card-radius)",
+          border: "1px solid var(--border)",
           background: "rgba(0,0,0,0.3)",
         }}
       >
-        {item.poster_url ? (
-          <img
-            src={item.poster_url}
-            alt={item.title}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              transition: "transform var(--transition-slow)",
-              transform: hovered ? "scale(1.05)" : "scale(1)",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--text-muted)",
-              fontSize: 12,
-              textAlign: "center",
-              padding: 16,
-            }}
-          >
-            无封面
-          </div>
-        )}
+        <PosterImage
+          title={item.title}
+          year={item.year}
+          posterUrl={item.poster_url}
+          alt={item.title}
+          loading="lazy"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            transition: "transform var(--transition-slow)",
+            transform: hovered ? "scale(1.05)" : "scale(1)",
+          }}
+          placeholder={
+            <div className="poster-empty">
+              <span>暂无封面</span>
+            </div>
+          }
+        />
         <div
           style={{
             position: "absolute",
@@ -204,20 +174,20 @@ function ArchiveCard({
 
       <div
         style={{
-          padding: "16px 18px 18px",
+          padding: "9px 2px 0",
           display: "flex",
           flexDirection: "column",
-          gap: 10,
+          gap: 4,
         }}
       >
         <div>
           <h3
             style={{
               margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
+              fontSize: 14,
+              fontWeight: 500,
               color: "var(--text-primary)",
-              lineHeight: 1.35,
+              lineHeight: 1.38,
               overflow: "hidden",
               textOverflow: "ellipsis",
               display: "-webkit-box",
@@ -238,42 +208,16 @@ function ArchiveCard({
               color: "var(--text-secondary)",
             }}
           >
-            {item.year ? <span>{item.year}</span> : null}
+            {displayYear(item.year) ? <span>{displayYear(item.year)}</span> : null}
             <span style={{ color: "var(--text-muted)" }}>
               {item.sources?.length || 0} 个来源
             </span>
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingTop: 12,
-            borderTop: "1px solid var(--glass-border)",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--text-muted)",
-              fontFamily: "monospace",
-              letterSpacing: "0.04em",
-            }}
-          >
-            归档 {formatDate(item.created_at)}
-          </span>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--primary)",
-              opacity: 0.6,
-            }}
-          />
-        </div>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          收藏于 {formatDate(item.created_at)}
+        </span>
       </div>
     </article>
   );
@@ -379,19 +323,13 @@ export default function Favorites() {
         .perf-right { right: 4px; }
         .archive-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
           gap: 20px;
         }
         @media (max-width: 767px) {
           .archive-grid {
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-          }
-        }
-        @media (min-width: 768px) and (max-width: 1023px) {
-          .archive-grid {
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+            gap: 14px;
           }
         }
       `}</style>
@@ -522,11 +460,10 @@ export default function Favorites() {
         </div>
       ) : (
         <div className="archive-grid">
-          {sortedItems.map((item, idx) => (
+          {sortedItems.map((item) => (
             <ArchiveCard
               key={item.id}
               item={item}
-              index={idx}
               onRemove={handleRemoveRequest}
               isMobile={isMobile}
               onOpenMenu={setMenuId}
