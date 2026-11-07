@@ -44,6 +44,8 @@ export default function MobileApp() {
   }, []);
 
   useEffect(() => {
+    // 无头截图（?capture=1）时不建立 SSE 长连接
+    if (new URLSearchParams(window.location.search).has("capture")) return;
     connectSse();
     return () => disconnectSse();
   }, []);

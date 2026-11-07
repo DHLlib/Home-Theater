@@ -51,6 +51,8 @@ export default function DesktopApp() {
   }, []);
 
   useEffect(() => {
+    // 无头截图（?capture=1）时不建立 SSE 长连接：长连接会让页面永远到不了 idle
+    if (new URLSearchParams(window.location.search).has("capture")) return;
     connectSse();
     return () => disconnectSse();
   }, []);
