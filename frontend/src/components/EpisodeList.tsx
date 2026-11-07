@@ -1,4 +1,5 @@
 import type { Episode } from "../types";
+import "./EpisodeList.css";
 
 function groupEpisodes(episodes: Episode[]): { label: string; eps: Episode[] }[] {
   if (episodes.length === 0) return [];
@@ -61,82 +62,34 @@ export default function EpisodeList({
   };
 
   return (
-    <div>
+    <div className="ep-groups">
       {groups.map((group, gi) => (
-        <div key={gi} style={{ marginBottom: 12 }}>
-          {groups.length > 1 && (
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                opacity: 0.6,
-                marginBottom: 6,
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-              }}
-            >
-              {group.label}
-            </div>
-          )}
-          <div
-            className="episode-grid"
-            style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
-          >
+        <div key={gi} className="ep-group">
+          {groups.length > 1 && <div className="ep-group-label">{group.label}</div>}
+          <div className="ep-grid">
             {group.eps.map((ep) => {
               const isSelected = selected.has(ep.index);
               return (
                 <button
                   key={ep.index}
-                  className={`btn${isSelected ? " btn-primary" : ""}`}
+                  type="button"
+                  className={`ep-btn${isSelected ? " is-selected" : ""}${
+                    multiSelect ? " is-multi" : ""
+                  }`}
                   onClick={() => handleClick(ep)}
                   title={ep.url}
-                  style={{
-                    minHeight: 44,
-                    minWidth: 44,
-                    position: "relative",
-                    paddingTop: multiSelect ? 20 : undefined,
-                    borderColor: isSelected
-                      ? "var(--primary)"
-                      : undefined,
-                  }}
+                  aria-pressed={multiSelect ? isSelected : undefined}
                 >
                   {multiSelect && (
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: 4,
-                        left: 6,
-                        width: 14,
-                        height: 14,
-                        borderRadius: 3,
-                        border: `1.5px solid ${
-                          isSelected ? "var(--primary)" : "var(--text-muted)"
-                        }`,
-                        background: isSelected
-                          ? "var(--primary)"
-                          : "transparent",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
+                    <span className="ep-check" aria-hidden="true">
                       {isSelected && (
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="var(--bg)"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                       )}
                     </span>
                   )}
-                  {ep.ep_name}
+                  <span className="ep-name">{ep.ep_name}</span>
                 </button>
               );
             })}

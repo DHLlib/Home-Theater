@@ -1,0 +1,98 @@
+/* EpisodeList —— 选集网格 */
+
+.ep-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ep-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ep-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.ep-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.ep-btn {
+  position: relative;
+  height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.ep-btn:hover {
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.ep-btn.is-multi {
+  padding-left: 26px;
+}
+
+.ep-btn.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-dim);
+  color: var(--primary);
+}
+
+.ep-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ep-check {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 1.5px solid var(--border-bright);
+  color: var(--primary-ink);
+}
+
+.ep-btn.is-selected .ep-check {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+@media (max-width: 767px) {
+  .ep-grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+    gap: 7px;
+  }
+  .ep-btn {
+    height: 34px;
+    font-size: 12px;
+  }
+}

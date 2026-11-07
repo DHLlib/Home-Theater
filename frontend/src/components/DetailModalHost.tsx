@@ -189,38 +189,27 @@ export default function DetailModalHost() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 position: "relative",
-                width: "min(900px, 92vw)",
+                width: "min(880px, 92vw)",
                 maxHeight: "88vh",
-                overflowY: "auto",
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
                 background: "var(--bg-elevated)",
-                borderRadius: 8,
-                border: "1px solid var(--glass-border)",
-                padding: 24,
-                boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+                borderRadius: 16,
+                border: "1px solid var(--border)",
+                boxShadow: "0 30px 80px -20px rgba(0, 0, 0, 0.72)",
               }}
             >
               <button
                 onClick={close}
                 aria-label="关闭"
-                style={{
-                  position: "absolute",
-                  top: 12,
-                  right: 12,
-                  width: 32,
-                  height: 32,
-                  borderRadius: "50%",
-                  border: "1px solid var(--glass-border)",
-                  background: "var(--bg)",
-                  color: "var(--text-primary)",
-                  fontSize: 20,
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  zIndex: 2,
-                }}
+                className="dc-close"
               >
                 ×
               </button>
-              <DetailContent item={item} variant="modal" />
+              <div className="dc-modal-body">
+                <DetailContent item={item} variant="modal" />
+              </div>
             </motion.div>
           </motion.div>
         )}

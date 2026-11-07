@@ -1,6 +1,8 @@
+import { createPortal } from "react-dom";
 import BottomSheet from "./BottomSheet";
 import { useIsMobile } from "../hooks/useViewport";
 import type { SourceRef } from "../types";
+import "./SourcePicker.css";
 
 type SourcePickerProps = {
   sources: SourceRef[];
@@ -26,48 +28,23 @@ export default function SourcePicker(props: SourcePickerProps) {
   const pickerTitle = title ?? "请选择来源";
 
   const sourceList = (
-    <ul
-      style={{
-        listStyle: "none",
-        padding: 0,
-        margin: "12px 0",
-        maxHeight: "50vh",
-        overflowY: "auto",
-      }}
-    >
-      {sources.length === 0 && (
-        <li style={{ color: "var(--text-secondary)", padding: 12 }}>无可用源</li>
-      )}
+    <ul className="sp-list">
+      {sources.length === 0 && <li className="sp-empty">无可用源</li>}
       {sources.map((s) => {
         const key = `${s.site_id}-${s.original_id}`;
+        const subtitle = formatSubtitle?.(s);
         return (
           <li key={key}>
             <button
               type="button"
               onClick={() => onConfirm(s)}
-              className="btn"
-              style={{
-                width: "100%",
-                textAlign: "left",
-                padding: "12px 14px",
-                margin: "4px 0",
-                border: "1px solid var(--glass-border)",
-                background: "transparent",
-                borderRadius: 4,
-                color: "inherit",
-                cursor: "pointer",
-                minHeight: 48,
-              }}
+              className="sp-item"
             >
-              <div style={{ fontWeight: 500 }}>
-                {s.site_name || `站点 #${s.site_id}`} · 原始 ID {s.original_id}
-              </div>
-              {formatSubtitle && (
-                <div
-                  style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}
-                >
-                  {formatSubtitle(s)}
-                </div>
+              <span className="sp-item-name">
+                {s.site_name || `站点 #${s.site_id}`}
+              </span>
+              {subtitle && (
+                <span className="sp-item-meta tnum">{subtitle}</span>
               )}
             </button>
           </li>
@@ -76,58 +53,38 @@ export default function SourcePicker(props: SourcePickerProps) {
     </ul>
   );
 
-  const actionButtons = (
-    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-      <button type="button" className="btn" onClick={onCancel}>
-        取消
-      </button>
-    </div>
-  );
-
   if (isMobile) {
     return (
       <BottomSheet open={open} title={pickerTitle} onClose={onCancel}>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 4 }}>
-          每个源由不同采集站提供，请显式点选一个。
-        </p>
+        <p className="sp-hint">每个源由不同采集站提供，点一个即可开始。</p>
         {sourceList}
-        {actionButtons}
       </BottomSheet>
     );
   }
 
-  return (
+  // 通过 Portal 挂到 body：弹窗/抽屉内部有 backdrop-filter 与 overflow，
+  // 直接渲染会把「选源」这一强制步骤压在详情弹窗的层叠上下文里。
+  return createPortal(
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
+      className="sp-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={pickerTitle}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div
-        style={{
-          background: "var(--bg-elevated)",
-          color: "var(--text-primary)",
-          padding: 20,
-          borderRadius: 4,
-          width: "min(420px, 92vw)",
-          border: "1px solid var(--glass-border)",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>{pickerTitle}</h3>
-        <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
-          每个源由不同采集站提供，请显式点选一个再确认。
-        </p>
+      <div className="sp-dialog">
+        <h3 className="sp-title">{pickerTitle}</h3>
+        <p className="sp-hint">每个源由不同采集站提供，请显式点选一个再确认。</p>
         {sourceList}
-        {actionButtons}
+        <div className="sp-actions">
+          <button type="button" className="dc-btn" onClick={onCancel}>
+            取消
+          </button>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

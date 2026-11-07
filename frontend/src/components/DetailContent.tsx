@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { getDownloadRoot } from "../api/settings";
@@ -22,6 +22,7 @@ import type {
   SourceDetail,
   SourceRef,
 } from "../types";
+import { displayYear } from "../utils/year";
 import "./DetailContent.css";
 
 export type DetailVariant = "page" | "modal" | "sheet";
@@ -32,6 +33,14 @@ export type DetailVariant = "page" | "modal" | "sheet";
  */
 export function posterLayoutId(title: string, year?: number | null): string {
   return `poster-${title}-${year ?? "null"}`;
+}
+
+/** 资源站简介是 HTML 片段：去标签后还要解实体，否则会露出 &#39; 之类。 */
+export function cleanIntro(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const el = document.createElement("textarea");
+  el.innerHTML = raw.replace(/<[^>]*>/g, " ");
+  return el.value.replace(/\s+/g, " ").trim();
 }
 
 export interface DetailContentProps {
@@ -112,9 +121,17 @@ export default function DetailContent({
     };
   }, [item.title, item.year]);
 
+  // 弹窗本身就是「选源 + 选集」的表面：主操作不再叠一层选源弹层，
+  // 而是把视线带到下方来源区，并展开第一个可用来源的集数。
+  const sourcesRef = useRef<HTMLElement>(null);
+
   const handlePlay = () => {
-    setPickerAction("play");
-    setPickerOpen(true);
+    if (!detailReady) return;
+    const target = detail.find((s) => s.episodes.length > 0) ?? detail[0];
+    if (target) {
+      setExpandedSources((prev) => new Set(prev).add(sourceKey(target)));
+    }
+    sourcesRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
 
   const handleDownload = async () => {
@@ -262,63 +279,53 @@ export default function DetailContent({
     createTasksAsync(source, indices, item);
   };
 
+  // 选源弹层里给用户可比较的信息，而不是数据库 ID
+  const sourceSubtitle = (s: SourceRef): string | undefined => {
+    const d = detail.find(
+      (x) => x.site_id === s.site_id && x.original_id === s.original_id
+    );
+    const parts: string[] = [];
+    if (d) parts.push(`${d.episodes.length} 集`);
+    if (s.type) parts.push(s.type);
+    if (s.remarks) parts.push(s.remarks);
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  };
+
   const actionBar = (
-    <div
-      className="row detail-actions"
-      style={{
-        marginTop: isSheet ? 0 : 8,
-        gap: isSheet ? 12 : 8,
-      }}
-    >
+    <div className={`dc-actions${isSheet ? " is-sheet" : ""}`}>
       <button
-        className="btn btn-primary"
+        type="button"
+        className="dc-btn dc-btn-primary"
         onClick={handlePlay}
         disabled={!detailReady}
-        style={{
-          flex: isSheet ? 1 : undefined,
-          minHeight: isSheet ? 48 : 40,
-          gap: 6,
-        }}
       >
         <PlayIcon size={16} />
-        播放
+        选源播放
       </button>
       <button
-        className="btn"
+        type="button"
+        className="dc-btn"
         onClick={handleDownload}
         disabled={!detailReady}
-        style={{
-          flex: isSheet ? 1 : undefined,
-          minHeight: isSheet ? 48 : 40,
-          gap: 6,
-        }}
       >
         <DownloadIcon size={16} />
         下载
       </button>
       <button
-        className="btn"
+        type="button"
+        className={`dc-btn dc-btn-fav${isFavorited ? " is-on" : ""}`}
         onClick={handleFavorite}
-        style={{
-          flex: isSheet ? 1 : undefined,
-          minHeight: isSheet ? 48 : 40,
-          gap: 6,
-        }}
+        aria-pressed={isFavorited}
+        aria-label={isFavorited ? "取消收藏" : "收藏"}
       >
-        <HeartIcon
-          size={16}
-          style={{
-            fill: isFavorited ? "var(--primary)" : "none",
-            color: isFavorited ? "var(--primary)" : "currentColor",
-          }}
-        />
+        <HeartIcon size={16} style={{ fill: isFavorited ? "currentColor" : "none" }} />
         {isFavorited ? "已收藏" : "收藏"}
       </button>
     </div>
   );
 
   return (
-    <div className={variant === "page" ? "col" : "detail-content"}>
+    <div className="dc" data-variant={variant}>
       {variant === "page" && (
         <button
           className="btn"
@@ -354,21 +361,8 @@ export default function DetailContent({
           返回
         </button>
       )}
-      <div
-        className="row detail-layout"
-        style={{
-          alignItems: isSheet ? "stretch" : "flex-start",
-          flexDirection: isSheet ? "column" : "row",
-        }}
-      >
-        <div
-          className="detail-poster-wrap"
-          style={{
-            width: isSheet ? "100%" : 220,
-            flexShrink: 0,
-            maxHeight: isSheet ? "45vh" : undefined,
-          }}
-        >
+      <div className="dc-head">
+        <div className="dc-poster">
           {variant === "page" ? (
             <PosterImage
               title={item.title}
@@ -401,15 +395,10 @@ export default function DetailContent({
                 posterUrls={item.poster_urls}
                 alt={item.title}
                 loading="eager"
-                style={{
-                  width: "100%",
-                  minHeight: isSheet ? 200 : 300,
-                  maxHeight: isSheet ? "45vh" : undefined,
-                  objectFit: isSheet ? "contain" : undefined,
-                }}
+                style={{ width: "100%" }}
                 placeholder={
-                  <div className="empty" style={{ height: "100%" }}>
-                    无封面
+                  <div className="poster-empty" style={{ height: "100%" }}>
+                    <span>暂无封面</span>
                   </div>
                 }
               />
@@ -417,46 +406,39 @@ export default function DetailContent({
           )}
         </div>
         <motion.div
-          className="col detail-info-wrap"
+          className="dc-info"
           style={{
             flex: 1,
-            gap: 8,
             width: isSheet ? "100%" : undefined,
-            marginTop: isSheet ? 12 : undefined,
           }}
           initial={variant === "page" ? false : { opacity: 0, y: 8 }}
           animate={variant === "page" ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.2, delay: 0.1 }}
         >
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-            {item.title} {item.year ? `(${item.year})` : ""}
-          </h2>
-          {detail[0]?.area && (
-            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              地区：{detail[0].area}
-            </div>
-          )}
-          {detail[0]?.actors && (
-            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              演员：{detail[0].actors}
-            </div>
-          )}
-          {detail[0]?.director && (
-            <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              导演：{detail[0].director}
+          <h2 className="dc-title">{item.title}</h2>
+          <div className="dc-meta tnum">
+            {[
+              item.year != null ? String(displayYear(item.year) ?? "") || null : null,
+              detail[0]?.area ?? null,
+              detail[0]?.type_name ?? null,
+              item.sources.length > 0 ? `${item.sources.length} 个来源` : null,
+            ]
+              .filter(Boolean)
+              .map((label, i) => (
+                <Fragment key={`${label}-${i}`}>
+                  {i > 0 && <i aria-hidden="true">·</i>}
+                  <span>{label}</span>
+                </Fragment>
+              ))}
+          </div>
+          {(detail[0]?.director || detail[0]?.actors) && (
+            <div className="dc-credits">
+              {detail[0]?.director && <span>导演 {detail[0].director}</span>}
+              {detail[0]?.actors && <span>演员 {detail[0].actors}</span>}
             </div>
           )}
           {detail[0]?.intro && (
-            <div
-              style={{
-                fontSize: 13,
-                color: "var(--text-secondary)",
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {detail[0].intro.replace(/<[^>]*>/g, "")}
-            </div>
+            <p className="dc-intro">{cleanIntro(detail[0].intro)}</p>
           )}
           {!isSheet && actionBar}
 
@@ -508,8 +490,14 @@ export default function DetailContent({
       )}
 
       {!isLoading && detail.length > 0 && (
-        <div className="source-list">
-          {detail.map((s) => {
+        <section className="dc-sources" ref={sourcesRef}>
+          <div className="dc-sources-head">
+            <h3>来源</h3>
+            <span className="dc-sources-count tnum">{detail.length} 个</span>
+            <span className="dc-sources-hint">选一个来源，展开选集</span>
+          </div>
+          <div className="source-list">
+            {detail.map((s) => {
             const key = sourceKey(s);
             const expanded = expandedSources.has(key);
             return (
@@ -570,7 +558,8 @@ export default function DetailContent({
               </div>
             );
           })}
-        </div>
+          </div>
+        </section>
       )}
 
       <SourcePicker
@@ -579,44 +568,25 @@ export default function DetailContent({
         title={pickerAction === "play" ? "选择播放源" : "选择下载源"}
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmSource}
+        formatSubtitle={sourceSubtitle}
       />
 
       {/* 集数选择对话框 */}
       {episodePickerOpen && selectedSource && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
+          className="ep-picker-overlay"
           onClick={(e) => {
             if (e.target === e.currentTarget) setEpisodePickerOpen(false);
           }}
         >
-          <div
-            style={{
-              background: "var(--bg-elevated)",
-              color: "var(--text-primary)",
-              padding: 20,
-              borderRadius: 4,
-              width: "min(520px, 92vw)",
-              border: "1px solid var(--border)",
-              maxHeight: "80vh",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>选择要下载的集数</h3>
-            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+          <div className="ep-picker-dialog">
+            <h3 className="ep-picker-title">选择要下载的集数</h3>
+            <p className="ep-picker-sub">
               {selectedSource.site_name || `站点 #${selectedSource.site_id}`} ·{" "}
               {item.title}
             </p>
 
-            <div style={{ overflowY: "auto", margin: "12px 0" }}>
+            <div className="ep-picker-body">
               {(() => {
                 const d = detail.find(
                   (s) =>
