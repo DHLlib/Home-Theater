@@ -8,6 +8,12 @@ import {
 import { getDownloadRoot } from "../../api/settings";
 import { createDownloadBatch } from "../../api/downloads";
 import { toastError, toastSuccess } from "../../utils/toast";
+import { HeartIcon, PlayIcon } from "../../components/icons";
+import EpisodeList from "../../components/EpisodeList";
+import SourcePicker from "../../components/SourcePicker";
+import PosterImage from "../../components/PosterImage";
+import { cleanIntro } from "../../components/DetailContent";
+import { displayYear } from "../../utils/year";
 import type {
   AggregatedVideo,
   DownloadBatchItem,
@@ -89,6 +95,7 @@ export default function MobileDetailView() {
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [isFavorited, setIsFavorited] = useState(false);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -133,13 +140,26 @@ export default function MobileDetailView() {
   };
 
   const handlePlayFirst = () => {
-    const s = detail.find((d) => d.episodes.length > 0);
-    if (!s) {
-      toastError("暂无可播放集数");
+    // 硬契约：不允许自动挑源。这里只打开选源浮层，由用户显式点选。
+    if (detail.length === 0) {
+      toastError("暂无可播放来源");
       return;
     }
-    navigate(buildPlayerUrl(s.site_id, s.original_id, 0), {
-      state: { episodes: s.episodes },
+    setPickerOpen(true);
+  };
+
+  const onConfirmSource = (source: SourceRef) => {
+    setPickerOpen(false);
+    const d = detail.find(
+      (s) =>
+        s.site_id === source.site_id && s.original_id === source.original_id
+    );
+    if (!d || d.episodes.length === 0) {
+      toastError("该源暂无可用集数");
+      return;
+    }
+    navigate(buildPlayerUrl(d.site_id, d.original_id, 0), {
+      state: { episodes: d.episodes },
     });
   };
 
@@ -206,6 +226,17 @@ export default function MobileDetailView() {
   const poster = pickPoster(item, detail[0]);
   const firstSource = detail.find((d) => d.episodes.length > 0);
 
+  const sourceSubtitle = (s: SourceRef): string | undefined => {
+    const d = detail.find(
+      (x) => x.site_id === s.site_id && x.original_id === s.original_id
+    );
+    const parts: string[] = [];
+    if (d) parts.push(`${d.episodes.length} 集`);
+    if (s.type) parts.push(s.type);
+    if (s.remarks) parts.push(s.remarks);
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  };
+
   return (
     <div className="mobile-detail">
       <header className="mobile-detail-header">
@@ -238,66 +269,74 @@ export default function MobileDetailView() {
       <div className="mobile-detail-body">
         <div className="mobile-detail-meta">
           <div className="mobile-detail-poster">
-            {poster ? (
-              <img src={poster} alt={item.title} />
-            ) : (
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-secondary)",
-                  fontSize: 12,
-                }}
-              >
-                无封面
-              </div>
-            )}
+            <PosterImage
+              title={item.title}
+              year={item.year}
+              posterUrl={poster}
+              posterUrls={item.poster_urls}
+              alt={item.title}
+              loading="eager"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              placeholder={
+                <div className="poster-empty">
+                  <span>暂无封面</span>
+                </div>
+              }
+            />
           </div>
           <div className="mobile-detail-info">
-            <h2 className="mobile-detail-name">
-              {item.title} {item.year ? `(${item.year})` : ""}
-            </h2>
-            {detail[0]?.area && (
-              <div className="mobile-detail-sub">地区：{detail[0].area}</div>
-            )}
-            {detail[0]?.director && (
-              <div className="mobile-detail-sub">导演：{detail[0].director}</div>
-            )}
-            {detail[0]?.actors && (
-              <div className="mobile-detail-sub">演员：{detail[0].actors}</div>
+            <h2 className="dc-title">{item.title}</h2>
+            <div className="dc-meta tnum">
+              {[
+                item.year != null
+                  ? String(displayYear(item.year) ?? "") || null
+                  : null,
+                detail[0]?.area ?? null,
+                detail[0]?.type_name ?? null,
+                item.sources.length > 0 ? `${item.sources.length} 个来源` : null,
+              ]
+                .filter(Boolean)
+                .map((label, i) => (
+                  <span key={`${label}-${i}`}>
+                    {i > 0 && <i aria-hidden="true">·</i>}
+                    {label}
+                  </span>
+                ))}
+            </div>
+            {(detail[0]?.director || detail[0]?.actors) && (
+              <div className="dc-credits">
+                {detail[0]?.director && <span>导演 {detail[0].director}</span>}
+                {detail[0]?.actors && <span>演员 {detail[0].actors}</span>}
+              </div>
             )}
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 10,
-            marginBottom: 16,
-          }}
-        >
+        <div className="dc-actions dc-actions-page">
           <button
-            className="btn btn-primary"
-            style={{ minHeight: 44 }}
+            type="button"
+            className="dc-btn dc-btn-primary"
             disabled={!firstSource || isLoading}
             onClick={handlePlayFirst}
           >
+            <PlayIcon size={15} />
             立即播放
           </button>
           <button
-            className="btn"
-            style={{ minHeight: 44 }}
+            type="button"
+            className={`dc-btn dc-btn-fav${isFavorited ? " is-on" : ""}`}
             onClick={handleFavorite}
+            aria-pressed={isFavorited}
           >
+            <HeartIcon
+              size={15}
+              style={{ fill: isFavorited ? "currentColor" : "none" }}
+            />
             {isFavorited ? "已收藏" : "收藏"}
           </button>
           <button
-            className="btn"
-            style={{ minHeight: 44 }}
+            type="button"
+            className="dc-btn"
             onClick={() => navigate("/downloads")}
           >
             查看下载
@@ -305,9 +344,7 @@ export default function MobileDetailView() {
         </div>
 
         {detail[0]?.intro && (
-          <div className="mobile-detail-desc">
-            {detail[0].intro.replace(/<[^>]*>/g, "")}
-          </div>
+          <div className="mobile-detail-desc">{cleanIntro(detail[0].intro)}</div>
         )}
 
         {isLoading && detail.length === 0 && (
@@ -333,67 +370,77 @@ export default function MobileDetailView() {
           </div>
         )}
 
-        {detail.map((s) => {
-          const key = sourceKey(s);
-          const expanded = expandedSources.has(key);
-          return (
-            <div key={key} className="mobile-source-section">
-              <div
-                className="mobile-source-header"
-                onClick={() => toggleSource(key)}
-                role="button"
-                aria-expanded={expanded}
-              >
-                <span className="mobile-source-name">
-                  {s.site_name || `站点 #${s.site_id}`}
-                </span>
-                <span
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <span className="mobile-source-count">
-                    {s.episodes.length} 集
-                  </span>
-                  <ChevronIcon open={expanded} />
-                </span>
-              </div>
-              {expanded && (
-                <div style={{ borderTop: "1px solid var(--glass-border)" }}>
-                  <div className="mobile-episode-grid">
-                    {s.episodes.map((ep) => (
-                      <button
-                        key={ep.index}
-                        className="mobile-episode-btn"
-                        onClick={() => handlePlayEpisode(s, ep.index)}
-                      >
-                        {ep.ep_name}
-                      </button>
-                    ))}
-                  </div>
-                  {s.episodes.length > 0 && (
-                    <div style={{ padding: "0 12px 12px" }}>
-                      <button
-                        className="btn"
-                        style={{ width: "100%", minHeight: 44 }}
-                        disabled={downloadingKey === key}
-                        onClick={() => handleDownloadSource(s)}
-                      >
-                        {downloadingKey === key
-                          ? "创建下载中..."
-                          : `下载全部 (${s.episodes.length} 集)`}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+        {detail.length > 0 && (
+          <section className="dc-sources">
+            <div className="dc-sources-head">
+              <h3>来源</h3>
+              <span className="dc-sources-count tnum">{detail.length} 个</span>
+              <span className="dc-sources-hint">选一个来源，展开选集</span>
             </div>
-          );
-        })}
+            <div className="source-list">
+              {detail.map((s) => {
+                const key = sourceKey(s);
+                const expanded = expandedSources.has(key);
+                return (
+                  <div
+                    key={key}
+                    className={`source-block${expanded ? " expanded" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className="source-header"
+                      onClick={() => toggleSource(key)}
+                      aria-expanded={expanded}
+                    >
+                      <span className="row" style={{ alignItems: "center", gap: 8 }}>
+                        <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                        {s.type_name && (
+                          <span className="source-type">{s.type_name}</span>
+                        )}
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span className="source-ep-count tnum">
+                          {s.episodes.length} 集
+                        </span>
+                        <ChevronIcon open={expanded} />
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div className="source-body">
+                        <EpisodeList
+                          episodes={s.episodes}
+                          onPick={(index) => handlePlayEpisode(s, index)}
+                        />
+                        {s.episodes.length > 0 && (
+                          <button
+                            type="button"
+                            className="dc-btn source-download-all"
+                            disabled={downloadingKey === key}
+                            onClick={() => handleDownloadSource(s)}
+                          >
+                            {downloadingKey === key
+                              ? "创建下载中…"
+                              : `下载全部（${s.episodes.length} 集）`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
+
+      <SourcePicker
+        open={pickerOpen}
+        sources={item.sources}
+        title="选择播放源"
+        onCancel={() => setPickerOpen(false)}
+        onConfirm={onConfirmSource}
+        formatSubtitle={sourceSubtitle}
+      />
     </div>
   );
 }

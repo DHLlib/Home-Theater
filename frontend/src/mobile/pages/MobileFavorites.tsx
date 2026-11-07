@@ -4,6 +4,8 @@ import { listFavorites, removeFavorite } from "../../api/favorites";
 import ActionSheet from "../../components/ActionSheet";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useLongPress } from "../../hooks/useLongPress";
+import PosterImage from "../../components/PosterImage";
+import { displayYear } from "../../utils/year";
 import type { Favorite } from "../../types";
 
 function formatDate(iso: string | null | undefined): string {
@@ -41,30 +43,26 @@ function FavoriteCard({
       style={{ touchAction: "manipulation", userSelect: "none" }}
     >
       <div className="mobile-video-card-poster">
-        {item.poster_url ? (
-          <img src={item.poster_url} alt={item.title} loading="lazy" />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--text-secondary)",
-              fontSize: 12,
-            }}
-          >
-            无封面
-          </div>
-        )}
+        <PosterImage
+          title={item.title}
+          year={item.year}
+          posterUrl={item.poster_url}
+          alt={item.title}
+          loading="lazy"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          placeholder={
+            <div className="poster-empty">
+              <span>暂无封面</span>
+            </div>
+          }
+        />
       </div>
       <div className="mobile-video-card-info">
         <h3 className="mobile-video-card-title" title={item.title}>
           {item.title}
         </h3>
         <div className="mobile-video-card-meta">
-          {item.year ? `${item.year} · ` : ""}
+          {displayYear(item.year) ? `${displayYear(item.year)} · ` : ""}
           {item.sources?.length || 0} 个来源
         </div>
         <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>

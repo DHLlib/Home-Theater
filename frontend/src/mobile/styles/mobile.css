@@ -1,5 +1,5 @@
-/* MobileApp: 移动端专用样式
- * 与桌面版解耦，只影响 mobile/ 路由下的渲染。
+/* MobileApp: 绉诲姩绔笓鐢ㄦ牱寮?
+ * 涓庢闈㈢増瑙ｈ€︼紝鍙奖鍝?mobile/ 璺敱涓嬬殑娓叉煋銆?
  */
 
 .mobile-layout {
@@ -25,7 +25,7 @@
   justify-content: center;
 }
 
-/* 底部导航 */
+/* 搴曢儴瀵艰埅 */
 .mobile-nav {
   position: fixed;
   left: 0;
@@ -107,7 +107,7 @@
   }
 }
 
-/* 通用移动页面容器 */
+/* 閫氱敤绉诲姩椤甸潰瀹瑰櫒 */
 .mobile-page {
   min-height: 100%;
   padding: 16px;
@@ -121,6 +121,51 @@
   margin-bottom: 16px;
 }
 
+/* 首页页头：品牌锚点 + 一行搜索（契约要求移动首屏有搜索） */
+.mobile-home-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mobile-home-brand {
+  font-family: 'Cinzel', 'Noto Sans SC', serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--text-primary);
+}
+
+.mobile-home-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 二级分类：与父类同一行样式，弱化一档 */
+.mobile-category-subtabs {
+  margin-top: -8px;
+  margin-bottom: 10px;
+}
+
+.mobile-category-subtabs .mobile-category-tab {
+  font-size: 12px;
+  padding: 5px 10px;
+  opacity: 0.85;
+}
+
 .mobile-page-title {
   margin: 0;
   font-size: 20px;
@@ -128,7 +173,7 @@
   color: var(--text-primary);
 }
 
-/* 顶部返回按钮 */
+/* 椤堕儴杩斿洖鎸夐挳 */
 .mobile-back-btn {
   display: inline-flex;
   align-items: center;
@@ -143,7 +188,7 @@
   cursor: pointer;
 }
 
-/* 移动版分类 Tabs */
+/* 绉诲姩鐗堝垎绫?Tabs */
 .mobile-category-tabs {
   display: flex;
   gap: 8px;
@@ -177,36 +222,39 @@
   border-color: var(--primary);
 }
 
-/* 移动视频卡片 */
+/* 绉诲姩瑙嗛鍗＄墖锛堜笌妗岄潰 VideoCard 鍚屼竴濂楄瑷€锛氭弿杈规捣鎶?+ 鍗′笅鏍囬锛?*/
 .mobile-video-card {
   position: relative;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-elevated);
-  border: 1px solid var(--glass-border);
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
   cursor: pointer;
   transition: transform var(--transition-fast);
 }
 
 .mobile-video-card:active {
-  transform: scale(0.98);
+  transform: scale(0.985);
 }
 
 .mobile-video-card-poster {
   position: relative;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
 }
 
 .mobile-video-card-poster img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .mobile-video-card-info {
-  padding: 10px;
+  padding: 8px 2px 0;
 }
 
 .mobile-video-card-title {
@@ -214,7 +262,7 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  line-height: 1.35;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -223,12 +271,13 @@
 }
 
 .mobile-video-card-meta {
-  margin-top: 4px;
+  margin-top: 3px;
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 详情页 */
+/* 璇︽儏椤?*/
 .mobile-detail {
   min-height: 100dvh;
   background: var(--bg);
@@ -240,12 +289,11 @@
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  padding-top: calc(12px + env(safe-area-inset-top));
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--glass-border);
+  gap: 10px;
+  padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .mobile-detail-title {
@@ -264,24 +312,27 @@
 }
 
 .mobile-detail-poster {
-  width: 120px;
-  border-radius: 8px;
+  width: 104px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
   aspect-ratio: 2 / 3;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-elevated);
 }
 
 .mobile-detail-poster img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .mobile-detail-meta {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .mobile-detail-info {
@@ -289,7 +340,38 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.dc-actions-page {
+  margin-bottom: 18px;
+}
+
+.dc-actions-page .dc-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  gap: 5px;
+}
+
+.source-type {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.source-ep-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.source-download-all {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .mobile-detail-name {
@@ -310,9 +392,13 @@
   line-height: 1.6;
   color: var(--text-secondary);
   margin-bottom: 20px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-/* 来源 / 集数 */
+/* 鏉ユ簮 / 闆嗘暟 */
 .mobile-source-section {
   margin-bottom: 16px;
   border: 1px solid var(--glass-border);
@@ -367,7 +453,7 @@
   border-color: var(--primary);
 }
 
-/* 列表项 */
+/* 鍒楄〃椤?*/
 .mobile-list-item {
   display: flex;
   align-items: center;
@@ -400,7 +486,7 @@
   color: var(--text-secondary);
 }
 
-/* 空状态 */
+/* 绌虹姸鎬?*/
 .mobile-empty {
   display: flex;
   flex-direction: column;
@@ -418,7 +504,7 @@
   color: var(--text-primary);
 }
 
-/* 搜索框 */
+/* 鎼滅储妗?*/
 .mobile-search-bar {
   display: flex;
   align-items: center;
@@ -444,17 +530,17 @@
   flex-shrink: 0;
   height: 44px;
   padding: 0 20px;
-  border-radius: 100px;
-  border: none;
-  background: var(--primary);
-  color: #000;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--text-primary);
+  background: var(--text-primary);
+  color: #0a0a0b;
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
 
-/* 我的页面入口 */
+/* 鎴戠殑椤甸潰鍏ュ彛 */
 .mobile-me-grid {
   display: grid;
   gap: 10px;

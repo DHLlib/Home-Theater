@@ -1,21 +1,16 @@
 import { useNavigate } from "react-router-dom";
+import PosterImage from "../../components/PosterImage";
+import { displayYear } from "../../utils/year";
 import type { AggregatedVideo } from "../../types";
 
 interface MobileVideoCardProps {
   item: AggregatedVideo;
 }
 
-function pickPoster(item: AggregatedVideo): string | undefined {
-  if (item.poster_url) return item.poster_url;
-  if (item.poster_urls && item.poster_urls.length > 0) {
-    return item.poster_urls.find((u) => u?.trim()) || item.poster_urls[0];
-  }
-  return undefined;
-}
-
 function formatMeta(item: AggregatedVideo): string {
   const parts: string[] = [];
-  if (item.year) parts.push(String(item.year));
+  const year = displayYear(item.year);
+  if (year) parts.push(String(year));
   const sourceCount = item.sources.length;
   if (sourceCount > 0) parts.push(`${sourceCount} 个来源`);
   return parts.join(" · ") || " ";
@@ -23,7 +18,6 @@ function formatMeta(item: AggregatedVideo): string {
 
 export default function MobileVideoCard({ item }: MobileVideoCardProps) {
   const navigate = useNavigate();
-  const poster = pickPoster(item);
 
   return (
     <div
@@ -34,29 +28,41 @@ export default function MobileVideoCard({ item }: MobileVideoCardProps) {
             title: item.title,
             year: item.year ?? null,
             sources: item.sources,
-            poster_url: poster ?? null,
+            poster_url: item.poster_url ?? null,
           },
         })
       }
     >
       <div className="mobile-video-card-poster">
-        {poster ? (
-          <img src={poster} alt={item.title} loading="lazy" />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--text-secondary)",
-              fontSize: 12,
-            }}
-          >
-            无封面
-          </div>
-        )}
+        <PosterImage
+          title={item.title}
+          year={item.year}
+          posterUrl={item.poster_url}
+          posterUrls={item.poster_urls}
+          alt={item.title}
+          loading="lazy"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          placeholder={
+            <div className="poster-empty">
+              <svg
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+              <span>暂无封面</span>
+            </div>
+          }
+        />
       </div>
       <div className="mobile-video-card-info">
         <h3 className="mobile-video-card-title" title={item.title}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import MobileVideoCard from "../components/MobileVideoCard";
+import { SearchIcon } from "../../components/icons";
 import {
   useCrawlerStatusQuery,
   useRecommendedVideosQuery,
@@ -9,7 +10,6 @@ import {
 } from "../../hooks/useVideos";
 import { listSystemCategories } from "../../api/system-categories";
 import { useQuery } from "@tanstack/react-query";
-import type { SystemCategoryTreeItem } from "../../types";
 
 function videoKey(item: { title: string; year?: number | null }): string {
   return `${item.title}-${item.year ?? "null"}`;
@@ -25,22 +25,9 @@ function getLatestUpdatedAt(item: { sources: { updated_at?: string }[] }): strin
   return latest;
 }
 
-function flattenCategories(tree: SystemCategoryTreeItem[]): SystemCategoryTreeItem[] {
-  const result: SystemCategoryTreeItem[] = [];
-  for (const node of tree) {
-    if (node.children && node.children.length > 0) {
-      for (const child of node.children) {
-        result.push(child);
-      }
-    } else if (!node.parent_id) {
-      result.push(node);
-    }
-  }
-  return result;
-}
-
 export default function MobileHome() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeCategory = searchParams.get("category") || null;
   const sort = searchParams.get("sort") === "year" ? "year" : "updated";
 
@@ -64,10 +51,33 @@ export default function MobileHome() {
 
   const videos = useMemo(() => data?.pages.flat() ?? [], [data]);
 
-  const leafCategories = useMemo(
-    () => flattenCategories(categoriesTree),
+  const parentCategories = useMemo(
+    () =>
+      categoriesTree.filter(
+        (c) => c.enabled !== false && (c.children?.length ?? 0) > 0
+      ),
     [categoriesTree]
   );
+
+  const activeParent = useMemo(
+    () =>
+      parentCategories.find(
+        (p) =>
+          p.name === activeCategory ||
+          p.children.some((c) => c.name === activeCategory)
+      ) ?? null,
+    [parentCategories, activeCategory]
+  );
+
+  const setCategory = (name: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (name) {
+      next.set("category", name);
+    } else {
+      next.delete("category");
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   const latestSection = useMemo(() => {
     const sorted = [...videos].sort((a, b) => {
@@ -171,33 +181,58 @@ export default function MobileHome() {
   }
 
   return (
-    <div className="mobile-page" style={{ paddingTop: 8 }}>
-      {/* 分类 Tabs */}
+    <div className="mobile-page">
+      <header className="mobile-home-head">
+        <div className="mobile-home-brand">HOME THEATER</div>
+        <button
+          type="button"
+          className="mobile-home-search"
+          onClick={() => navigate("/search")}
+        >
+          <SearchIcon size={15} />
+          <span>搜索片名、演员、年份</span>
+        </button>
+      </header>
+      {/* 分类 Tabs：5 大类 + 选中大类的子类（与桌面同一套层级） */}
       <div className="mobile-category-tabs">
         <button
           className={`mobile-category-tab${!activeCategory ? " active" : ""}`}
-          onClick={() => {
-            const next = new URLSearchParams(searchParams);
-            next.delete("category");
-            setSearchParams(next, { replace: true });
-          }}
+          onClick={() => setCategory(null)}
         >
           全部
         </button>
-        {leafCategories.map((cat) => (
+        {parentCategories.map((cat) => (
           <button
             key={cat.id}
-            className={`mobile-category-tab${activeCategory === cat.name ? " active" : ""}`}
-            onClick={() => {
-              const next = new URLSearchParams(searchParams);
-              next.set("category", cat.name);
-              setSearchParams(next, { replace: true });
-            }}
+            className={`mobile-category-tab${
+              activeCategory === cat.name || activeParent?.id === cat.id
+                ? " active"
+                : ""
+            }`}
+            onClick={() => setCategory(cat.name)}
           >
             {cat.name}
           </button>
         ))}
       </div>
+
+      {activeParent && activeParent.children.length > 0 && (
+        <div className="mobile-category-tabs mobile-category-subtabs">
+          {activeParent.children
+            .filter((c) => c.enabled !== false)
+            .map((child) => (
+              <button
+                key={child.id}
+                className={`mobile-category-tab${
+                  activeCategory === child.name ? " active" : ""
+                }`}
+                onClick={() => setCategory(child.name)}
+              >
+                {child.name}
+              </button>
+            ))}
+        </div>
+      )}
 
       {/* 推荐轮播 / 横向滚动 */}
       {!activeCategory && !isLoading && recommendedVideos.length > 0 && (
