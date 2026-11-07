@@ -494,7 +494,7 @@ export default function Settings() {
             }}
           >
             <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <span style={{ color: "var(--primary)" }}>
+              <span style={{ color: "var(--text-secondary)" }}>
                 <ServerIcon size={16} />
               </span>
               <h3
@@ -502,8 +502,7 @@ export default function Settings() {
                   margin: 0,
                   fontSize: 16,
                   fontWeight: 600,
-                  textShadow: "0 0 12px var(--primary-glow)",
-                  letterSpacing: 0.3,
+                  letterSpacing: 0.2,
                 }}
               >
                 采集站管理
@@ -1085,7 +1084,11 @@ export default function Settings() {
                     <span
                       style={{
                         textAlign: "right",
-                        color: "var(--success)",
+                        color:
+                          log.new_count > 0
+                            ? "var(--primary)"
+                            : "var(--text-muted)",
+                        fontVariantNumeric: "tabular-nums",
                       }}
                     >
                       {log.new_count}
@@ -1093,7 +1096,11 @@ export default function Settings() {
                     <span
                       style={{
                         textAlign: "right",
-                        color: "var(--primary)",
+                        color:
+                          log.update_count > 0
+                            ? "var(--text-primary)"
+                            : "var(--text-muted)",
+                        fontVariantNumeric: "tabular-nums",
                       }}
                     >
                       {log.update_count}
