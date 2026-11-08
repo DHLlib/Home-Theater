@@ -8,6 +8,8 @@ class Episode(BaseModel):
     url: str
     suffix: str
     index: int
+    # 播放前探测结果：True=可达，False=线路不通，None=未探测（本地代理/超出探测预算）
+    reachable: bool | None = None
 
 
 class SourceRef(BaseModel):

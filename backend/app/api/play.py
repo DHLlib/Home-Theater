@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+import httpx
 from fastapi import APIRouter, Depends, Response
 from app.errors import site_not_found, video_not_found, external_error
 from pydantic import BaseModel
@@ -27,6 +28,71 @@ router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = settings.play_cache_ttl_seconds
+
+# 播放前线路探测：任何 HTTP 响应都算可达，网络错误/超时算不可达
+_PROBE_TIMEOUT = 1.5
+_PROBE_CONCURRENCY = 16
+_PROBE_BUDGET = 4.0
+_PROBE_TTL = 180.0
+_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _probe_url(client, url: str) -> bool:
+    """探测单个播放地址是否可达（带 180 秒缓存）。"""
+    cached = _probe_cache.get(url)
+    now = time.monotonic()
+    if cached is not None and now - cached[0] < _PROBE_TTL:
+        return cached[1]
+
+    ok = False
+    try:
+        await client.head(url, timeout=_PROBE_TIMEOUT, follow_redirects=True)
+        ok = True
+    except (httpx.TimeoutException, httpx.ConnectError):
+        # 连接/读取超时说明主机不可达，不再用 GET 重试一遍白等
+        ok = False
+    except Exception:
+        # 部分 CDN 不支持 HEAD，回退到 Range GET 只取 1 字节
+        try:
+            await client.get(
+                url,
+                timeout=_PROBE_TIMEOUT,
+                headers={"Range": "bytes=0-0"},
+                follow_redirects=True,
+            )
+            ok = True
+        except Exception:
+            ok = False
+
+    _probe_cache[url] = (now, ok)
+    return ok
+
+
+async def _probe_episodes(urls: list[str]) -> dict[str, bool]:
+    """并发探测一组播放地址，超出总预算的条目直接放弃（前端按未知处理）。"""
+    targets = [u for u in dict.fromkeys(urls) if u.lower().startswith(("http://", "https://"))]
+    if not targets:
+        return {}
+
+    semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
+    results: dict[str, bool] = {}
+
+    async with httpx.AsyncClient(
+        headers={"User-Agent": DEFAULT_USER_AGENT}, verify=False
+    ) as client:
+
+        async def worker(url: str) -> None:
+            async with semaphore:
+                results[url] = await _probe_url(client, url)
+
+        tasks = [asyncio.create_task(worker(u)) for u in targets]
+        done, pending = await asyncio.wait(tasks, timeout=_PROBE_BUDGET)
+        for task in pending:
+            task.cancel()
+        if pending:
+            logger.info("play_probe_budget_exceeded probed=%d pending=%d", len(done), len(pending))
+
+    return results
 
 
 class PlaySourceOut(BaseModel):
@@ -256,6 +322,18 @@ async def get_episodes(
         elif suffix_lower == "360zy":
             episodes[i] = replace(e, suffix="ffm3u8")
 
+    # 播放前探测线路是否可达（必须在改写成后端代理之前探测真实地址）
+    upstream_urls = {i: e.url for i, e in enumerate(episodes)}
+    probe_start = time.monotonic()
+    probed = await _probe_episodes(list(upstream_urls.values()))
+    logger.info(
+        "play_probe site=%s urls=%d unreachable=%d elapsed=%.2fs",
+        site.name,
+        len(upstream_urls),
+        sum(1 for ok in probed.values() if not ok),
+        time.monotonic() - probe_start,
+    )
+
     # 若开启全局去广告，HLS 地址走后端代理清洗 playlist
     if await is_ad_filter_enabled():
         for i, e in enumerate(episodes):
@@ -269,6 +347,12 @@ async def get_episodes(
     elapsed = time.monotonic() - start
     logger.info("play_return site=%s episodes=%d elapsed=%.2fs", site.name, len(episodes), elapsed)
     return [
-        Episode(ep_name=e.ep_name, url=e.url, suffix=e.suffix, index=e.index)
-        for e in episodes
+        Episode(
+            ep_name=e.ep_name,
+            url=e.url,
+            suffix=e.suffix,
+            index=e.index,
+            reachable=probed.get(upstream_urls.get(i), None),
+        )
+        for i, e in enumerate(episodes)
     ]
