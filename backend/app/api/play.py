@@ -179,7 +179,7 @@ async def get_episodes(
             items = await client.videolist(ids=[original_id], op="play_resolve")
         if not items:
             logger.warning("play_videolist_empty site=%s original_id=%s", site.name, original_id)
-            raise video_not_found(title)
+            raise video_not_found(f"{site.name} / {original_id}")
 
         item = items[0]
         play_raw = item.get("play_url_raw", "")

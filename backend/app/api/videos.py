@@ -4,7 +4,7 @@ import time
 from dataclasses import replace
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.errors import crawler_not_running, validation_error, video_not_found
 from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession

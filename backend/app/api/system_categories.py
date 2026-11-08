@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.errors import category_not_found, category_exists, category_cycle
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

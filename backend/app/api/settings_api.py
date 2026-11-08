@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from app.errors import validation_error
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
