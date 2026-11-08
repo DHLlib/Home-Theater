@@ -9,6 +9,7 @@ import { useDetailQuery } from "../hooks/useVideos";
 import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "./EpisodeList";
 import PosterImage from "./PosterImage";
+import PosterEmpty from "./PosterEmpty";
 import SourcePicker from "./SourcePicker";
 import {
   ChevronDownIcon,
@@ -81,9 +82,6 @@ export default function DetailContent({
   const detailReady = !isLoading && detail.length > 0;
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerAction, setPickerAction] = useState<"play" | "download" | null>(
-    null
-  );
   const [selectedSource, setSelectedSource] = useState<SourceRef | null>(null);
   const [episodePickerOpen, setEpisodePickerOpen] = useState(false);
   const [selectedEpisodeIndices, setSelectedEpisodeIndices] = useState<
@@ -141,7 +139,6 @@ export default function DetailContent({
       navigate("/settings");
       return;
     }
-    setPickerAction("download");
     setPickerOpen(true);
   };
 
@@ -181,20 +178,13 @@ export default function DetailContent({
         s.site_id === source.site_id && s.original_id === source.original_id
     );
     if (!d) return;
-
-    if (pickerAction === "play") {
-      navigate(buildPlayerUrl(source.site_id, source.original_id, 0), {
-        state: { episodes: d.episodes },
-      });
-    } else if (pickerAction === "download") {
-      if (d.episodes.length === 0) {
-        toastError("该源暂无可用集数");
-        return;
-      }
-      setSelectedSource(source);
-      setSelectedEpisodeIndices(new Set());
-      setEpisodePickerOpen(true);
+    if (d.episodes.length === 0) {
+      toastError("该源暂无可用集数");
+      return;
     }
+    setSelectedSource(source);
+    setSelectedEpisodeIndices(new Set());
+    setEpisodePickerOpen(true);
   };
 
   const handleToggleEpisode = (index: number, selected: boolean) => {
@@ -290,6 +280,11 @@ export default function DetailContent({
     if (s.remarks) parts.push(s.remarks);
     return parts.length > 0 ? parts.join(" · ") : undefined;
   };
+
+  // 来源区的提示跟着展开状态变化，而不是一句静态文案
+  const expandedCount = detail.filter((s) =>
+    expandedSources.has(sourceKey(s))
+  ).length;
 
   const actionBar = (
     <div className={`dc-actions${isSheet ? " is-sheet" : ""}`}>
@@ -396,11 +391,7 @@ export default function DetailContent({
                 alt={item.title}
                 loading="eager"
                 style={{ width: "100%" }}
-                placeholder={
-                  <div className="poster-empty" style={{ height: "100%" }}>
-                    <span>暂无封面</span>
-                  </div>
-                }
+                placeholder={<PosterEmpty />}
               />
             </motion.div>
           )}
@@ -494,7 +485,11 @@ export default function DetailContent({
           <div className="dc-sources-head">
             <h3>来源</h3>
             <span className="dc-sources-count tnum">{detail.length} 个</span>
-            <span className="dc-sources-hint">选一个来源，展开选集</span>
+            <span className="dc-sources-hint">
+              {expandedCount > 0
+                ? `已展开 ${expandedCount} 个来源，点集数开始播放`
+                : "点一个来源，展开选集"}
+            </span>
           </div>
           <div className="source-list">
             {detail.map((s) => {
@@ -565,7 +560,7 @@ export default function DetailContent({
       <SourcePicker
         open={pickerOpen}
         sources={item.sources}
-        title={pickerAction === "play" ? "选择播放源" : "选择下载源"}
+        title="选择下载源"
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmSource}
         formatSubtitle={sourceSubtitle}

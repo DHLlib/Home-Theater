@@ -4,6 +4,7 @@ import { listFavorites, removeFavorite } from "../api/favorites";
 import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
 import PosterImage from "../components/PosterImage";
+import PosterEmpty from "../components/PosterEmpty";
 import { displayYear } from "../utils/year";
 import { useLongPress } from "../hooks/useLongPress";
 import { useIsMobile } from "../hooks/useViewport";
@@ -156,11 +157,7 @@ function ArchiveCard({
             transition: "transform var(--transition-slow)",
             transform: hovered ? "scale(1.05)" : "scale(1)",
           }}
-          placeholder={
-            <div className="poster-empty">
-              <span>暂无封面</span>
-            </div>
-          }
+          placeholder={<PosterEmpty size={28} />}
         />
         <div
           style={{

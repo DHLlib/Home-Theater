@@ -5,6 +5,7 @@ import ActionSheet from "../../components/ActionSheet";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useLongPress } from "../../hooks/useLongPress";
 import PosterImage from "../../components/PosterImage";
+import PosterEmpty from "../../components/PosterEmpty";
 import { displayYear } from "../../utils/year";
 import type { Favorite } from "../../types";
 
@@ -50,11 +51,7 @@ function FavoriteCard({
           alt={item.title}
           loading="lazy"
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          placeholder={
-            <div className="poster-empty">
-              <span>暂无封面</span>
-            </div>
-          }
+          placeholder={<PosterEmpty size={28} />}
         />
       </div>
       <div className="mobile-video-card-info">

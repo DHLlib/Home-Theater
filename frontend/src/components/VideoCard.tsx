@@ -6,6 +6,7 @@ import { toastError, toastSuccess } from "../utils/toast";
 import { displayYear } from "../utils/year";
 import { useIsMobile } from "../hooks/useViewport";
 import PosterImage from "./PosterImage";
+import PosterEmpty from "./PosterEmpty";
 import { posterLayoutId } from "./DetailContent";
 import { HeartIcon, PlayIcon } from "./icons";
 import type { AggregatedVideo } from "../types";
@@ -15,32 +16,20 @@ export interface VideoCardProps {
   item: AggregatedVideo;
   width?: number;
   showOverlay?: boolean;
+  /**
+   * 是否参与「卡片 → 详情弹窗」的共享元素动画。
+   * 同一部片同时出现在推荐横条与网格时 layoutId 会重复，framer-motion
+   * 会把其中一张卡留在 opacity:0，所以横条这类重复场景要关掉。
+   */
+  sharedLayout?: boolean;
 }
 
-function PosterPlaceholder() {
-  return (
-    <div className="poster-placeholder">
-      <svg
-        width="32"
-        height="32"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <circle cx="8.5" cy="8.5" r="1.5" />
-        <path d="M21 15l-5-5L5 21" />
-      </svg>
-      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>暂无封面</span>
-    </div>
-  );
-}
-
-function VideoCard({ item, width, showOverlay = true }: VideoCardProps) {
+function VideoCard({
+  item,
+  width,
+  showOverlay = true,
+  sharedLayout = true,
+}: VideoCardProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
@@ -109,7 +98,9 @@ function VideoCard({ item, width, showOverlay = true }: VideoCardProps) {
     >
       <div className="vc-poster">
         <motion.div
-          layoutId={posterLayoutId(item.title, item.year)}
+          layoutId={
+            sharedLayout ? posterLayoutId(item.title, item.year) : undefined
+          }
           className="vc-poster-media"
         >
           <PosterImage
@@ -119,7 +110,7 @@ function VideoCard({ item, width, showOverlay = true }: VideoCardProps) {
             posterUrls={item.poster_urls}
             alt={item.title}
             loading="lazy"
-            placeholder={<PosterPlaceholder />}
+            placeholder={<PosterEmpty />}
           />
         </motion.div>
 

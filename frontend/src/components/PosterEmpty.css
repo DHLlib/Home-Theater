@@ -1,0 +1,21 @@
+/* 海报缺图占位：全站唯一实现 */
+.poster-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* 比弹窗底色（--bg-elevated）高一档，缺图时海报位仍然可辨 */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: inherit;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.poster-empty svg {
+  opacity: 0.55;
+}

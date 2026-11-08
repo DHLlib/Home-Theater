@@ -12,6 +12,7 @@ import { HeartIcon, PlayIcon } from "../../components/icons";
 import EpisodeList from "../../components/EpisodeList";
 import SourcePicker from "../../components/SourcePicker";
 import PosterImage from "../../components/PosterImage";
+import PosterEmpty from "../../components/PosterEmpty";
 import { cleanIntro } from "../../components/DetailContent";
 import { displayYear } from "../../utils/year";
 import type {
@@ -277,11 +278,7 @@ export default function MobileDetailView() {
               alt={item.title}
               loading="eager"
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              placeholder={
-                <div className="poster-empty">
-                  <span>暂无封面</span>
-                </div>
-              }
+              placeholder={<PosterEmpty />}
             />
           </div>
           <div className="mobile-detail-info">
