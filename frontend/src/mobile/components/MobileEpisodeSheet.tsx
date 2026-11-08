@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import BottomSheet from "../../components/BottomSheet";
 import EpisodeList from "../../components/EpisodeList";
 import type { SourceDetail } from "../../types";
@@ -22,20 +21,6 @@ export default function MobileEpisodeSheet({
   onClose,
   onPick,
 }: MobileEpisodeSheetProps) {
-  const open = source !== null;
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
   // hooks 全部在 return 之前，source 置空时安全卸载
   if (!source) return null;
 
