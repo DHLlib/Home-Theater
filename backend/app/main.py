@@ -18,7 +18,7 @@ from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
-from app.services.tls import warm_ssl_context
+from app.services.tls import get_ssl_context
 from app.services.category_mapping import migrate_categories_to_mapping_table
 from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
 
@@ -400,9 +400,9 @@ async def _loop_lag_watchdog(threshold: float = 2.0) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    # 预先在后台线程建好 TLS 上下文：Windows 上首次建上下文可能要几十秒，
-    # 放在请求路径里会直接卡住事件循环。
-    warm_ssl_context()
+    # 启动时先把 TLS 上下文建好：Windows 上首次建上下文可能要几秒到几十秒，
+    # 放在请求路径里会直接卡住事件循环（曾导致整站 45 秒无响应）。
+    await asyncio.to_thread(get_ssl_context)
     await check_db_connection()
     await init_db()
     await _fix_postgres_sequences()
