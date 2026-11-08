@@ -6,8 +6,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import PlayProgress
+from app.models import AggregatedVideoV3, PlayProgress
 from app.schemas import PlayProgressIn
+from app.services.aggregator import normalize_title
 
 router = APIRouter(prefix="/progress", tags=["progress"])
 logger = logging.getLogger(__name__)
@@ -60,10 +61,35 @@ async def upsert_progress(req: PlayProgressIn, db: AsyncSession = Depends(get_db
 
 @router.get("/recent")
 async def list_recent(db: AsyncSession = Depends(get_db)):
+    # 顺带带上海报：首页「继续观看」直接用它渲染，避免前端为 8 条记录再发请求。
+    # 进度表本身没有封面，用规范化标题去聚合表捞（比 title+year 精确匹配命中率高得多）。
     result = await db.execute(
         select(PlayProgress).order_by(PlayProgress.updated_at.desc()).limit(50)
     )
-    return result.scalars().all()
+    rows = list(result.scalars().all())
+
+    norms = {normalize_title(row.title) for row in rows if row.title}
+    poster_by_norm: dict[str, str] = {}
+    if norms:
+        poster_rows = await db.execute(
+            select(AggregatedVideoV3.norm_title, AggregatedVideoV3.poster_url).where(
+                AggregatedVideoV3.norm_title.in_(norms),
+                AggregatedVideoV3.poster_url.isnot(None),
+                AggregatedVideoV3.poster_url != "",
+            )
+        )
+        for norm_title, poster_url in poster_rows.all():
+            poster_by_norm.setdefault(norm_title, poster_url)
+
+    items = []
+    for row in rows:
+        item = {
+            column.name: getattr(row, column.name)
+            for column in PlayProgress.__table__.columns
+        }
+        item["poster_url"] = poster_by_norm.get(normalize_title(row.title))
+        items.append(item)
+    return items
 
 
 @router.get("")
