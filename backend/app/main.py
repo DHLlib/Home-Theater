@@ -225,6 +225,21 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON video_cache USING gin (title gin_trgm_ops)"
                 )
             )
+            # 搜索改走聚合表（18 万行 vs video_cache 中的冗余副本），同样需要 trgm 索引
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_title_trgm "
+                    "ON aggregated_videos USING gin (title gin_trgm_ops)"
+                )
+            )
+            # 分类分页：按分类 + 最新排序取前 N，缺这个复合索引会沿「最新」索引
+            # 扫过大量不匹配的行（实测 67ms → 1ms 级别）
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_cat_updated "
+                    "ON aggregated_videos (system_category, latest_updated_at DESC)"
+                )
+            )
         logger.info("pg_trgm 标题索引已就绪")
     except Exception as exc:
         logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")

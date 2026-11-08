@@ -126,6 +126,17 @@ _category_filter_cache_ts: float = 0.0
 _CATEGORY_FILTER_CACHE_TTL = 60  # 秒
 
 
+# 分类计数缓存：分类栏每次挂载都会请求，全表 GROUP BY 需要 120ms
+_category_stats_cache: dict | None = None
+_category_stats_cache_ts: float = 0.0
+_CATEGORY_STATS_TTL = 60.0
+
+
+def invalidate_category_stats_cache() -> None:
+    global _category_stats_cache, _category_stats_cache_ts
+    _category_stats_cache = None
+    _category_stats_cache_ts = 0.0
+
 def invalidate_category_filter_cache() -> None:
     """立即作废分类过滤缓存。系统分类变更后由 system_categories 调用。
 
@@ -136,6 +147,7 @@ def invalidate_category_filter_cache() -> None:
     global _category_filter_cache, _category_filter_cache_ts
     _category_filter_cache = None
     _category_filter_cache_ts = 0.0
+    invalidate_category_stats_cache()
 
 
 
@@ -559,6 +571,7 @@ async def _query_aggregated_cache(
     category: str | None = None,
     fallback_category: str | None = None,
     sites: list[Site] | None = None,
+    keyword: str | None = None,
 ) -> AggregatedListResponse | None:
     """从中间表 aggregated_videos / aggregated_sources 读取预聚合缓存。
 
@@ -572,13 +585,11 @@ async def _query_aggregated_cache(
         system_by_name, system_by_id, site_mappings = await _load_category_filter_maps(db)
 
         base_query = select(AggregatedVideoV3)
-        count_query = select(func.count()).select_from(AggregatedVideoV3)
 
         # 禁用站点即隐藏：排除只由禁用站点提供的视频
         hidden = await _hidden_video_filter(db)
         if hidden is not None:
             base_query = base_query.where(AggregatedVideoV3.id.notin_(hidden))
-            count_query = count_query.where(AggregatedVideoV3.id.notin_(hidden))
 
         if site_id is not None:
             subq = (
@@ -587,7 +598,6 @@ async def _query_aggregated_cache(
                 .subquery()
             )
             base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
-            count_query = count_query.where(AggregatedVideoV3.id.in_(subq))
 
         # 分类过滤：视频级 system_category（聚合时按来源别名多数票算出）。
         # 未分类 = 没有任何来源命中别名，system_category 为 NULL。
@@ -595,9 +605,6 @@ async def _query_aggregated_cache(
         if category:
             if category == UNCATEGORIZED_CATEGORY:
                 base_query = base_query.where(
-                    AggregatedVideoV3.system_category.is_(None)
-                )
-                count_query = count_query.where(
                     AggregatedVideoV3.system_category.is_(None)
                 )
             else:
@@ -616,13 +623,17 @@ async def _query_aggregated_cache(
                 base_query = base_query.where(
                     AggregatedVideoV3.system_category.in_(system_names)
                 )
-                count_query = count_query.where(
-                    AggregatedVideoV3.system_category.in_(system_names)
-                )
 
-        count_result = await db.execute(count_query)
-        count = count_result.scalar_one()
-        if count == 0:
+        if keyword and keyword.strip():
+            base_query = base_query.where(
+                AggregatedVideoV3.title.ilike(f"%{keyword.strip()}%")
+            )
+
+        # 只判断「有没有数据」：count(*) 在 18 万行上要 110ms，EXISTS 取 1 行即可
+        probe = await db.execute(
+            base_query.with_only_columns(AggregatedVideoV3.id).limit(1)
+        )
+        if probe.first() is None:
             # 分类过滤下 0 条是合法结果（例如「未分类」暂时为空），不能 fallback
             # 到实时路径——那条路还在用旧的逐站点映射，会给出不一致的结果。
             if category:
@@ -925,6 +936,28 @@ async def search_videos(
         select(Site).where(Site.enabled.is_(True)).order_by(Site.sort)
     )
     sites = result.scalars().all()
+
+    # 优先走聚合表：video_cache 上有 2.3M 行冗余，ILIKE 全表扫描要 1.4 秒
+    if mode != "realtime":
+        agg_response = await _query_aggregated_cache(
+            db,
+            pg=pg,
+            per_page=per_page,
+            category=category,
+            sites=sites,
+            keyword=wd,
+            sort=sort,
+        )
+        if agg_response is not None:
+            raw_items = [item.model_dump() for item in agg_response.items]
+            filtered = _filter_fields(raw_items, fields)
+            agg_response.items = [AggregatedVideo(**item) for item in filtered]
+            logger.info(
+                "api_search_videos_agg wd=%s items=%d",
+                wd,
+                len(agg_response.items),
+            )
+            return agg_response
 
     # 分类过滤（同 list_videos）
     filters = []
@@ -1551,6 +1584,14 @@ async def clear_video_cache(db: AsyncSession = Depends(get_db)):
 @router.get("/categories/stats")
 async def category_stats(db: AsyncSession = Depends(get_db)):
     """视频级分类计数：分类栏只展示有内容的分类，并给出未分类数量。"""
+    global _category_stats_cache, _category_stats_cache_ts
+    now = time.monotonic()
+    if (
+        _category_stats_cache is not None
+        and (now - _category_stats_cache_ts) < _CATEGORY_STATS_TTL
+    ):
+        return _category_stats_cache
+
     hidden = await _hidden_video_filter(db)
 
     counts_query = (
@@ -1572,8 +1613,11 @@ async def category_stats(db: AsyncSession = Depends(get_db)):
     rows = await db.execute(counts_query)
     counts = {name: count for name, count in rows.all()}
     uncategorized = (await db.execute(uncategorized_query)).scalar_one()
-    return {
+    payload = {
         "counts": counts,
         "uncategorized": uncategorized,
         "total": sum(counts.values()) + uncategorized,
     }
+    _category_stats_cache = payload
+    _category_stats_cache_ts = now
+    return payload
