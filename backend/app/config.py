@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     default_download_root: str | None = None
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
     db_pool_timeout: int = 30
     log_level: str = "INFO"
 

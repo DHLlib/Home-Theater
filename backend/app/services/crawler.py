@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.constants import (
     CRAWLER_BATCH_INSERT_SIZE,
     CRAWLER_BATCH_VIDEOLIST_SIZE,
+    CRAWLER_INCREMENTAL_MAX_PAGES,
     CRAWLER_PAGE_CONCURRENCY,
     CRAWLER_PAGE_SIZE_THRESHOLD,
     CRAWLER_VIDEOLIST_BATCH_SIZE,
@@ -497,7 +498,11 @@ class Crawler:
                 stopped = False
                 new_last_vod_time = None
 
-                while self._running and not stopped:
+                while (
+                    self._running
+                    and not stopped
+                    and page <= CRAWLER_INCREMENTAL_MAX_PAGES
+                ):
                     start_time = time.time()
                     items = await self._fetch_list_page(
                         client, cat_id, page, op="crawler_incremental"
