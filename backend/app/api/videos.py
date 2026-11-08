@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
-from app.db import get_db
+from app.db import async_session_factory, get_db
 from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.models import (
     _utcnow,
@@ -1013,6 +1013,75 @@ async def search_videos(
 # 详情 API（优先读缓存，未命中再实时请求）
 # ------------------------------------------------------------------
 
+# 缓存过期时后台刷新的在途集合，避免同一来源被反复刷新
+_DETAIL_REFRESH_INFLIGHT: set[tuple[int, str]] = set()
+
+
+def _schedule_detail_refresh(site: Site, original_id: str) -> None:
+    """缓存过期不影响本次响应：先返回旧数据，后台再更新。"""
+    key = (site.id, original_id)
+    if key in _DETAIL_REFRESH_INFLIGHT:
+        return
+    _DETAIL_REFRESH_INFLIGHT.add(key)
+    asyncio.create_task(
+        _detail_refresh_bg(site.id, site.base_url, site.name, original_id, key)
+    )
+
+
+async def _detail_refresh_bg(
+    site_id: int, base_url: str, site_name: str, original_id: str, key: tuple[int, str]
+) -> None:
+    try:
+        async with SourceClient(
+            site_id=site_id, base_url=base_url, name=site_name
+        ) as client:
+            items = await client.videolist(ids=[original_id], op="detail_refresh")
+        if not items:
+            return
+        item = items[0]
+        play_raw = item.get("play_url_raw") or ""
+        if not play_raw:
+            return
+        async with async_session_factory() as db:
+            stmt = insert_cls(VideoCache).values(
+                site_id=site_id,
+                original_id=original_id,
+                title=item.get("title", ""),
+                year=item.get("year"),
+                poster_url=item.get("poster_url"),
+                intro=item.get("intro"),
+                area=item.get("area"),
+                actors=item.get("actors"),
+                director=item.get("director"),
+                play_url_raw=play_raw,
+                type_id=item.get("type_id"),
+                type_name=item.get("type_name") or item.get("type"),
+                source_updated_at=item.get("updated_at"),
+                cached_at=_utcnow(),
+                has_detail=True,
+            ).on_conflict_do_update(
+                index_elements=["site_id", "original_id"],
+                set_={
+                    "play_url_raw": play_raw,
+                    "cached_at": _utcnow(),
+                    "has_detail": True,
+                },
+            )
+            await db.execute(stmt)
+            await db.commit()
+        logger.info(
+            "detail_cache_refreshed site=%s original_id=%s", site_name, original_id
+        )
+    except Exception as exc:
+        logger.warning(
+            "detail_cache_refresh_failed site=%s original_id=%s error=%s",
+            site_name,
+            original_id,
+            exc,
+        )
+    finally:
+        _DETAIL_REFRESH_INFLIGHT.discard(key)
+
 @router.post("/detail")
 async def video_detail(
     req: DetailRequest,
@@ -1077,7 +1146,7 @@ async def video_detail(
         # 1. 查缓存（已在上面批量取好，这里不再碰数据库）
         cached = cache_map.get((source_ref.site_id, source_ref.original_id))
 
-        # 缓存有效条件：有 play_url_raw 且未过期
+        # 有缓存就先返回：过期了也只做后台刷新，不让用户等网络
         cache_valid = (
             cached
             and cached.play_url_raw
@@ -1085,7 +1154,9 @@ async def video_detail(
             and cached.cached_at > expire_threshold
         )
 
-        if cache_valid:
+        if cached is not None and cached.play_url_raw:
+            if not cache_valid:
+                _schedule_detail_refresh(site, source_ref.original_id)
             episodes = []
             try:
                 parsed = parse_episodes(cached.play_url_raw)
@@ -1110,9 +1181,14 @@ async def video_detail(
                 "episodes": episodes,
             }, None, None
 
-        # 2. 缓存未命中或过期，实时请求
+        # 2. 完全没有缓存才实时请求：交互路径只给 4 秒、不重试，避免一次卡顿
+        #    被 3 次重试放大成 27 秒（用户看到的「加载源信息」很久）
         async with SourceClient(
-            site_id=site.id, base_url=site.base_url, name=site.name
+            site_id=site.id,
+            base_url=site.base_url,
+            name=site.name,
+            timeout=4.0,
+            max_attempts=1,
         ) as client:
             try:
                 items = await client.videolist(ids=[source_ref.original_id], op="detail_resolve")
@@ -1177,14 +1253,23 @@ async def video_detail(
                     error=str(exc),
                 )
 
-    tasks = [fetch_one(s) for s in sources]
+    requested = list(sources)
+    tasks = [asyncio.wait_for(fetch_one(s), timeout=6) for s in requested]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     sources = []
     cache_entries = []
     failed_sources = []
-    for raw in results:
+    for ref, raw in zip(requested, results):
         if isinstance(raw, Exception):
+            site = sites.get(ref.site_id)
+            failed_sources.append(
+                FailedSource(
+                    site_id=ref.site_id,
+                    site_name=site.name if site else None,
+                    error="timeout" if isinstance(raw, asyncio.TimeoutError) else str(raw),
+                ).model_dump()
+            )
             continue
         data, cache_entry, error = raw
         if error:
@@ -1203,7 +1288,7 @@ async def video_detail(
                 asyncio.gather(
                     *[_normalize_episode_suffixes(d["episodes"]) for d in pending]
                 ),
-                timeout=12,
+                timeout=6,
             )
             for data, episodes in zip(pending, normalized):
                 data["episodes"] = episodes

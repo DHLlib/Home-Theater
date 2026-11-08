@@ -37,11 +37,20 @@ class SourceProtocolError(Exception):
 
 
 class SourceClient:
-    def __init__(self, site_id: int, base_url: str, name: str = "", timeout: float = HTTP_TIMEOUT_DEFAULT):
+    def __init__(
+        self,
+        site_id: int,
+        base_url: str,
+        name: str = "",
+        timeout: float = HTTP_TIMEOUT_DEFAULT,
+        max_attempts: int = RETRY_MAX_ATTEMPTS,
+    ):
         self.site_id = site_id
         self.base_url = base_url
         self.name = name or str(site_id)
         self.timeout = timeout
+        # 交互路径（详情/播放）传 1 次即可，避免 3 次重试把一次卡顿放大成 27 秒
+        self.max_attempts = max(1, max_attempts)
         headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "Referer": self.base_url,
@@ -87,7 +96,7 @@ class SourceClient:
     async def _get(self, params: dict[str, str], op: str = "unknown") -> dict[str, Any]:
         url_with_params = f"{self.base_url}?{urlencode(params)}"
         start = time.monotonic()
-        for attempt in range(RETRY_MAX_ATTEMPTS):
+        for attempt in range(self.max_attempts):
             try:
                 resp = await self._client.get(self.base_url, params=params)
                 elapsed = time.monotonic() - start
@@ -125,7 +134,7 @@ class SourceClient:
                 return data
             except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as exc:
                 elapsed = time.monotonic() - start
-                if attempt < RETRY_MAX_ATTEMPTS - 1:
+                if attempt < self.max_attempts - 1:
                     logger.warning(
                         "source_retry site=%s attempt=%d error=%s elapsed=%.2fs url=%s",
                         self.name, attempt + 1, type(exc).__name__, elapsed, url_with_params
