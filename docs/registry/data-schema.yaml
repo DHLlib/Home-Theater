@@ -682,12 +682,12 @@ pydantic_schemas:
       - {name: title, type: str}
       - {name: year, type: int | None, default: None}
       - {name: poster_url, type: str | None, default: None}
-      - {name: sources, type: list[SourceRef]}
+      - {name: sources, type: 'list[SourceRef]'}
 
   - name: AggregatedListResponse
     fields:
-      - {name: items, type: list[AggregatedVideo]}
-      - {name: failed_sources, type: list[dict], default_factory: list}
+      - {name: items, type: 'list[AggregatedVideo]'}
+      - {name: failed_sources, type: 'list[dict]', default_factory: list}
     notes: |
       [GAP-FIX-AC003/004] failed_sources 已废弃（deprecated），当前架构为缓存优先，
       列表/搜索接口不产生源站失败信息。backend 继续返回空数组保证兼容，
@@ -706,19 +706,19 @@ pydantic_schemas:
       - {name: area, type: str | None, default: None}
       - {name: actors, type: str | None, default: None}
       - {name: director, type: str | None, default: None}
-      - {name: episodes, type: list[Episode], default_factory: list}
+      - {name: episodes, type: 'list[Episode]', default_factory: list}
 
   - name: DetailRequest
     fields:
       - {name: title, type: str}
       - {name: year, type: int | None, default: None}
-      - {name: sources, type: list[SourceRef]}
+      - {name: sources, type: 'list[SourceRef]'}
 
   - name: DetailResponse
     fields:
       - {name: title, type: str}
       - {name: year, type: int | None, default: None}
-      - {name: sources, type: list[SourceDetail]}
+      - {name: sources, type: 'list[SourceDetail]'}
 
   - name: DownloadTaskCreate
     fields:
@@ -806,11 +806,11 @@ pydantic_schemas:
   - name: SiteCategoriesOut
     fields:
       - {name: site_id, type: int}
-      - {name: categories, type: list[CategoryMapping]}
+      - {name: categories, type: 'list[CategoryMapping]'}
 
   - name: SiteCategoriesUpdate
     fields:
-      - {name: categories, type: list[CategoryMapping]}
+      - {name: categories, type: 'list[CategoryMapping]'}
     notes: |
       [GAP-FIX-AC002] 后端需在接收此 schema 后执行互斥校验：
       同一站点内，一个 remote_id 只能出现在一个 CategoryMapping 中。
@@ -865,7 +865,7 @@ pydantic_schemas:
   - name: CrawlerStatusResponse
     fields:
       - {name: running, type: bool}
-      - {name: site_status, type: dict[str, str]}
+      - {name: site_status, type: 'dict[str, str]'}
 
   - name: SiteCreate
     fields:
@@ -880,7 +880,7 @@ pydantic_schemas:
       - {name: base_url, type: str | None, default: None}
       - {name: enabled, type: bool | None, default: None}
       - {name: sort, type: int | None, default: None}
-      - {name: categories, type: list[dict] | None, default: None}
+      - {name: categories, type: 'list[dict] | None', default: None}
 
 # ═══════════════════════════════════════════════════════════════
 # TypeScript 类型（Frontend）
