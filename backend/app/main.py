@@ -68,6 +68,24 @@ DEFAULT_SYSTEM_CATEGORIES = [
     ]),
 ]
 
+# 后补的两大类：已有数据库也要补齐，所以单独放一份并做幂等迁移。
+# 体育/短剧是采集源里真实存在、但早期系统分类没覆盖的内容类型。
+LATE_SYSTEM_CATEGORIES = [
+    ("体育", 6, [
+        ("足球", 1),
+        ("篮球", 2),
+        ("综合体育", 3),
+    ]),
+    ("短剧", 7, [
+        ("古装短剧", 1),
+        ("都市短剧", 2),
+        ("穿越短剧", 3),
+        ("恋爱短剧", 4),
+        ("其他短剧", 5),
+    ]),
+]
+
+
 async def check_db_connection() -> None:
     """启动前检查数据库连通性，graceful 启动。"""
     from sqlalchemy import text
@@ -76,7 +94,7 @@ async def check_db_connection() -> None:
 
 
 async def _init_default_categories():
-    """首次启动时自动创建默认系统分类。"""
+    """首次启动时自动创建默认系统分类（含后来补的体育/短剧）。"""
     from sqlalchemy import select
     from app.models import SystemCategory
     from app.db import async_session_factory
@@ -86,13 +104,61 @@ async def _init_default_categories():
         if result.scalar_one_or_none():
             return  # 已有数据，跳过
 
-        for parent_name, parent_sort, children in DEFAULT_SYSTEM_CATEGORIES:
+        for parent_name, parent_sort, children in (
+            DEFAULT_SYSTEM_CATEGORIES + LATE_SYSTEM_CATEGORIES
+        ):
             parent = SystemCategory(name=parent_name, sort=parent_sort)
             db.add(parent)
             await db.flush()  # 获取 parent.id
             for child_name, child_sort in children:
                 db.add(SystemCategory(name=child_name, parent_id=parent.id, sort=child_sort))
         await db.commit()
+
+
+async def _ensure_late_categories() -> int:
+    """幂等补齐后来新增的系统分类族（体育 / 短剧）。
+
+    只补缺失项，不重建、不改名、不复活用户删掉的旧分类。
+    返回新增的分类数量（供调用方决定是否重跑别名播种）。
+    """
+    from sqlalchemy import select
+    from app.models import SystemCategory
+    from app.db import async_session_factory
+
+    log = logging.getLogger(__name__)
+    async with async_session_factory() as db:
+        rows = (await db.execute(select(SystemCategory))).scalars().all()
+        if not rows:
+            return 0  # 空库交给 _init_default_categories
+
+        added = 0
+        for parent_name, parent_sort, children in LATE_SYSTEM_CATEGORIES:
+            parent = next(
+                (r for r in rows if r.parent_id is None and r.name == parent_name),
+                None,
+            )
+            if parent is None:
+                parent = SystemCategory(name=parent_name, sort=parent_sort)
+                db.add(parent)
+                await db.flush()
+                rows.append(parent)
+                added += 1
+
+            existing_children = {r.name for r in rows if r.parent_id == parent.id}
+            for child_name, child_sort in children:
+                if child_name in existing_children:
+                    continue
+                db.add(
+                    SystemCategory(
+                        name=child_name, parent_id=parent.id, sort=child_sort
+                    )
+                )
+                added += 1
+
+        if added:
+            await db.commit()
+            log.info("补全系统分类 %d 个（体育 / 短剧）", added)
+        return added
 
 
 async def _fix_postgres_sequences() -> None:
@@ -260,6 +326,11 @@ async def lifespan(app: FastAPI):
         await migrate_categories_to_mapping_table(db)
         await migrate_video_cache_norm_title(db)
     await _init_default_categories()
+    added_categories = await _ensure_late_categories()
+    if added_categories:
+        # 新增了系统分类（体育/短剧）→ 立刻重跑一次别名播种，
+        # 让原本「目标分类不存在」而被跳过的远程类名能落到新分类上。
+        await _ensure_category_aliases(force=True)
 
     # Phase 2: 首次启动或表为空时，后台重建聚合中间表
     async def _bootstrap_aggregated_tables():

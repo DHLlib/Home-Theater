@@ -39,6 +39,7 @@ from app.schemas import (
     SourceRef,
 )
 from app.services.aggregator import _aggregate_records, refresh_aggregated_view
+from app.services.category_alias import resolve_remote_names
 from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,
@@ -228,6 +229,46 @@ async def _enrich_poster_urls(
 # ------------------------------------------------------------------
 # 分类解析（复用现有逻辑）
 # ------------------------------------------------------------------
+
+async def _resolve_category_aliases(
+    db: AsyncSession, category: str, expand_children: bool = True
+) -> tuple[set[str], list[str]]:
+    """系统分类名 → (启用的系统分类名集合, 远程类名列表)。
+
+    与旧的 _resolve_remote_categories 不同：别名是**全局**的，不区分站点。
+    实测 98 个远程类名覆盖了 21 个站点的 805 条映射，新站点命中别名即自动生效。
+    """
+    target = {category}
+    if expand_children:
+        parent_id = (
+            await db.execute(
+                select(SystemCategory.id).where(
+                    SystemCategory.name == category,
+                    SystemCategory.parent_id.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if parent_id is not None:
+            children = await db.execute(
+                select(SystemCategory.name).where(
+                    SystemCategory.parent_id == parent_id,
+                    SystemCategory.enabled.is_(True),
+                )
+            )
+            target |= {row[0] for row in children.all()}
+
+    enabled_rows = await db.execute(
+        select(SystemCategory.name).where(
+            SystemCategory.name.in_(target),
+            SystemCategory.enabled.is_(True),
+        )
+    )
+    enabled = {row[0] for row in enabled_rows.all()}
+    if not enabled:
+        return set(), []
+
+    return enabled, await resolve_remote_names(db, enabled)
+
 
 async def _resolve_remote_categories(
     db: AsyncSession, site: Site, category: str | None, expand_children: bool = True
@@ -477,28 +518,22 @@ async def _query_aggregated_cache(
             base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
             count_query = count_query.where(AggregatedVideoV3.id.in_(subq))
 
-        # 分类过滤：把统一分类名解析为各站点的 (site_id, type_id) 对，
-        # 子分类无映射时回退父分类（与 list_videos 实时路径逻辑一致）
+        # 分类过滤：系统分类名 → 全局别名 → 远程类名（不再依赖逐站点映射表）。
+        # 子分类无别名时回退父分类，且不展开子分类避免匹配过宽。
+        cat_names: set[str] = set()
         if category:
-            cat_filters: list[tuple[int, int | str]] = []
-            for site in sites or []:
-                remote_cats = await _resolve_remote_categories(db, site, category)
-                if not remote_cats and fallback_category:
-                    # fallback 到父分类时，不展开子分类，避免匹配过宽
-                    remote_cats = await _resolve_remote_categories(db, site, fallback_category, expand_children=False)
-                for rid in remote_cats:
-                    tid = int(rid) if isinstance(rid, str) and rid.isdigit() else rid
-                    cat_filters.append((site.id, tid))
-            # 所有站点都无该分类映射 → 空结果（不 fallback 到实时路径）
-            if not cat_filters:
+            _, remote_names = await _resolve_category_aliases(db, category)
+            if not remote_names and fallback_category:
+                _, remote_names = await _resolve_category_aliases(
+                    db, fallback_category, expand_children=False
+                )
+            # 该分类没有任何别名 → 空结果（不 fallback 到实时路径）
+            if not remote_names:
                 return AggregatedListResponse(items=[], failed_sources=[])
-            conds = [
-                (AggregatedSource.site_id == sid) & (AggregatedSource.type_id == tid)
-                for sid, tid in cat_filters
-            ]
+            cat_names = set(remote_names)
             cat_subq = (
                 select(AggregatedSource.aggregated_video_id)
-                .where(or_(*conds))
+                .where(AggregatedSource.type_name.in_(remote_names))
                 .subquery()
             )
             base_query = base_query.where(
@@ -539,7 +574,7 @@ async def _query_aggregated_cache(
         rows = result.scalars().all()
 
         # 构建分类过滤集合，用于过滤 sources
-        cat_filter_set: set[tuple[int, int | str]] = set(cat_filters) if category else set()
+        cat_filter_set: set[str] = cat_names if category else set()
 
         items = []
         for r in rows:
@@ -561,7 +596,7 @@ async def _query_aggregated_cache(
             if cat_filter_set:
                 sources = [
                     s for s in sources
-                    if (s.site_id, s.type_id) in cat_filter_set
+                    if s.type in cat_filter_set
                 ]
 
             # AC-031: 分类禁用过滤——所有 source 都被禁用时整体过滤
