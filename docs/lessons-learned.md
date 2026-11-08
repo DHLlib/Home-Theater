@@ -944,6 +944,91 @@ param(
 
 ---
 
+## 36. 整站「请求超时」其实是事件循环被 ssl 建上下文冻结
+
+**症状**：详情弹窗转圈 45 秒后提示「请求超时」；同一时间所有接口一起变慢，爬虫日志里还出现 `ConnectTimeout elapsed=46.63s`（远大于 8 秒超时）。重启后依旧。
+
+**原因**：每次 `httpx.AsyncClient(...)` 都会调用 `ssl.create_default_context()`，这台 Windows 加载系统证书存储要 **8–45 秒**，期间事件循环被完全占住——所有定时器（包括 httpx 自己的超时）都无法触发，于是表现为「全部接口超时」。
+
+**定位方法**：
+- 加事件循环看门狗，发现 `event_loop_lag 44.8s` / `45.5s`；
+- `DEBUG_LOOP_LAG=1` 启动后用 faulthandler 每 3 秒 dump 线程栈，主线程停在
+  `ssl.create_default_context → httpx.create_ssl_context → AsyncClient.__init__ → resolver.resolve_share_page`。
+
+**解决**：新增 `app/services/tls.py` 提供进程级共享 `SSLContext`，所有 httpx 客户端传
+`verify=get_ssl_context()`；启动时 `await asyncio.to_thread(get_ssl_context)` 预热。
+
+**教训**：接口超时不一定是网络；先看事件循环 lag。凡是「新建客户端」都会重建 TLS 上下文，必须共享。
+
+---
+
+## 37. 每个请求新建 httpx 客户端 = 每次都重新 TLS 握手
+
+**症状**：同一采集站连续请求，单次 1.5 秒；爬虫一轮上百页就产生上百次握手、大量连接重置。
+
+**原因**：`SourceClient.__init__` 里直接 `httpx.AsyncClient(...)`，没有连接复用。
+
+**解决**：模块级客户端池，按 `(site_id, base_url, timeout)` 复用；`aclose()` 改为空操作，退出时统一
+`close_shared_clients()`。
+
+**效果**：同站连续请求 1565ms → 191ms。
+
+**教训**：HTTP 客户端是「连接池」不是「一次请求」；交互路径更不能再叠加 3 次重试。
+
+---
+
+## 38. 45 万行取回 Python 循环，把事件循环卡了 4 秒
+
+**症状**：打开「设置 → 分类」要等 4.7 秒；同时段看门狗记录 `event_loop_lag 3.5s`。
+
+**原因**：`alias_usage()` 把 `aggregated_sources` 的 45.7 万行全部取回，在 Python 里循环去重计数。
+
+**解决**：改成 SQL 聚合 `GROUP BY type_name + count(distinct site_id)`，数据库只返回约 130 行，再做归一化合并。
+
+**效果**：冷请求 4730ms → 32ms。
+
+**教训**：统计类逻辑先想 SQL；确实要在 Python 里算且数据量大时，用 `asyncio.to_thread` 或分批 `await sleep(0)` 让出循环。
+
+---
+
+## 39. 增量抓取没有页数上限，和前台请求抢资源
+
+**症状**：单个站点一次增量能连续抓 100+ 页（日志 page 22 → 100），期间页面明显变慢。
+
+**原因**：增量循环条件是「本页条数不足阈值才停」，站点历史页多时会一直翻。
+
+**解决**：新增 `CRAWLER_INCREMENTAL_MAX_PAGES = 30`，超出后本轮结束、下一轮继续。
+
+**教训**：后台任务必须有页数/批次/时长上限；对共享上游（采集站、数据库）的任务尤其如此。
+
+---
+
+## 40. 前端错误风暴：自动重试 + toast 堆叠
+
+**症状**：后端一卡，右上角瞬间堆出十几条「请求超时，请检查后端服务是否响应」。
+
+**原因**：详情请求默认 `retry: 1` + 客户端 30s 超时，一次失败变成两轮 30 秒等待；toast 没有去重和数量上限。
+
+**解决**：详情 `retry: false`、超时 15s；toast 同消息 4 秒内只保留一条、最多同时 3 条。
+
+**教训**：交互请求不要自动重试；错误提示要合并，否则一次故障会被放大成「满屏报错」。
+
+---
+
+## 41. 1–2 字搜索 pg_trgm 不生效
+
+**症状**：搜两个字（如「职来」）要 1.3 秒，3 个字只要 16ms。
+
+**原因**：pg_trgm 的 GIN 索引只对 ≥3 个字符的 `%kw%` 有效；2 字查询退化为全表顺序扫描。
+
+**解决**：`len(kw) < 3` 时先走 `lower(title) LIKE 'kw%'`（`text_pattern_ops` 前缀索引），前缀无结果再回退子串扫描；回退在聚合表（18 万行）而不是 `video_cache`（230 万行）上做。
+
+**效果**：2 字前缀命中 17–33ms；2 字中间命中 327ms（原 1350ms）。
+
+**教训**：索引是否生效取决于查询形态，短词要单独设计路径。
+
+---
+
 ## 快速检索表
 
 | 关键词 | 对应问题 |
@@ -981,3 +1066,9 @@ param(
 | start-dev、UnexpectedAttribute、CmdletBinding、PowerShell | #34 start-dev.ps1 解析错误 |
 | 分类设置、SiteTabs、滚轮、横向滚动 | #35 横向滚动与主题变量 |
 | CategorySettings、CSS 变量、绯红主题、主题色 | #35 横向滚动与主题变量 |
+| 超时、整站卡住、ConnectTimeout、45 秒 | #36 事件循环被 ssl 建上下文冻结 |
+| 采集站、连续请求、1.5 秒、握手 | #37 每请求新建 httpx 客户端 |
+| 分类设置、4 秒、45 万行、event_loop_lag | #38 Python 大循环阻塞事件循环 |
+| 增量、翻页、100 页、变慢 | #39 增量抓取无页数上限 |
+| 满屏超时、toast 堆叠、重试 | #40 错误风暴：重试 + toast 堆叠 |
+| 搜索、2 个字、1.3 秒、pg_trgm | #41 短词搜索索引失效 |
