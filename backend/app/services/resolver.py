@@ -8,6 +8,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.services.tls import get_ssl_context
+
 from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
 
 # 常见分享页嵌入真实地址的模式（按优先级尝试）
@@ -102,7 +104,9 @@ async def resolve_share_page(
     else:
         try:
             async with httpx.AsyncClient(
-                timeout=HTTP_TIMEOUT_RESOLVE, follow_redirects=True
+                timeout=HTTP_TIMEOUT_RESOLVE,
+                follow_redirects=True,
+                verify=get_ssl_context(),
             ) as c:
                 resolved = await _do_resolve_share(c, share_url, headers)
         except Exception:

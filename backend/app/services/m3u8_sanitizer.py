@@ -19,6 +19,8 @@ from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 
+from app.services.tls import get_ssl_context
+
 from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
 
 logger = logging.getLogger(__name__)
@@ -441,7 +443,9 @@ async def sanitize_m3u8(
     if client is not None:
         text = await _fetch(client)
     else:
-        async with httpx.AsyncClient(follow_redirects=True) as c:
+        async with httpx.AsyncClient(
+            follow_redirects=True, verify=get_ssl_context()
+        ) as c:
             text = await _fetch(c)
 
     base_url = _extract_base_url(url)

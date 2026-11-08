@@ -11,6 +11,8 @@ from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import httpx
+
+from app.services.tls import get_ssl_context
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -382,7 +384,11 @@ async def _run_direct_download(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_DOWNLOAD, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT_DOWNLOAD,
+            follow_redirects=True,
+            verify=get_ssl_context(),
+        ) as client:
             async with client.stream("GET", task.url, headers=headers) as resp:
                 if resp.status_code == 404:
                     await _set_error(task_id, "file_removed: 资源已失效")
@@ -505,7 +511,11 @@ async def _run_m3u8_download(
 
     try:
         async with async_session_factory() as session:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_DOWNLOAD, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT_DOWNLOAD,
+            follow_redirects=True,
+            verify=get_ssl_context(),
+        ) as client:
                 # 1. 确认 m3u8 URL（防御性：非直接 m3u8 时尝试解析）
                 m3u8_url = task.url
                 if "index.m3u8" not in m3u8_url and not m3u8_url.endswith(".m3u8"):

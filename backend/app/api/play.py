@@ -6,6 +6,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 import httpx
+
+from app.services.tls import get_ssl_context
 from fastapi import APIRouter, Depends, Response
 from app.errors import site_not_found, video_not_found, external_error
 from pydantic import BaseModel
@@ -78,7 +80,7 @@ async def _probe_episodes(urls: list[str]) -> dict[str, bool]:
     results: dict[str, bool] = {}
 
     async with httpx.AsyncClient(
-        headers={"User-Agent": DEFAULT_USER_AGENT}, verify=False
+        headers={"User-Agent": DEFAULT_USER_AGENT}, verify=get_ssl_context()
     ) as client:
 
         async def worker(url: str) -> None:

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import os
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,7 @@ from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
+from app.services.tls import warm_ssl_context
 from app.services.category_mapping import migrate_categories_to_mapping_table
 from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
 
@@ -365,9 +367,42 @@ async def _ensure_category_aliases(force: bool = False) -> None:
         log.warning(f"生成分类别名失败: {exc}")
 
 
+def _maybe_enable_stack_dump() -> None:
+    """调试开关：DEBUG_LOOP_LAG=1 时每 3 秒 dump 所有线程栈，用于定位事件循环卡顿。
+
+    faulthandler 的看门狗是独立线程，即使主线程卡在 C 调用里也能抓到栈。
+    """
+    if os.environ.get("DEBUG_LOOP_LAG") != "1":
+        return
+    import faulthandler
+    import sys
+
+    faulthandler.dump_traceback_later(3, repeat=True, file=sys.stderr)
+
+
+async def _loop_lag_watchdog(threshold: float = 2.0) -> None:
+    """事件循环卡顿看门狗：正常 1 秒一跳，超出阈值就告警。
+
+    网络/数据库都是 await，不该卡住循环；一旦出现数秒级 lag，说明有同步代码
+    在阻塞（历史问题：Windows 上大量连接重置时 Proactor 的 shutdown 会卡住）。
+    """
+    log = logging.getLogger(__name__)
+    last = time.monotonic()
+    while True:
+        await asyncio.sleep(1.0)
+        now = time.monotonic()
+        lag = now - last - 1.0
+        last = now
+        if lag >= threshold:
+            log.warning("event_loop_lag %.1fs", lag)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    # 预先在后台线程建好 TLS 上下文：Windows 上首次建上下文可能要几十秒，
+    # 放在请求路径里会直接卡住事件循环。
+    warm_ssl_context()
     await check_db_connection()
     await init_db()
     await _fix_postgres_sequences()
@@ -403,6 +438,8 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).exception("后台聚合中间表重建失败")
 
     asyncio.create_task(_bootstrap_aggregated_tables())
+    _maybe_enable_stack_dump()
+    loop_lag_task = asyncio.create_task(_loop_lag_watchdog())
 
     await listen_manager.start()
     sse.reset_streams()
@@ -413,12 +450,17 @@ async def lifespan(app: FastAPI):
     sse.shutdown_streams()
     worker_task.cancel()
     scheduler_task.cancel()
+    loop_lag_task.cancel()
     try:
         await worker_task
     except asyncio.CancelledError:
         pass
     try:
         await scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await loop_lag_task
     except asyncio.CancelledError:
         pass
     await listen_manager.stop()

@@ -22,6 +22,8 @@ import asyncio
 
 import httpx
 
+from app.services.tls import get_ssl_context
+
 from app.constants import (
     DEFAULT_USER_AGENT,
     HTTP_TIMEOUT_DEFAULT,
@@ -55,7 +57,11 @@ class SourceClient:
             "User-Agent": DEFAULT_USER_AGENT,
             "Referer": self.base_url,
         }
-        self._client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
+        self._client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=headers,
+            verify=get_ssl_context(),
+        )
 
     async def aclose(self):
         await self._client.aclose()
