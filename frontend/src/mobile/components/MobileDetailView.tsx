@@ -11,6 +11,7 @@ import { toastError, toastSuccess } from "../../utils/toast";
 import { HeartIcon, PlayIcon } from "../../components/icons";
 import EpisodeList from "../../components/EpisodeList";
 import SourcePicker from "../../components/SourcePicker";
+import MobileEpisodeSheet from "./MobileEpisodeSheet";
 import PosterImage from "../../components/PosterImage";
 import PosterEmpty from "../../components/PosterEmpty";
 import { cleanIntro } from "../../components/DetailContent";
@@ -97,6 +98,9 @@ export default function MobileDetailView() {
   const [isFavorited, setIsFavorited] = useState(false);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 已完成「显式选源」、等待用户选集的那个来源；null 表示选集抽屉关闭
+  const [episodePickerSource, setEpisodePickerSource] =
+    useState<SourceDetail | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -159,15 +163,24 @@ export default function MobileDetailView() {
       toastError("该源暂无可用集数");
       return;
     }
-    navigate(buildPlayerUrl(d.site_id, d.original_id, 0), {
-      state: { episodes: d.episodes },
-    });
+    // 硬契约的第二段：选完源不直接播，先让用户显式选集。
+    setEpisodePickerSource(d);
+  };
+
+  const closeEpisodePicker = () => {
+    // 取消（关闭 / 点遮罩 / Esc / 下滑）只回到详情页，不触发播放
+    setEpisodePickerSource(null);
   };
 
   const handlePlayEpisode = (s: SourceDetail, index: number) => {
     navigate(buildPlayerUrl(s.site_id, s.original_id, index), {
       state: { episodes: s.episodes },
     });
+  };
+
+  const handlePickEpisodeInSheet = (s: SourceDetail, index: number) => {
+    setEpisodePickerSource(null);
+    handlePlayEpisode(s, index);
   };
 
   const handleFavorite = () => {
@@ -437,6 +450,12 @@ export default function MobileDetailView() {
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmSource}
         formatSubtitle={sourceSubtitle}
+      />
+
+      <MobileEpisodeSheet
+        source={episodePickerSource}
+        onClose={closeEpisodePicker}
+        onPick={handlePickEpisodeInSheet}
       />
     </div>
   );

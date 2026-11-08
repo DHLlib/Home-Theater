@@ -603,3 +603,49 @@
 .mobile-me-item:active {
   background: var(--btn-bg-hover);
 }
+
+/* 选集抽屉（显式选源 → 选集 → 播放） */
+.mobile-episode-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.mobile-episode-sheet-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.mobile-episode-sheet-cancel {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.mobile-episode-sheet-cancel:active {
+  background: var(--btn-bg-hover);
+}
+
+.mobile-episode-sheet-list {
+  padding: 2px 0 4px;
+}
+
+/* 抽屉里的集数按钮放大到 44px 触摸目标 */
+@media (max-width: 767px) {
+  .mobile-episode-sheet-list .ep-btn {
+    height: auto;
+    min-height: 44px;
+  }
+}
