@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from app.errors import crawler_not_running, validation_error, video_not_found
+from app.errors import crawler_not_running, validation_error
 from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -38,7 +38,7 @@ from app.schemas import (
     SiteStat,
     SourceRef,
 )
-from app.services.aggregator import _aggregate_records, normalize_title, refresh_aggregated_view
+from app.services.aggregator import _aggregate_records, refresh_aggregated_view
 from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,

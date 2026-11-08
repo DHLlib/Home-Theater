@@ -6,7 +6,7 @@ from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.errors import ApiError, ErrorCode, site_not_found, validation_error
+from app.errors import ApiError, ErrorCode, site_not_found
 from app.models import Site, SystemCategory, SiteProbeLog, SiteCategoryMapping, _utcnow
 import asyncio
 
