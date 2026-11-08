@@ -221,7 +221,7 @@ function TaskRow({
               whiteSpace: "nowrap",
             }}
           >
-            站点{t.source_site_id}
+            {t.site_name || `站点${t.source_site_id}`}
           </span>
           <span
             style={{
@@ -1295,7 +1295,10 @@ export default function Downloads() {
                 {(() => {
                   const names = tasks
                     .filter((t) => batchDelete.ids.includes(t.id))
-                    .map((t) => `站点${t.source_site_id}：${t.episode_name}`);
+                    .map(
+                      (t) =>
+                        `${t.site_name || `站点${t.source_site_id}`}：${t.episode_name}`
+                    );
                   const visible = names.slice(0, 3);
                   const rest = names.length - visible.length;
                   return (

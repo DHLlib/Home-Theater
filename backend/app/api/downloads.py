@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import AppConfig, DownloadTask
+from app.models import AppConfig, DownloadTask, Site
 from app.schemas import DownloadBatchCreate, DownloadBatchResult, DownloadTaskCreate
 from app.services.downloader import pause as dl_pause, request_stop, resume as dl_resume
 from app.services.notify_sender import Event, notify_sender
@@ -55,10 +55,21 @@ def _build_download_file_path(
 
 @router.get("")
 async def list_downloads(db: AsyncSession = Depends(get_db)):
+    # 带上站点名：前端要显示「非凡资源 · 第 01 集」，而不是「站点1」
     result = await db.execute(
-        select(DownloadTask).order_by(DownloadTask.created_at.desc())
+        select(DownloadTask, Site.name)
+        .join(Site, Site.id == DownloadTask.source_site_id, isouter=True)
+        .order_by(DownloadTask.created_at.desc())
     )
-    return result.scalars().all()
+    tasks = []
+    for task, site_name in result.all():
+        item = {
+            column.name: getattr(task, column.name)
+            for column in DownloadTask.__table__.columns
+        }
+        item["site_name"] = site_name
+        tasks.append(item)
+    return tasks
 
 
 @router.post("")

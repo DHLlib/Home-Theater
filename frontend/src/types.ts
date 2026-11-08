@@ -104,6 +104,8 @@ export interface DownloadTask {
   episode_index: number;
   episode_name: string;
   source_site_id: number;
+  /** 站点名（列表接口 join sites 后返回），缺失时前端回退到「站点{id}」 */
+  site_name?: string | null;
   source_video_id: string;
   url: string;
   suffix: string;
