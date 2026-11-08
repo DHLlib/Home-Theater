@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
-import ContinueWatching, {
-  buildContinueWatchingPosterMap,
-} from "../components/ContinueWatching";
 import SpotlightRow from "../components/SpotlightRow";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
-import { useContinueWatching } from "../hooks/useContinueWatching";
 import {
   useSitesQuery,
   useRecommendedVideosQuery,
@@ -73,17 +69,6 @@ export default function Home() {
   const videos = useMemo(() => {
     return data?.pages.flat() ?? [];
   }, [data]);
-
-  // 继续观看：复用「最近播放」数据源，前端过滤未看完的记录
-  const { items: continueWatchingItems } = useContinueWatching({
-    enabled: !activeCategory && !wdFromUrl.trim(),
-  });
-
-  // 进度接口不带封面，用首页已加载的聚合数据按 title+year 补全海报
-  const continueWatchingPosters = useMemo(
-    () => buildContinueWatchingPosterMap(recommendedVideos, videos),
-    [recommendedVideos, videos]
-  );
 
   const mobileGridMinWidth = isMobile ? 130 : 160;
 
@@ -247,14 +232,6 @@ export default function Home() {
           }}
         />
       </div>
-
-      {/* ===== 继续观看（首页模式、未筛选分类时展示；无记录时整块不渲染） ===== */}
-      {!wdFromUrl.trim() && !activeCategory && (
-        <ContinueWatching
-          items={continueWatchingItems}
-          posterMap={continueWatchingPosters}
-        />
-      )}
 
       {/* ===== 加载骨架屏 ===== */}
       {isLoading && (

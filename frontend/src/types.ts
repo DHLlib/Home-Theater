@@ -142,8 +142,6 @@ export interface PlayProgress {
   position_seconds: number;
   duration_seconds?: number | null;
   updated_at?: string | null;
-  /** /api/progress/recent 关联聚合表后带出的封面，可能为 null */
-  poster_url?: string | null;
 }
 
 export interface FavoriteIn {
