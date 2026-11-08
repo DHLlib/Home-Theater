@@ -70,7 +70,7 @@ export default function DetailModalHost() {
             style={{
               position: "fixed",
               inset: 0,
-              background: "rgba(0, 0, 0, 0.72)",
+              background: "var(--scrim)",
               backdropFilter: "blur(20px)",
               zIndex: 900,
             }}
@@ -160,7 +160,7 @@ export default function DetailModalHost() {
             animate={{
               opacity: 1,
               backdropFilter: "blur(20px)",
-              backgroundColor: "rgba(0,0,0,0.72)",
+              backgroundColor: "var(--scrim)",
             }}
             exit={{
               opacity: 0,

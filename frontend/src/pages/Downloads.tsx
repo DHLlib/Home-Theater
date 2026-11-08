@@ -518,7 +518,7 @@ function VideoDownloadCard({
                   gap: 10,
                   padding: "6px 12px",
                   borderRadius: 100,
-                  background: "rgba(255,255,255,0.03)",
+                  background: "var(--tint-soft)",
                   border: "1px solid var(--glass-border)",
                 }}
               >
@@ -634,7 +634,7 @@ function VideoDownloadCard({
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: "50%",
-                  background: "rgba(255,255,255,0.03)",
+                  background: "var(--tint-soft)",
                   border: "1px solid var(--glass-border)",
                 }}
               >
@@ -1020,7 +1020,7 @@ export default function Downloads() {
           overflow: hidden;
         }
         .task-row:hover {
-          background: rgba(255,255,255,0.025);
+          background: var(--tint-softer);
         }
         .task-row.selected {
           background: rgba(74,222,128,0.05);
@@ -1032,7 +1032,7 @@ export default function Downloads() {
           border-bottom: none;
         }
         .film-strip-edge span {
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+          box-shadow: inset 0 0 0 1px var(--tint-line);
         }
         .video-list {
           display: flex;
@@ -1124,7 +1124,7 @@ export default function Downloads() {
                   gap: 6,
                   padding: "6px 12px",
                   borderRadius: 100,
-                  background: "rgba(255,255,255,0.03)",
+                  background: "var(--tint-soft)",
                   border: "1px solid var(--glass-border)",
                   fontSize: 12,
                 }}

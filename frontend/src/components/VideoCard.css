@@ -122,8 +122,8 @@
   gap: 6px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--text-primary);
-  color: #0a0a0b;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -133,7 +133,7 @@
 }
 
 .vc-play:hover {
-  background: #ffffff;
+  background: var(--btn-primary-bg-hover);
 }
 
 .vc-fav {

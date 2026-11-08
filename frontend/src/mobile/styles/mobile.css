@@ -218,7 +218,7 @@
 
 .mobile-category-tab.active {
   background: var(--primary);
-  color: #000;
+  color: var(--primary-ink);
   border-color: var(--primary);
 }
 
@@ -489,7 +489,7 @@
 
 .mobile-episode-btn:active {
   background: var(--primary);
-  color: #000;
+  color: var(--primary-ink);
   border-color: var(--primary);
 }
 

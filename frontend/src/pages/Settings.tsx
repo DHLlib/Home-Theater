@@ -183,7 +183,7 @@ const inputStyle: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 4,
   border: "1px solid var(--glass-border)",
-  background: "rgba(255,255,255,0.03)",
+  background: "var(--tint-soft)",
   color: "var(--text-primary)",
   fontSize: 14,
   fontFamily: "inherit",
@@ -411,7 +411,7 @@ export default function Settings() {
     alignItems: "center",
     gap: 12,
     padding: "12px 14px",
-    background: "rgba(255,255,255,0.03)",
+    background: "var(--tint-soft)",
     borderRadius: 4,
     transition: "background-color 150ms ease, border-color 150ms ease",
   };
@@ -586,7 +586,7 @@ export default function Settings() {
                 className="empty"
                 style={{
                   padding: 32,
-                  background: "rgba(255,255,255,0.03)",
+                  background: "var(--tint-soft)",
                   borderRadius: 8,
                   fontSize: 13,
                 }}
@@ -615,12 +615,12 @@ export default function Settings() {
                   }}
                   onMouseEnter={(e) => {
                     if (s.enabled && !isEditing) {
-                      e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
+                      e.currentTarget.style.backgroundColor = "var(--tint-soft)";
                       e.currentTarget.style.borderColor = "var(--glass-border)";
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
+                    e.currentTarget.style.backgroundColor = "var(--tint-soft)";
                     e.currentTarget.style.borderColor = s.enabled
                       ? "transparent"
                       : "var(--glass-border)";
@@ -981,7 +981,7 @@ export default function Settings() {
               className="empty"
               style={{
                 padding: 32,
-                background: "rgba(255,255,255,0.03)",
+                background: "var(--tint-soft)",
                 borderRadius: 8,
                 fontSize: 13,
               }}
@@ -1035,7 +1035,7 @@ export default function Settings() {
                       padding: "8px 12px",
                       fontSize: 12,
                       background:
-                        idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.03)",
+                        idx % 2 === 0 ? "transparent" : "var(--tint-soft)",
                       borderRadius: 4,
                       alignItems: "center",
                     }}

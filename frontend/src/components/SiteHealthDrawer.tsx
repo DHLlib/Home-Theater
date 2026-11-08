@@ -375,7 +375,7 @@ export default function SiteHealthDrawer({
                   <div
                     style={{
                       padding: 32,
-                      background: "rgba(255,255,255,0.03)",
+                      background: "var(--tint-soft)",
                       borderRadius: 8,
                       fontSize: 13,
                       color: "var(--text-secondary)",
@@ -427,7 +427,7 @@ function MetricCard({
         minWidth: 160,
         padding: 16,
         borderRadius: 8,
-        background: "rgba(255,255,255,0.03)",
+        background: "var(--tint-soft)",
         border: "1px solid var(--glass-border)",
       }}
     >
@@ -475,7 +475,7 @@ function LogRow({ log }: { log: SiteProbeLogEntry }) {
         alignItems: "center",
         padding: "10px 12px",
         borderRadius: 6,
-        background: "rgba(255,255,255,0.03)",
+        background: "var(--tint-soft)",
         fontSize: 13,
       }}
     >

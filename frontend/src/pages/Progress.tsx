@@ -228,7 +228,7 @@ function ProgressCard({
           style={{
             height: 3,
             borderRadius: 2,
-            background: "rgba(255,255,255,0.08)",
+            background: "var(--tint-line)",
             overflow: "hidden",
           }}
         >
@@ -432,7 +432,7 @@ export default function Progress() {
               style={{
                 height: 120,
                 borderRadius: 12,
-                background: "rgba(255,255,255,0.04)",
+                background: "var(--tint-soft)",
               }}
             />
           ))}

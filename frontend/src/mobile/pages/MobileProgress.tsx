@@ -104,7 +104,7 @@ function ProgressRow({
           style={{
             height: 3,
             borderRadius: 2,
-            background: "rgba(255,255,255,0.08)",
+            background: "var(--tint-line)",
             overflow: "hidden",
             marginTop: 8,
           }}

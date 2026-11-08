@@ -1,5 +1,5 @@
 /* CategorySettings: 分类设置面板样式
- * 所有颜色使用 CSS 变量，自动适配 :root（深黑影院绿）与 [data-theme="crimson"]（绯红）主题。
+ * 所有颜色使用 CSS 变量，自动适配 :root（深色）与 [data-theme="light"]（白色）主题。
  */
 
 .cs-grid {
@@ -384,7 +384,7 @@
   color: #000;
 }
 
-[data-theme="crimson"] .cs-mapping-status--mapped {
+[data-theme="light"] .cs-mapping-status--mapped {
   color: #fff;
 }
 
@@ -393,7 +393,7 @@
   color: #000;
 }
 
-[data-theme="crimson"] .cs-mapping-status--disabled {
+[data-theme="light"] .cs-mapping-status--disabled {
   color: #fff;
 }
 

@@ -163,7 +163,7 @@ function ArchiveCard({
           style={{
             position: "absolute",
             inset: 0,
-            boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.05)",
+            boxShadow: "inset 0 0 0 1px var(--tint-soft)",
             pointerEvents: "none",
           }}
         />
@@ -296,7 +296,7 @@ export default function Favorites() {
         }
         .archive-card:hover {
           transform: translateY(-4px);
-          box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+          box-shadow: 0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px var(--tint-line);
         }
         .perf {
           position: absolute;
@@ -309,8 +309,8 @@ export default function Favorites() {
             circle at center,
             rgba(0,0,0,0.85) 0px,
             rgba(0,0,0,0.85) 2px,
-            rgba(255,255,255,0.12) 2.5px,
-            rgba(255,255,255,0.12) 4px,
+            var(--tint-line) 2.5px,
+            var(--tint-line) 4px,
             transparent 4.5px
           );
           background-size: 10px 14px;

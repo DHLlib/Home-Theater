@@ -194,7 +194,7 @@ export default function BatchSniffDialog({
                       gap: 8,
                       padding: "8px 10px",
                       borderRadius: 6,
-                      background: "rgba(255,255,255,0.03)",
+                      background: "var(--tint-soft)",
                       fontSize: 13,
                       alignItems: "center",
                     }}

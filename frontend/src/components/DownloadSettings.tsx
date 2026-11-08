@@ -93,7 +93,7 @@ function SparkleIcon({ size = 18 }: { size?: number }) {
 const cardBase: React.CSSProperties = {
   position: "relative",
   background:
-    "linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.015) 100%)",
+    "linear-gradient(145deg, var(--tint-soft) 0%, var(--tint-softer) 100%)",
   border: "1px solid var(--glass-border)",
   borderRadius: 18,
   padding: "22px 24px",
@@ -416,7 +416,7 @@ export default function DownloadSettings() {
                   style={{
                     height: 4,
                     borderRadius: 2,
-                    background: "rgba(255,255,255,0.06)",
+                    background: "var(--tint-soft)",
                     overflow: "hidden",
                   }}
                 >
@@ -510,7 +510,7 @@ export default function DownloadSettings() {
                     borderRadius: 13,
                     background: adFilter
                       ? "var(--primary)"
-                      : "rgba(255,255,255,0.10)",
+                      : "var(--tint-line)",
                     border: `1px solid ${
                       adFilter ? "var(--primary)" : "var(--glass-border-bright)"
                     }`,

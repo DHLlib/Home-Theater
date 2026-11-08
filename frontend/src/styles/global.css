@@ -56,6 +56,16 @@
   --btn-bg: transparent;
   --btn-bg-hover: #1a1a1a;
 
+  /* === 浅色浮层（深色底上提亮；浅色主题反向为压暗） === */
+  --btn-primary-bg: #f5f5f7;
+  --btn-primary-bg-hover: #ffffff;
+  --btn-primary-fg: #0a0a0b;
+
+  --tint-soft: rgba(255, 255, 255, 0.03);
+  --tint-softer: var(--tint-softer);
+  --tint-line: rgba(255, 255, 255, 0.09);
+  --scrim: rgba(0, 0, 0, 0.8);
+
   /* === 层级系统 === */
   --z-toast: 2000;
   --z-modal: 1000;
@@ -69,30 +79,43 @@
 }
 
 /* ============================================================
-   === 暖黑影院主题 ===
+   === 浅色主题（白底，变量反向） ===
    ============================================================ */
 
-[data-theme="crimson"] {
-  --bg: #0c0a09;
-  --bg-elevated: #141210;
-  --bg-surface: #1c1917;
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-elevated: #f6f6f7;
+  --bg-surface: #ececef;
 
-  --text-primary: #f5f0e8;
-  --text-secondary: #a8a29e;
-  --text-muted: #57534e;
+  --text-primary: #101012;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
 
-  --border: #292524;
-  --border-hover: #3f3a37;
-  --border-bright: #57534e;
+  --border: #e4e4e7;
+  --border-hover: #d4d4d8;
+  --border-bright: #a1a1aa;
 
-  --primary: #d4a574;
-  --primary-hover: #e0bc8f;
-  --primary-dim: rgba(212, 165, 116, 0.1);
+  /* 白底上 #4ADE80 作为文字不可读，统一压深一档；进度条/选中底仍用它 */
+  --primary: #16a34a;
+  --primary-hover: #15803d;
+  --primary-dim: rgba(22, 163, 74, 0.12);
+  --primary-ink: #ffffff;
 
-  --danger: #e07a5f;
-  --warning: #d4a574;
+  --danger: #dc2626;
+  --danger-dim: rgba(220, 38, 38, 0.1);
+  --warning: #b45309;
+  --success: #16a34a;
 
-  --btn-bg-hover: #292524;
+  --btn-bg-hover: #efeff2;
+
+  --btn-primary-bg: #101012;
+  --btn-primary-bg-hover: #24242a;
+  --btn-primary-fg: #ffffff;
+
+  --tint-soft: rgba(0, 0, 0, 0.035);
+  --tint-softer: rgba(0, 0, 0, 0.02);
+  --tint-line: rgba(0, 0, 0, 0.09);
+  --scrim: rgba(0, 0, 0, 0.45);
 }
 
 /* ============================================================
@@ -207,16 +230,16 @@ textarea,
 }
 
 .btn-primary {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: #0a0a0b;
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
   font-weight: 600;
 }
 
 @media (hover: hover) {
   .btn-primary:hover:not(:disabled) {
-    background: #ffffff;
-    border-color: #ffffff;
+    background: var(--btn-primary-bg-hover);
+    border-color: var(--btn-primary-bg-hover);
   }
 }
 
@@ -296,8 +319,8 @@ textarea,
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: var(--text-primary);
-  color: #0a0a0b;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
   flex-shrink: 0;
   transition: transform var(--transition-fast);
 }
@@ -404,7 +427,7 @@ nav.top-nav.hidden {
 
 .nav-link.is-active {
   color: var(--text-primary);
-  background: #1e1e23;
+  background: var(--bg-surface);
 }
 
 .nav-menu-btn {
@@ -509,14 +532,14 @@ nav.top-nav.hidden {
 
 .settings-tab-bar .btn:hover:not(:disabled) {
   border-color: transparent;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-soft);
   color: var(--text-primary);
 }
 
 .settings-tab-bar .btn-primary,
 .settings-tab-bar .btn-primary:hover:not(:disabled) {
-  background: #232326;
-  border-color: #232326;
+  background: var(--bg-surface);
+  border-color: var(--border);
   color: var(--text-primary);
 }
 
@@ -547,7 +570,7 @@ nav.top-nav.hidden {
 .drawer-mask {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--scrim);
   opacity: 0;
   transition: opacity var(--transition-base);
 }
@@ -792,7 +815,7 @@ nav.top-nav.hidden {
   font-size: 12px;
   border-radius: 4px;
   background: var(--primary);
-  color: #000;
+  color: var(--primary-ink);
   border: none;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1027,7 +1050,7 @@ textarea:focus {
 }
 
 .sort-toggle.active {
-  background: #232326;
+  background: var(--bg-surface);
   color: var(--text-primary);
 }
 
@@ -1099,7 +1122,7 @@ textarea:focus {
 
 .category-pill.active {
   background: var(--primary);
-  color: #000;
+  color: var(--primary-ink);
   border-color: var(--primary);
 }
 
@@ -1159,7 +1182,7 @@ textarea:focus {
 .episode-drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--scrim);
   z-index: calc(var(--z-modal) - 1);
 }
 
@@ -1359,7 +1382,7 @@ textarea:focus {
 .sheet-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--scrim);
   z-index: calc(var(--z-modal) - 1);
 }
 

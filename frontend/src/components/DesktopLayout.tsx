@@ -12,8 +12,8 @@ function ThemeToggle() {
     <button
       type="button"
       className="nav-icon-btn"
-      title={theme === "cinema" ? "切换为暖黑影院" : "切换为深黑影院"}
-      onClick={() => setTheme(theme === "cinema" ? "crimson" : "cinema")}
+      title={theme === "cinema" ? "切换为浅色主题" : "切换为深色主题"}
+      onClick={() => setTheme(theme === "cinema" ? "light" : "cinema")}
       aria-label="切换主题"
     >
       <ThemeIcon size={18} />

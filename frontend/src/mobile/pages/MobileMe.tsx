@@ -96,7 +96,7 @@ export default function MobileMe() {
   const { theme } = useTheme();
 
   const toggleTheme = () => {
-    const next = theme === "cinema" ? "crimson" : "cinema";
+    const next = theme === "cinema" ? "light" : "cinema";
     applyTheme(next);
   };
 
@@ -119,7 +119,7 @@ export default function MobileMe() {
         />
         <MeItem
           icon={<PaletteIcon size={22} />}
-          label={`主题：${theme === "cinema" ? "深黑影院" : "绯红"}`}
+          label={`主题：${theme === "cinema" ? "深色" : "浅色"}`}
           onClick={toggleTheme}
         />
       </div>
