@@ -38,6 +38,25 @@ class SourceProtocolError(Exception):
     """资源站返回不符合 ac=list / videolist 协议时抛出。"""
 
 
+# 共享 httpx 客户端池：按 (site_id, base_url, timeout) 复用连接。
+# 之前每次 SourceClient 都新建 AsyncClient → 每次请求都要重新 TCP + TLS 握手
+# （单次 0.2–1 秒），爬虫一轮上百页就是上百次握手，还会产生大量连接重置。
+_shared_clients: dict[tuple[int, str, float], "httpx.AsyncClient"] = {}
+_shared_clients_lock = asyncio.Lock()
+
+
+async def close_shared_clients() -> None:
+    """关闭所有共享客户端（应用退出时调用）。"""
+    async with _shared_clients_lock:
+        clients = list(_shared_clients.values())
+        _shared_clients.clear()
+    for client in clients:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
 class SourceClient:
     def __init__(
         self,
@@ -53,18 +72,31 @@ class SourceClient:
         self.timeout = timeout
         # 交互路径（详情/播放）传 1 次即可，避免 3 次重试把一次卡顿放大成 27 秒
         self.max_attempts = max(1, max_attempts)
-        headers = {
+        self._key = (site_id, base_url, timeout)
+        self._headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "Referer": self.base_url,
         }
-        self._client = httpx.AsyncClient(
-            timeout=self.timeout,
-            headers=headers,
-            verify=get_ssl_context(),
-        )
+
+    async def _get_client(self) -> "httpx.AsyncClient":
+        """取共享客户端（懒创建，同一站点/超时复用同一条连接池）。"""
+        client = _shared_clients.get(self._key)
+        if client is not None:
+            return client
+        async with _shared_clients_lock:
+            client = _shared_clients.get(self._key)
+            if client is None:
+                client = httpx.AsyncClient(
+                    timeout=self.timeout,
+                    headers=self._headers,
+                    verify=get_ssl_context(),
+                )
+                _shared_clients[self._key] = client
+            return client
 
     async def aclose(self):
-        await self._client.aclose()
+        # 客户端按站点共享，单个实例不负责关闭；退出时统一 close_shared_clients()
+        return None
 
     async def __aenter__(self):
         return self
@@ -104,7 +136,8 @@ class SourceClient:
         start = time.monotonic()
         for attempt in range(self.max_attempts):
             try:
-                resp = await self._client.get(self.base_url, params=params)
+                client = await self._get_client()
+                resp = await client.get(self.base_url, params=params)
                 elapsed = time.monotonic() - start
                 if resp.status_code >= 400:
                     logger.warning(

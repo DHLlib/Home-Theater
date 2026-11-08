@@ -18,6 +18,7 @@ from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
+from app.services.source_client import close_shared_clients
 from app.services.tls import get_ssl_context
 from app.services.category_mapping import migrate_categories_to_mapping_table
 from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
@@ -463,6 +464,7 @@ async def lifespan(app: FastAPI):
         await loop_lag_task
     except asyncio.CancelledError:
         pass
+    await close_shared_clients()
     await listen_manager.stop()
 
 
