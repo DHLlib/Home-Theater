@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend · typecheck / test / build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          # 仓库未提交 lockfile（.gitignore 里忽略了 package-lock.json），
+          # 因此缓存以 package.json 为 key，安装用 npm install 而不是 npm ci。
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  backend:
+    name: Backend · ruff / pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: home_theater
+          POSTGRES_PASSWORD: home_theater_pass
+          POSTGRES_DB: home_theater
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U home_theater -d home_theater"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://home_theater:home_theater_pass@localhost:5432/home_theater
+      TEST_DB_URL: postgresql+asyncpg://home_theater:home_theater_pass@localhost:5432/home_theater_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" ruff
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=home_theater_pass psql -h localhost -U home_theater -d home_theater \
+            -c 'CREATE DATABASE home_theater_test OWNER home_theater'
+
+      - name: Lint (undefined names / unused imports)
+        run: ruff check app --select F
+
+      - name: Tests
+        run: pytest -q
