@@ -240,6 +240,13 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON aggregated_videos (system_category, latest_updated_at DESC)"
                 )
             )
+            # 1–2 字搜索走 lower(title) LIKE 'kw%'，需要 text_pattern_ops 才能用上索引
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_title_lower_pattern "
+                    "ON aggregated_videos (lower(title) text_pattern_ops)"
+                )
+            )
         logger.info("pg_trgm 标题索引已就绪")
     except Exception as exc:
         logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")

@@ -572,6 +572,7 @@ async def _query_aggregated_cache(
     fallback_category: str | None = None,
     sites: list[Site] | None = None,
     keyword: str | None = None,
+    substring: bool = False,
 ) -> AggregatedListResponse | None:
     """从中间表 aggregated_videos / aggregated_sources 读取预聚合缓存。
 
@@ -624,10 +625,18 @@ async def _query_aggregated_cache(
                     AggregatedVideoV3.system_category.in_(system_names)
                 )
 
-        if keyword and keyword.strip():
-            base_query = base_query.where(
-                AggregatedVideoV3.title.ilike(f"%{keyword.strip()}%")
-            )
+        kw = keyword.strip() if keyword else ""
+        if kw:
+            if len(kw) < 3 and not substring:
+                # pg_trgm 只对 3 字以上生效；1–2 字改用前缀匹配，走 lower(title)
+                # 的 text_pattern_ops 索引，避免全表扫描（321ms → 毫秒级）
+                base_query = base_query.where(
+                    func.lower(AggregatedVideoV3.title).like(f"{kw.lower()}%")
+                )
+            else:
+                base_query = base_query.where(
+                    AggregatedVideoV3.title.ilike(f"%{kw}%")
+                )
 
         # 只判断「有没有数据」：count(*) 在 18 万行上要 110ms，EXISTS 取 1 行即可
         probe = await db.execute(
@@ -949,6 +958,20 @@ async def search_videos(
             sort=sort,
         )
         if agg_response is not None:
+            # 1–2 字先按前缀匹配（快）；前缀没有结果再退回子串扫描（慢但完整）
+            if not agg_response.items and len(wd.strip()) < 3:
+                agg_response = await _query_aggregated_cache(
+                    db,
+                    pg=pg,
+                    per_page=per_page,
+                    category=category,
+                    sites=sites,
+                    keyword=wd,
+                    substring=True,
+                    sort=sort,
+                )
+                if agg_response is None:
+                    return AggregatedListResponse(items=[], failed_sources=[])
             raw_items = [item.model_dump() for item in agg_response.items]
             filtered = _filter_fields(raw_items, fields)
             agg_response.items = [AggregatedVideo(**item) for item in filtered]

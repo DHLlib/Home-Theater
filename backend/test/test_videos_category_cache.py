@@ -273,3 +273,27 @@ async def test_list_videos_category_cache_empty_fallthrough(db_session):
     assert with_category is not None
     assert with_category.items == []
     assert without_category is None
+
+@pytest.mark.asyncio
+async def test_search_short_keyword_prefix_then_fallback(db_session):
+    """1–2 字先走前缀匹配（快），前缀没结果时用 substring=True 回退子串。"""
+    await _make_site(db_session, 1)
+    _add_alias(db_session, "动作片", "动作片")
+    await _add_video(
+        db_session, "职权2026", 2026, [(1, "8001", 1, "动作片")], "动作片"
+    )
+    await _add_video(
+        db_session, "我的职权", 2026, [(1, "8002", 1, "动作片")], "动作片"
+    )
+    await db_session.commit()
+
+    sites = [await db_session.get(Site, 1)]
+    prefix = await _query_aggregated_cache(
+        db_session, pg=1, per_page=20, sites=sites, keyword="职权"
+    )
+    assert {item.title for item in prefix.items} == {"职权2026"}
+
+    fallback = await _query_aggregated_cache(
+        db_session, pg=1, per_page=20, sites=sites, keyword="职权", substring=True
+    )
+    assert {item.title for item in fallback.items} == {"职权2026", "我的职权"}
