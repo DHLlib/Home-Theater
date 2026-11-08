@@ -1,16 +1,16 @@
 import { createBrowserRouter, Outlet } from "react-router-dom";
-import { lazy } from "react";
+import { lazyWithRetry } from "../utils/chunkReload";
 import MobileNav from "./components/MobileNav";
 import MobileHome from "./pages/MobileHome";
 
-const MobileSearch = lazy(() => import("./pages/MobileSearch"));
-const MobileFavorites = lazy(() => import("./pages/MobileFavorites"));
-const MobileDownloads = lazy(() => import("./pages/MobileDownloads"));
-const MobileMe = lazy(() => import("./pages/MobileMe"));
-const MobileProgress = lazy(() => import("./pages/MobileProgress"));
-const MobileSettings = lazy(() => import("../pages/Settings"));
-const MobileDetailView = lazy(() => import("./components/MobileDetailView"));
-const Player = lazy(() => import("../pages/Player"));
+const MobileSearch = lazyWithRetry(() => import("./pages/MobileSearch"));
+const MobileFavorites = lazyWithRetry(() => import("./pages/MobileFavorites"));
+const MobileDownloads = lazyWithRetry(() => import("./pages/MobileDownloads"));
+const MobileMe = lazyWithRetry(() => import("./pages/MobileMe"));
+const MobileProgress = lazyWithRetry(() => import("./pages/MobileProgress"));
+const MobileSettings = lazyWithRetry(() => import("../pages/Settings"));
+const MobileDetailView = lazyWithRetry(() => import("./components/MobileDetailView"));
+const Player = lazyWithRetry(() => import("../pages/Player"));
 
 function MobileLayout() {
   return (

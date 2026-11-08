@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from "react";
+import { lazyWithRetry } from "../utils/chunkReload";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Drawer } from "vaul";
 import { getEpisodes, getSources } from "../api/play";
@@ -21,7 +22,7 @@ import {
 import type { Episode, PlayProgress, PlaySource } from "../types";
 
 // 按需加载播放器：xgplayer + xgplayer-hls.js 体积较大，仅进播放页时才加载
-const VideoPlayer = lazy(() => import("../components/VideoPlayer"));
+const VideoPlayer = lazyWithRetry(() => import("../components/VideoPlayer"));
 
 const DOUBLE_TAP_THRESHOLD = 300;
 const SWIPE_UP_THRESHOLD = 60;

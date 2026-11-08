@@ -1,16 +1,16 @@
 import { createBrowserRouter } from "react-router-dom";
-import { lazy } from "react";
+import { lazyWithRetry } from "./utils/chunkReload";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
 
-const Search = lazy(() => import("./pages/Search"));
-const Detail = lazy(() => import("./pages/Detail"));
-const Player = lazy(() => import("./pages/Player"));
-const Downloads = lazy(() => import("./pages/Downloads"));
-const Favorites = lazy(() => import("./pages/Favorites"));
-const Progress = lazy(() => import("./pages/Progress"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Settings = lazy(() => import("./pages/Settings"));
+const Search = lazyWithRetry(() => import("./pages/Search"));
+const Detail = lazyWithRetry(() => import("./pages/Detail"));
+const Player = lazyWithRetry(() => import("./pages/Player"));
+const Downloads = lazyWithRetry(() => import("./pages/Downloads"));
+const Favorites = lazyWithRetry(() => import("./pages/Favorites"));
+const Progress = lazyWithRetry(() => import("./pages/Progress"));
+const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
+const Settings = lazyWithRetry(() => import("./pages/Settings"));
 
 export const router = createBrowserRouter([
   {

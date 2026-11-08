@@ -14,6 +14,41 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- <script src="/ckplayer/ckplayer.js"></script> -->
+    <script>
+      // 旧 index.html 引用了已被重建删掉的 chunk 时会白屏（React 根本没启动）。
+      // 这里在入口模块之前挂兜底：脚本/模块加载失败，或入口始终没执行，就带
+      // 缓存清除参数重载一次；sessionStorage 限制 10 秒内只重载一次，避免死循环。
+      (function () {
+        var KEY = "ht-boot-reload";
+        function reloadOnce() {
+          try {
+            var last = Number(sessionStorage.getItem(KEY) || "0");
+            if (Date.now() - last < 10000) return;
+            sessionStorage.setItem(KEY, String(Date.now()));
+          } catch (e) {}
+          try {
+            var url = new URL(location.href);
+            url.searchParams.set("_r", String(Date.now()));
+            location.replace(url.toString());
+          } catch (e) {
+            location.reload();
+          }
+        }
+        window.addEventListener(
+          "error",
+          function (event) {
+            var el = event.target;
+            if (el && el.tagName === "SCRIPT") reloadOnce();
+          },
+          true
+        );
+        window.addEventListener("load", function () {
+          setTimeout(function () {
+            if (!window.__HT_BOOTED__) reloadOnce();
+          }, 3000);
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
