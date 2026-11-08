@@ -96,3 +96,10 @@
     font-size: 12px;
   }
 }
+
+/* 播放前探测判定为不可达的集：置灰但仍可见 */
+.ep-btn.is-unreachable {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}

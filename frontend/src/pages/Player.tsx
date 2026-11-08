@@ -567,6 +567,7 @@ export default function Player() {
               suffix={current?.suffix || ""}
               autoplay
               onError={() => {}}
+              onSwitchSource={() => setSourcePanelOpen(true)}
               onEnded={handleEnded}
             />
           </Suspense>
@@ -800,25 +801,38 @@ export default function Player() {
                       {group.label}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {group.eps.map((ep) => (
-                        <button
-                          key={ep.index}
-                          className="btn"
-                          style={{
-                            justifyContent: "flex-start",
-                            borderColor:
-                              ep.index === currentIndex
-                                ? "var(--primary)"
+                      {group.eps.map((ep) => {
+                        const unreachable = ep.reachable === false;
+                        return (
+                          <button
+                            key={ep.index}
+                            className="btn"
+                            disabled={unreachable}
+                            title={
+                              unreachable
+                                ? "线路不通（可能是 CDN 被屏蔽或已失效）"
+                                : undefined
+                            }
+                            style={{
+                              justifyContent: "flex-start",
+                              borderColor:
+                                ep.index === currentIndex
+                                  ? "var(--primary)"
+                                  : undefined,
+                              fontSize: 13,
+                              padding: "6px 10px",
+                              minHeight: 36,
+                              opacity: unreachable ? 0.45 : undefined,
+                              textDecoration: unreachable
+                                ? "line-through"
                                 : undefined,
-                            fontSize: 13,
-                            padding: "6px 10px",
-                            minHeight: 36,
-                          }}
-                          onClick={() => handleEpisodeClick(ep.index)}
-                        >
-                          {ep.ep_name}
-                        </button>
-                      ))}
+                            }}
+                            onClick={() => handleEpisodeClick(ep.index)}
+                          >
+                            {ep.ep_name}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -988,24 +1002,37 @@ export default function Player() {
                             gap: 8,
                           }}
                         >
-                          {group.eps.map((ep) => (
-                            <button
-                              key={ep.index}
-                              className="btn"
-                              style={{
-                                borderColor:
-                                  ep.index === currentIndex
-                                    ? "var(--primary)"
+                          {group.eps.map((ep) => {
+                            const unreachable = ep.reachable === false;
+                            return (
+                              <button
+                                key={ep.index}
+                                className="btn"
+                                disabled={unreachable}
+                                title={
+                                  unreachable
+                                    ? "线路不通（可能是 CDN 被屏蔽或已失效）"
+                                    : undefined
+                                }
+                                style={{
+                                  borderColor:
+                                    ep.index === currentIndex
+                                      ? "var(--primary)"
+                                      : undefined,
+                                  fontSize: 12,
+                                  padding: "8px 4px",
+                                  minHeight: 48,
+                                  opacity: unreachable ? 0.45 : undefined,
+                                  textDecoration: unreachable
+                                    ? "line-through"
                                     : undefined,
-                                fontSize: 12,
-                                padding: "8px 4px",
-                                minHeight: 48,
-                              }}
-                              onClick={() => handleEpisodeClick(ep.index)}
-                            >
-                              {ep.ep_name}
-                            </button>
-                          ))}
+                                }}
+                                onClick={() => handleEpisodeClick(ep.index)}
+                              >
+                                {ep.ep_name}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}

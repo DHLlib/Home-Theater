@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -24,6 +25,7 @@ interface VideoPlayerProps {
   suffix?: string;
   autoplay?: boolean;
   onError?: (message: string) => void;
+  onSwitchSource?: () => void;
   onReady?: () => void;
   onEnded?: () => void;
 }
@@ -113,16 +115,23 @@ function seekToStart(player: Player) {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ src, suffix = "", autoplay = true, onError, onReady, onEnded }, ref) => {
+  (
+    { src, suffix = "", autoplay = true, onError, onReady, onEnded, onSwitchSource },
+    ref
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const playerRef = useRef<Player | null>(null);
     const qualityTimerRef = useRef<number | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [retryKey, setRetryKey] = useState(0);
+    const watchdogRef = useRef<number | null>(null);
 
     const onErrorRef = useRef(onError);
+    const onSwitchSourceRef = useRef(onSwitchSource);
     const onReadyRef = useRef(onReady);
     const onEndedRef = useRef(onEnded);
     onErrorRef.current = onError;
+    onSwitchSourceRef.current = onSwitchSource;
     onReadyRef.current = onReady;
     onEndedRef.current = onEnded;
 
@@ -130,6 +139,32 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const prevSuffixRef = useRef(suffix);
     const prevAutoplayRef = useRef(autoplay);
 
+    // 12 秒没有首帧就提示：网络层超时不会触发 xgplayer 的 error 事件，
+    // 不加看门狗会表现为黑屏 + 播放按钮静默卡住。
+    const clearWatchdog = useCallback(() => {
+      if (watchdogRef.current !== null) {
+        clearTimeout(watchdogRef.current);
+        watchdogRef.current = null;
+      }
+    }, []);
+
+    const armWatchdog = useCallback(() => {
+      clearWatchdog();
+      watchdogRef.current = window.setTimeout(() => {
+        watchdogRef.current = null;
+        const msg = "片源服务器连接失败，可能被屏蔽或已失效";
+        setError(msg);
+        onErrorRef.current?.(msg);
+      }, 12000);
+    }, [clearWatchdog]);
+
+    const handleRetry = useCallback(() => {
+      clearWatchdog();
+      playerRef.current?.destroy();
+      playerRef.current = null;
+      setError(null);
+      setRetryKey((key) => key + 1);
+    }, [clearWatchdog]);
     useImperativeHandle(ref, () => ({
       seekTo: (seconds: number) => {
         playerRef.current?.seek(seconds);
@@ -163,10 +198,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           clearInterval(qualityTimerRef.current);
           qualityTimerRef.current = null;
         }
+        clearWatchdog();
         playerRef.current?.destroy();
         playerRef.current = null;
       };
-    }, []);
+    }, [clearWatchdog]);
 
     // 首次有有效 src 时创建播放器
     // 之前如果 src 为空（加载中），这里会在拿到真实地址后补上初始化
@@ -218,6 +254,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         prevSuffixRef.current = suffix;
         prevAutoplayRef.current = autoplay;
         setError(null);
+        armWatchdog();
 
         if (isM3u8) {
           lockMaxQuality(player, qualityTimerRef);
@@ -226,6 +263,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         player.on("ready", () => {
           onReadyRef.current?.();
         });
+        player.on("playing", clearWatchdog);
+        player.on("timeupdate", clearWatchdog);
+        player.on("canplay", clearWatchdog);
 
         player.on("error", (err: any) => {
           const msg =
@@ -242,7 +282,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setError(msg);
         onErrorRef.current?.(msg);
       }
-    }, [src, suffix, autoplay]);
+    }, [src, suffix, autoplay, retryKey, armWatchdog, clearWatchdog]);
 
     // 播放器已存在时，src/suffix/autoplay 变化直接复用实例切换
     useEffect(() => {
@@ -298,12 +338,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         prevSrcRef.current = src;
         prevSuffixRef.current = suffix;
         prevAutoplayRef.current = autoplay;
+        armWatchdog();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "播放器切换源失败";
         setError(msg);
         onErrorRef.current?.(msg);
       }
-    }, [src, suffix, autoplay]);
+    }, [src, suffix, autoplay, armWatchdog]);
 
     return (
       <div
@@ -320,16 +361,34 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             style={{
               position: "absolute",
               inset: 0,
+              zIndex: 10,
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
+              gap: 14,
+              background: "rgba(0,0,0,0.82)",
               color: "var(--danger)",
               fontSize: 14,
-              padding: 16,
+              padding: 24,
               textAlign: "center",
             }}
           >
-            {error}
+            <span style={{ maxWidth: 420, lineHeight: 1.6 }}>{error}</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn" onClick={handleRetry}>
+                重试
+              </button>
+              {onSwitchSourceRef.current && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onSwitchSourceRef.current?.()}
+                >
+                  换源
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

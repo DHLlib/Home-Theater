@@ -1,4 +1,5 @@
 import type { Episode } from "../types";
+import { toastError } from "../utils/toast";
 import "./EpisodeList.css";
 
 function groupEpisodes(episodes: Episode[]): { label: string; eps: Episode[] }[] {
@@ -69,15 +70,27 @@ export default function EpisodeList({
           <div className="ep-grid">
             {group.eps.map((ep) => {
               const isSelected = selected.has(ep.index);
+              const unreachable = ep.reachable === false;
               return (
                 <button
                   key={ep.index}
                   type="button"
                   className={`ep-btn${isSelected ? " is-selected" : ""}${
                     multiSelect ? " is-multi" : ""
-                  }`}
-                  onClick={() => handleClick(ep)}
-                  title={ep.url}
+                  }${unreachable ? " is-unreachable" : ""}`}
+                  onClick={() => {
+                    if (unreachable) {
+                      toastError("该集线路不通，可能是 CDN 域名被屏蔽或已失效");
+                      return;
+                    }
+                    handleClick(ep);
+                  }}
+                  title={
+                    unreachable
+                      ? "线路不通（可能是 CDN 被屏蔽或已失效）"
+                      : ep.url
+                  }
+                  aria-disabled={unreachable || undefined}
                   aria-pressed={multiSelect ? isSelected : undefined}
                 >
                   {multiSelect && (

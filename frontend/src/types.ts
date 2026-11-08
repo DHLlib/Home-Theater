@@ -3,6 +3,8 @@ export interface Episode {
   url: string;
   suffix: string;
   index: number;
+  /** 播放前探测：false = 线路不通，null/undefined = 未探测 */
+  reachable?: boolean | null;
 }
 
 export interface PlaySource {
