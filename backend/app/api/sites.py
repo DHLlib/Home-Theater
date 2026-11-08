@@ -105,6 +105,11 @@ async def update_site(site_id: int, patch: SitePatch, db: AsyncSession = Depends
     await db.commit()
     await db.refresh(db_site)
 
+    if "enabled" in patch.model_fields_set:
+        from app.api.videos import invalidate_hidden_video_cache
+
+        invalidate_hidden_video_cache()
+
     # 站点从禁用变为启用时，后台触发全量刮削即时补全
     if db_site.enabled and not was_enabled and scheduler_module.crawler:
         asyncio.create_task(

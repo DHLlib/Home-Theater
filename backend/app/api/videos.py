@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.errors import crawler_not_running, validation_error
-from sqlalchemy import delete, desc, func, or_, select
+from sqlalchemy import delete, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,6 +54,68 @@ logger = logging.getLogger(__name__)
 
 # 伪分类名：视频级分类为空（没有任何来源命中别名）时使用
 UNCATEGORIZED_CATEGORY = "未分类"
+
+
+async def _disabled_site_ids(db: AsyncSession) -> list[int]:
+    """被禁用的站点 id（禁用即从分类/首页隐藏其内容）。"""
+    result = await db.execute(select(Site.id).where(Site.enabled.is_(False)))
+    return [row[0] for row in result.all()]
+
+
+def _hidden_video_subquery(disabled_ids: list[int]):
+    """只能由禁用站点提供的视频子查询。"""
+    from sqlalchemy.orm import aliased
+
+    other = aliased(AggregatedSource)
+    return (
+        select(AggregatedSource.aggregated_video_id)
+        .where(AggregatedSource.site_id.in_(disabled_ids))
+        .where(
+            ~exists(
+                select(other.id).where(
+                    other.aggregated_video_id == AggregatedSource.aggregated_video_id,
+                    other.site_id.notin_(disabled_ids),
+                )
+            )
+        )
+        .distinct()
+    )
+
+
+# 隐藏集合缓存：禁用/启用站点时主动失效，另有 60 秒兜底 TTL
+_hidden_cache: tuple[float, list[int]] | None = None
+_HIDDEN_CACHE_TTL = 60.0
+# 超过这个数量就退回子查询，避免 IN (...) 参数过多
+_HIDDEN_ID_LIMIT = 10_000
+
+
+def invalidate_hidden_video_cache() -> None:
+    global _hidden_cache
+    _hidden_cache = None
+
+
+async def _hidden_video_filter(db: AsyncSession):
+    """禁用站点的隐藏过滤条件：id 列表（有缓存）或子查询；无禁用站点返回 None。"""
+    global _hidden_cache
+
+    disabled_ids = await _disabled_site_ids(db)
+    if not disabled_ids:
+        _hidden_cache = None
+        return None
+
+    now = time.monotonic()
+    if _hidden_cache is not None and (now - _hidden_cache[0]) < _HIDDEN_CACHE_TTL:
+        hidden_ids = _hidden_cache[1]
+    else:
+        result = await db.execute(_hidden_video_subquery(disabled_ids))
+        hidden_ids = [row[0] for row in result.all()]
+        _hidden_cache = (now, hidden_ids)
+
+    if not hidden_ids:
+        return None
+    if len(hidden_ids) <= _HIDDEN_ID_LIMIT:
+        return hidden_ids
+    return _hidden_video_subquery(disabled_ids)
 
 # ------------------------------------------------------------------
 # 分类禁用过滤：全局缓存（物化视图查询用）
@@ -512,6 +574,12 @@ async def _query_aggregated_cache(
         base_query = select(AggregatedVideoV3)
         count_query = select(func.count()).select_from(AggregatedVideoV3)
 
+        # 禁用站点即隐藏：排除只由禁用站点提供的视频
+        hidden = await _hidden_video_filter(db)
+        if hidden is not None:
+            base_query = base_query.where(AggregatedVideoV3.id.notin_(hidden))
+            count_query = count_query.where(AggregatedVideoV3.id.notin_(hidden))
+
         if site_id is not None:
             subq = (
                 select(AggregatedSource.aggregated_video_id)
@@ -775,6 +843,16 @@ async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedLi
                 source_count=r.source_count,
             )
         )
+
+    # 禁用站点即隐藏：只保留至少一个启用来源的推荐
+    disabled_ids = await _disabled_site_ids(db)
+    if disabled_ids:
+        disabled_set = set(disabled_ids)
+        items = [
+            item
+            for item in items
+            if any(s.site_id not in disabled_set for s in item.sources)
+        ]
 
     # 兜底：对 poster_url 为空的记录，从 video_cache 补充非空封面
     missing_posters = [
@@ -1446,19 +1524,27 @@ async def clear_video_cache(db: AsyncSession = Depends(get_db)):
 @router.get("/categories/stats")
 async def category_stats(db: AsyncSession = Depends(get_db)):
     """视频级分类计数：分类栏只展示有内容的分类，并给出未分类数量。"""
-    rows = await db.execute(
+    hidden = await _hidden_video_filter(db)
+
+    counts_query = (
         select(AggregatedVideoV3.system_category, func.count())
         .where(AggregatedVideoV3.system_category.isnot(None))
         .group_by(AggregatedVideoV3.system_category)
     )
-    counts = {name: count for name, count in rows.all()}
-    uncategorized = (
-        await db.execute(
-            select(func.count())
-            .select_from(AggregatedVideoV3)
-            .where(AggregatedVideoV3.system_category.is_(None))
+    uncategorized_query = (
+        select(func.count())
+        .select_from(AggregatedVideoV3)
+        .where(AggregatedVideoV3.system_category.is_(None))
+    )
+    if hidden is not None:
+        counts_query = counts_query.where(AggregatedVideoV3.id.notin_(hidden))
+        uncategorized_query = uncategorized_query.where(
+            AggregatedVideoV3.id.notin_(hidden)
         )
-    ).scalar_one()
+
+    rows = await db.execute(counts_query)
+    counts = {name: count for name, count in rows.all()}
+    uncategorized = (await db.execute(uncategorized_query)).scalar_one()
     return {
         "counts": counts,
         "uncategorized": uncategorized,

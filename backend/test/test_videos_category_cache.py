@@ -32,12 +32,12 @@ def _reset_category_cache():
     category_alias.invalidate_alias_cache()
 
 
-async def _make_site(db, site_id: int) -> Site:
+async def _make_site(db, site_id: int, enabled: bool = True) -> Site:
     site = Site(
         id=site_id,
         name=f"site-{site_id}",
         base_url=f"http://site{site_id}.test",
-        enabled=True,
+        enabled=enabled,
         sort=site_id,
     )
     db.add(site)
@@ -198,6 +198,38 @@ async def test_list_videos_category_no_mapping_returns_empty(db_session):
 
     assert resp is not None
     assert resp.items == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_site_content_hidden(db_session):
+    """禁用站点的内容不出现在聚合列表；多来源视频只要有一个启用来源就保留。"""
+    site_on = await _make_site(db_session, 1, enabled=True)
+    await _make_site(db_session, 2, enabled=False)
+    db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
+    _add_alias(db_session, "动作片", "动作片")
+
+    await _add_video(
+        db_session, "仅禁用站", 2024, [(2, "9001", 6, "动作片")], "动作片"
+    )
+    await _add_video(
+        db_session, "启用站内容", 2024, [(1, "9002", 6, "动作片")], "动作片"
+    )
+    await _add_video(
+        db_session,
+        "两站共用",
+        2024,
+        [(1, "9003", 6, "动作片"), (2, "9004", 6, "动作片")],
+        "动作片",
+    )
+    await db_session.commit()
+
+    resp = await _query_aggregated_cache(
+        db_session, pg=1, per_page=20, category=None, sites=[site_on]
+    )
+
+    assert resp is not None
+    titles = {item.title for item in resp.items}
+    assert titles == {"启用站内容", "两站共用"}
 
 
 @pytest.mark.asyncio

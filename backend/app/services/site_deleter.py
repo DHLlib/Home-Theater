@@ -133,6 +133,9 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
                 return
             site.enabled = False
             await db.commit()
+            from app.api.videos import invalidate_hidden_video_cache
+
+            invalidate_hidden_video_cache()
             await _send_progress(site_id, "running", 2, "已禁用站点，停止刮削")
 
             # 1. 删除探测日志
