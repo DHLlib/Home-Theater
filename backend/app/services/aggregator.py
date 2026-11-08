@@ -119,6 +119,7 @@ def _aggregate_records(
     records: Iterable[Any],
     site_name_map: dict[int, str | None] | None = None,
     category_aliases: dict[str, dict] | None = None,
+    category_overrides: dict[tuple[int, str], str] | None = None,
     category_sort: dict[str, int] | None = None,
 ) -> list[tuple[str, int | None, dict[str, Any], str]]:
     """把 VideoCache 记录按 (norm_title, year) 聚合去重。
@@ -204,8 +205,9 @@ def _aggregate_records(
     for key, item in sorted_items:
         if category_aliases is not None:
             item["system_category"] = pick_system_category(
-                [s.get("type") for s in item["sources"]],
+                [(s.get("site_id"), s.get("type")) for s in item["sources"]],
                 category_aliases,
+                category_overrides,
                 category_sort,
             )
         results.append((key[0], key[1], item, latest_update[key]))
@@ -583,9 +585,17 @@ async def incrementally_update_aggregated_tables(
             return True
 
         # 3. 聚合去重（含 year=None 回填）+ 视频级分类投票
-        category_aliases, category_sort = await load_category_decision_maps(db)
+        (
+            category_aliases,
+            category_overrides,
+            category_sort,
+        ) = await load_category_decision_maps(db)
         sorted_items = _aggregate_records(
-            records, site_name_map, category_aliases, category_sort
+            records,
+            site_name_map,
+            category_aliases,
+            category_overrides,
+            category_sort,
         )
 
         # 4. 插入 aggregated_videos，用 RETURNING 取回 id

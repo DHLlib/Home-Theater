@@ -37,10 +37,29 @@ export const listCategoryOverrides = () =>
     items: {
       id: number;
       site_id: number;
+      site_name: string | null;
       name_key: string;
+      raw_name: string;
       system_name: string;
     }[];
   }>("/api/category-aliases/overrides");
+
+export const saveCategoryOverride = (
+  siteId: number,
+  rawName: string,
+  systemName: string
+) =>
+  post<{ ok: boolean; id: number; name_key: string; system_name: string }>(
+    "/api/category-aliases/overrides",
+    { site_id: siteId, raw_name: rawName, system_name: systemName }
+  );
+
+export const deleteCategoryOverride = (siteId: number, nameKey: string) =>
+  del<{ ok: boolean }>(
+    `/api/category-aliases/overrides?site_id=${siteId}&name_key=${encodeURIComponent(
+      nameKey
+    )}`
+  );
 
 export const saveCategoryAlias = (rawName: string, systemName: string) =>
   post<{ ok: boolean; name_key: string; system_name: string }>(

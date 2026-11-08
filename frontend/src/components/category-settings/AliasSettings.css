@@ -263,3 +263,78 @@
     min-width: 64px;
   }
 }
+
+/* ===== 站点例外 ===== */
+
+.alias-override-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.alias-override-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.alias-override-row:last-child {
+  border-bottom: none;
+}
+
+.alias-override-site {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.alias-override-sep {
+  color: var(--text-muted);
+}
+
+.alias-override-cat {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.alias-override-row .alias-btn {
+  margin-left: auto;
+}
+
+.alias-override-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.alias-override-form .alias-search {
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+
+.alias-override-form .alias-select {
+  flex: 0 1 170px;
+}
+
+@media (max-width: 640px) {
+  .alias-override-row {
+    flex-wrap: wrap;
+  }
+
+  .alias-override-row .alias-btn {
+    margin-left: 0;
+  }
+
+  .alias-override-form .alias-select,
+  .alias-override-form .alias-btn {
+    flex: 1 1 100%;
+  }
+}

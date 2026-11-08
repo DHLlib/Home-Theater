@@ -16,16 +16,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import CategoryAlias, SystemCategory
+from app.models import CategoryAlias, Site, SystemCategory
 from app.services.category_alias import (
     alias_usage,
     delete_alias,
+    delete_override,
     invalidate_alias_cache,
     list_overrides,
     load_aliases,
     recompute_videos_for_names,
     unmapped_categories,
     upsert_alias,
+    upsert_override,
 )
 
 router = APIRouter(prefix="/category-aliases", tags=["category-aliases"])
@@ -82,17 +84,71 @@ async def list_unmapped(db: AsyncSession = Depends(get_db)):
 @router.get("/overrides")
 async def list_site_overrides(db: AsyncSession = Depends(get_db)):
     rows = await list_overrides(db)
-    return {
-        "items": [
+    sites = {
+        row[0]: row[1]
+        for row in (await db.execute(select(Site.id, Site.name))).all()
+    }
+    aliases = await load_aliases(db)
+    items = []
+    for row in rows:
+        info = aliases.get(row.name_key)
+        items.append(
             {
                 "id": row.id,
                 "site_id": row.site_id,
+                "site_name": sites.get(row.site_id),
                 "name_key": row.name_key,
+                "raw_name": (info["raw_names"][0] if info and info["raw_names"] else row.name_key),
                 "system_name": row.system_name,
             }
-            for row in rows
-        ]
+        )
+    return {"items": items}
+
+
+@router.post("/overrides")
+async def save_site_override(
+    body: dict = Body(...), db: AsyncSession = Depends(get_db)
+):
+    site_id = body.get("site_id")
+    raw_name = str(body.get("raw_name") or body.get("name_key") or "").strip()
+    system_name = str(body.get("system_name") or "").strip()
+    if site_id is None or not raw_name or not system_name:
+        return {"ok": False, "detail": "site_id、raw_name、system_name 必填"}
+
+    override = await upsert_override(db, int(site_id), raw_name, system_name)
+    await db.commit()
+    await db.refresh(override)
+    _invalidate_all()
+    await recompute_videos_for_names(db, [raw_name], site_id=int(site_id))
+    logger.info(
+        "site_override_saved site=%s name=%s system=%s",
+        site_id,
+        override.name_key,
+        system_name,
+    )
+    return {
+        "ok": True,
+        "id": override.id,
+        "site_id": override.site_id,
+        "name_key": override.name_key,
+        "system_name": override.system_name,
     }
+
+
+@router.delete("/overrides")
+async def remove_site_override(
+    site_id: int, name_key: str, db: AsyncSession = Depends(get_db)
+):
+    aliases = await load_aliases(db)
+    info = aliases.get(name_key)
+    raw_names = list(info["raw_names"]) if info and info["raw_names"] else [name_key]
+
+    removed = await delete_override(db, site_id, name_key)
+    await db.commit()
+    if removed:
+        _invalidate_all()
+        await recompute_videos_for_names(db, raw_names, site_id=site_id)
+    return {"ok": removed}
 
 
 @router.post("")

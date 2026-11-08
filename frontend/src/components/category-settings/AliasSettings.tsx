@@ -2,14 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   adoptCategoryAliases,
   deleteCategoryAlias,
+  deleteCategoryOverride,
   listCategoryAliases,
+  listCategoryOverrides,
   listUnmappedCategories,
+  saveCategoryOverride,
   updateCategoryAlias,
   type CategoryAliasItem,
   type UnmappedCategoryItem,
 } from "../../api/category-aliases";
+import { listSites } from "../../api/sites";
 import { toastError, toastSuccess } from "../../utils/toast";
+import type { Site } from "../../types";
 import "./AliasSettings.css";
+
+interface OverrideItem {
+  id: number;
+  site_id: number;
+  site_name: string | null;
+  name_key: string;
+  raw_name: string;
+  system_name: string;
+}
 
 /**
  * 一屏式分类对照表：远程分类名 → 系统分类。
@@ -21,20 +35,29 @@ export default function AliasSettings() {
   const [aliases, setAliases] = useState<CategoryAliasItem[]>([]);
   const [systemCategories, setSystemCategories] = useState<string[]>([]);
   const [unmapped, setUnmapped] = useState<UnmappedCategoryItem[]>([]);
+  const [overrides, setOverrides] = useState<OverrideItem[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [draftSite, setDraftSite] = useState("");
+  const [draftName, setDraftName] = useState("");
+  const [draftSystem, setDraftSystem] = useState("");
 
   const reload = useCallback(async () => {
     try {
-      const [aliasResp, unmappedResp] = await Promise.all([
+      const [aliasResp, unmappedResp, overrideResp, siteList] = await Promise.all([
         listCategoryAliases(),
         listUnmappedCategories(),
+        listCategoryOverrides(),
+        listSites(),
       ]);
       setAliases(aliasResp.items);
       setSystemCategories(aliasResp.system_categories);
       setUnmapped(unmappedResp.items);
+      setOverrides(overrideResp.items);
+      setSites(siteList);
     } catch {
       // client 已统一 toast
     } finally {
@@ -156,6 +179,36 @@ export default function AliasSettings() {
     run(async () => {
       await deleteCategoryAlias(item.name_key);
       toastSuccess("已删除");
+      await reload();
+    });
+  };
+
+  const addOverride = () => {
+    const siteId = Number(draftSite);
+    if (!siteId || !draftName.trim() || !draftSystem) {
+      toastError("站点、类名、系统分类都要选");
+      return;
+    }
+    run(async () => {
+      await saveCategoryOverride(siteId, draftName.trim(), draftSystem);
+      toastSuccess(`已添加例外：${draftName.trim()} → ${draftSystem}`);
+      setDraftName("");
+      await reload();
+    });
+  };
+
+  const removeOverride = (item: OverrideItem) => {
+    const siteLabel = item.site_name || `#${item.site_id}`;
+    if (
+      !window.confirm(
+        `删除例外「${siteLabel} · ${item.raw_name} → ${item.system_name}」？`
+      )
+    ) {
+      return;
+    }
+    run(async () => {
+      await deleteCategoryOverride(item.site_id, item.name_key);
+      toastSuccess("例外已删除");
       await reload();
     });
   };
@@ -332,11 +385,92 @@ export default function AliasSettings() {
       </section>
 
       <details className="alias-overrides">
-        <summary>站点例外（可选）</summary>
+        <summary>站点例外（{overrides.length}）</summary>
         <p className="alias-block-hint">
-          只有当同一个类名在某站点含义不同时才需要。当前没有例外；如需特殊处理，
-          可先删除对应别名，再用站点分类映射单独配置（旧入口已移除此界面）。
+          只有同一个类名在某个站点含义不同时才需要：例外只影响该站点的来源，其余站点
+          继续使用全局别名。
         </p>
+
+        {overrides.length > 0 && (
+          <div className="alias-override-list">
+            {overrides.map((item) => (
+              <div className="alias-override-row" key={item.id}>
+                <span className="alias-override-site">
+                  {item.site_name || `站点 #${item.site_id}`}
+                </span>
+                <span className="alias-override-sep" aria-hidden="true">
+                  ·
+                </span>
+                <span className="alias-name">{item.raw_name}</span>
+                <span className="alias-override-sep" aria-hidden="true">
+                  →
+                </span>
+                <span className="alias-override-cat">{item.system_name}</span>
+                <button
+                  type="button"
+                  className="btn alias-btn alias-btn--danger"
+                  onClick={() => removeOverride(item)}
+                  disabled={busy}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="alias-override-form">
+          <select
+            className="alias-select"
+            value={draftSite}
+            onChange={(event) => setDraftSite(event.target.value)}
+            aria-label="选择站点"
+          >
+            <option value="">选择站点</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            className="alias-search"
+            list="alias-raw-names"
+            placeholder="远程类名，如 伦理片"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            aria-label="远程类名"
+          />
+          <datalist id="alias-raw-names">
+            {[...new Set(aliases.flatMap((item) => item.raw_names))].map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+
+          <select
+            className="alias-select"
+            value={draftSystem}
+            onChange={(event) => setDraftSystem(event.target.value)}
+            aria-label="选择系统分类"
+          >
+            <option value="">改为哪个分类</option>
+            {systemCategories.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            className="btn btn-primary alias-btn"
+            onClick={addOverride}
+            disabled={busy || !draftSite || !draftName.trim() || !draftSystem}
+          >
+            添加例外
+          </button>
+        </div>
       </details>
     </div>
   );

@@ -34,6 +34,10 @@ _ALIAS_CACHE_TTL = 60.0
 _alias_cache: dict[str, dict] | None = None
 _alias_cache_ts: float = 0.0
 
+# 站点例外缓存：{(site_id, name_key): system_name}
+_override_cache: dict[tuple[int, str], str] | None = None
+_override_cache_ts: float = 0.0
+
 # 来源/站点统计要扫 45 万行，缓存 60 秒；抓取后最多延迟一分钟
 _usage_cache: dict[str, dict] | None = None
 _usage_cache_ts: float = 0.0
@@ -58,9 +62,11 @@ def normalize_category_name(name: str | None) -> str:
 
 
 def invalidate_alias_cache() -> None:
-    global _alias_cache, _alias_cache_ts
+    global _alias_cache, _alias_cache_ts, _override_cache, _override_cache_ts
     _alias_cache = None
     _alias_cache_ts = 0.0
+    _override_cache = None
+    _override_cache_ts = 0.0
 
 
 async def load_aliases(db: AsyncSession, *, use_cache: bool = True) -> dict[str, dict]:
@@ -358,11 +364,16 @@ async def seed_aliases_from_names(
 
 
 async def recompute_videos_for_names(
-    db: AsyncSession, raw_names: list[str], *, chunk_size: int = 2000
+    db: AsyncSession,
+    raw_names: list[str],
+    *,
+    site_id: int | None = None,
+    chunk_size: int = 2000,
 ) -> int:
-    """别名变更后重算受影响视频的分类（置空后回填）。
+    """别名/例外变更后重算受影响视频的分类（置空后回填）。
 
     视频级分类是物化字段，不重算的话「改别名」要等下次全量重建才生效。
+    site_id 非空时只重算该站点的来源（用于站点例外）。
     """
     from sqlalchemy import update
 
@@ -372,13 +383,12 @@ async def recompute_videos_for_names(
     if not names:
         return 0
 
-    video_ids = (
-        await db.execute(
-            select(AggregatedSource.aggregated_video_id)
-            .where(AggregatedSource.type_name.in_(names))
-            .distinct()
-        )
-    ).scalars().all()
+    id_query = select(AggregatedSource.aggregated_video_id).where(
+        AggregatedSource.type_name.in_(names)
+    )
+    if site_id is not None:
+        id_query = id_query.where(AggregatedSource.site_id == site_id)
+    video_ids = (await db.execute(id_query.distinct())).scalars().all()
     if not video_ids:
         return 0
 
@@ -393,8 +403,9 @@ async def recompute_videos_for_names(
 
     filled = await backfill_video_categories(db)
     logger.info(
-        "别名变更后重算视频分类: names=%s videos=%d filled=%d",
+        "别名变更后重算视频分类: names=%s site=%s videos=%d filled=%d",
         names[:5],
+        site_id,
         len(video_ids),
         filled,
     )
@@ -406,21 +417,82 @@ async def list_overrides(db: AsyncSession) -> list[SiteCategoryOverride]:
     return list(result.scalars().all())
 
 
+async def load_overrides(db: AsyncSession) -> dict[tuple[int, str], str]:
+    """站点例外：{(site_id, name_key): system_name}，60 秒缓存。"""
+    global _override_cache, _override_cache_ts
+    now = time.monotonic()
+    if (
+        _override_cache is not None
+        and (now - _override_cache_ts) < _ALIAS_CACHE_TTL
+    ):
+        return _override_cache
+
+    rows = await db.execute(select(SiteCategoryOverride))
+    data = {(row.site_id, row.name_key): row.system_name for row in rows.scalars().all()}
+    _override_cache = data
+    _override_cache_ts = now
+    return data
+
+
+async def upsert_override(
+    db: AsyncSession, site_id: int, raw_name: str, system_name: str
+) -> SiteCategoryOverride:
+    """新增/更新站点例外。调用方负责 commit。"""
+    key = normalize_category_name(raw_name)
+    if not key:
+        raise ValueError("分类名为空")
+    result = await db.execute(
+        select(SiteCategoryOverride).where(
+            SiteCategoryOverride.site_id == site_id,
+            SiteCategoryOverride.name_key == key,
+        )
+    )
+    override = result.scalar_one_or_none()
+    if override is None:
+        override = SiteCategoryOverride(
+            site_id=site_id, name_key=key, system_name=system_name
+        )
+        db.add(override)
+    else:
+        override.system_name = system_name
+    return override
+
+
+async def delete_override(
+    db: AsyncSession, site_id: int, name_key: str
+) -> bool:
+    result = await db.execute(
+        delete(SiteCategoryOverride).where(
+            SiteCategoryOverride.site_id == site_id,
+            SiteCategoryOverride.name_key == name_key,
+        )
+    )
+    return bool(result.rowcount)
+
+
 def pick_system_category(
-    type_names: list[str | None],
+    sources: list[tuple[int | None, str | None]],
     aliases: dict[str, dict],
+    overrides: dict[tuple[int, str], str] | None = None,
     sort_order: dict[str, int] | None = None,
 ) -> str | None:
-    """按来源别名投票选一个系统分类；平票取 sort 小的，再平按名字。
+    """按来源投票选一个系统分类；平票取 sort 小的，再平按名字。
 
+    每个来源先查站点例外（site_id + 类名），没有才用全局别名。
     同一个聚合视频可能来自多个站点、被标成不同分类（实测 16.2% 如此），
     视频级只保留一个分类，避免在多个分类页重复出现。
     """
+    overrides = overrides or {}
     votes: Counter[str] = Counter()
-    for raw in type_names:
+    for site_id, raw in sources:
         if not raw:
             continue
-        info = aliases.get(normalize_category_name(raw))
+        key = normalize_category_name(raw)
+        specific = overrides.get((site_id, key)) if site_id is not None else None
+        if specific:
+            votes[specific] += 1
+            continue
+        info = aliases.get(key)
         if not info or not info["enabled"]:
             continue
         votes[info["system_name"]] += 1
@@ -435,12 +507,13 @@ def pick_system_category(
 
 async def load_category_decision_maps(
     db: AsyncSession,
-) -> tuple[dict[str, dict], dict[str, int]]:
-    """返回 (别名表, 系统分类排序) 供视频级分类投票使用。"""
+) -> tuple[dict[str, dict], dict[tuple[int, str], str], dict[str, int]]:
+    """返回 (别名表, 站点例外, 系统分类排序) 供视频级分类投票使用。"""
     aliases = await load_aliases(db)
+    overrides = await load_overrides(db)
     rows = await db.execute(select(SystemCategory.name, SystemCategory.sort))
     sort_order = {name: sort for name, sort in rows.all()}
-    return aliases, sort_order
+    return aliases, overrides, sort_order
 
 
 async def backfill_video_categories(
@@ -454,7 +527,7 @@ async def backfill_video_categories(
 
     from app.models import AggregatedVideoV3
 
-    aliases, sort_order = await load_category_decision_maps(db)
+    aliases, overrides, sort_order = await load_category_decision_maps(db)
 
     null_ids = [
         row[0]
@@ -479,20 +552,23 @@ async def backfill_video_categories(
             await db.execute(
                 select(
                     AggregatedSource.aggregated_video_id,
+                    AggregatedSource.site_id,
                     AggregatedSource.type_name,
                 ).where(AggregatedSource.aggregated_video_id.in_(chunk))
             )
         ).all()
-        grouped: dict[int, list[str | None]] = {}
-        for video_id, type_name in src_rows:
-            grouped.setdefault(video_id, []).append(type_name)
+        grouped: dict[int, list[tuple[int | None, str | None]]] = {}
+        for video_id, site_id, type_name in src_rows:
+            grouped.setdefault(video_id, []).append((site_id, type_name))
 
         computed = []
         for video_id in chunk:
-            names = grouped.get(video_id)
-            if not names:
+            sources = grouped.get(video_id)
+            if not sources:
                 continue
-            category = pick_system_category(names, aliases, sort_order)
+            category = pick_system_category(
+                sources, aliases, overrides, sort_order
+            )
             if category:
                 computed.append({"b_id": video_id, "b_cat": category})
 
