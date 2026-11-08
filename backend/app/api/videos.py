@@ -517,7 +517,9 @@ async def _query_aggregated_cache(
         # 扫描窗口放大 5 倍用于分类禁用过滤的缓冲；offset 必须按同一窗口步进，
         # 否则相邻页 [offset, offset+window) 大面积重叠 → 跨页返回重复视频。
         scan_window = per_page * 5
-        offset = (page - 1) * scan_window
+        # offset 必须按「输出条数」步进：按扫描窗口步进会让相邻页之间整段跳空
+        # （per_page=24 时第 2 页实际从第 121 行开始，中间 96 条永远翻不到）。
+        offset = (page - 1) * per_page
 
         if sort == "year":
             order_by = [

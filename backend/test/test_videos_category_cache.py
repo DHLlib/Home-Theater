@@ -118,12 +118,18 @@ async def test_list_videos_category_no_cross_page_duplicates(db_session):
     page2 = await _query_aggregated_cache(
         db_session, pg=2, per_page=5, category="动作片", sites=sites
     )
+    page3 = await _query_aggregated_cache(
+        db_session, pg=3, per_page=5, category="动作片", sites=sites
+    )
 
     t1 = {item.title for item in page1.items}
     t2 = {item.title for item in page2.items}
-    # 两页无交集，且并集覆盖全部 12 部
+    t3 = {item.title for item in page3.items}
+    # 三页互不重叠，且并集覆盖全部 12 部（per_page=5 → 需要 3 页）
     assert t1.isdisjoint(t2)
-    assert len(t1 | t2) == 12
+    assert t1.isdisjoint(t3)
+    assert t2.isdisjoint(t3)
+    assert len(t1 | t2 | t3) == 12
 
 
 @pytest.mark.asyncio
