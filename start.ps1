@@ -220,10 +220,24 @@ if ($remainingBackendPid -and -not (Confirm-HomeTheaterProcess $remainingBackend
 # Production: rebuild frontend every start
 if (-not $Dev -and -not $NoBuild) {
     Write-Host "[INFO] Building frontend..." -ForegroundColor Cyan
+    # esbuild 会往 %TEMP% 写临时文件再删；某些机器上杀软占用该目录导致
+    # "remove ...esbuild-xxx: Access is denied"，构建直接失败。
+    # 这里把本次构建的临时目录指到项目内，规避文件占用；结束后恢复原值。
+    $buildTmp = Join-Path $projectRoot ".tmp"
+    New-Item -ItemType Directory -Force -Path $buildTmp | Out-Null
+    $prevTmp = $env:TMP
+    $prevTemp = $env:TEMP
+    $env:TMP = $buildTmp
+    $env:TEMP = $buildTmp
     Push-Location $frontendDir
-    npm run build
-    $buildExit = $LASTEXITCODE
-    Pop-Location
+    try {
+        npm run build
+        $buildExit = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        $env:TMP = $prevTmp
+        $env:TEMP = $prevTemp
+    }
     if ($buildExit -ne 0 -or -not (Test-Path (Join-Path $distDir "index.html"))) {
         Write-Host "[ERROR] Frontend build failed" -ForegroundColor Red
         exit 1
