@@ -86,6 +86,45 @@ class SiteCategoryMapping(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class CategoryAlias(Base):
+    """远程分类名 → 系统分类（全局生效）。
+
+    替代按站点的 SiteCategoryMapping：远程类名跨站高度重复（实测 98 个名字 vs
+    805 条站点映射），按名字配一次即可，新站点命中即自动生效。
+    """
+
+    __tablename__ = "category_aliases"
+
+    # 归一化后的类名（去空白、全半角/大小写折叠），作为主键
+    name_key: Mapped[str] = mapped_column(String, primary_key=True)
+    system_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # 归一化前实际出现过的写法，SQL 按 type_name 过滤时要用
+    raw_names: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # auto = 规则/多数票推断，manual = 用户确认
+    source: Mapped[str] = mapped_column(String, default="auto", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class SiteCategoryOverride(Base):
+    """站点级例外：同名类名在某站点语义不同时才需要（预计个位数）。"""
+
+    __tablename__ = "site_category_overrides"
+    __table_args__ = (
+        UniqueConstraint("site_id", "name_key", name="uix_site_override_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    name_key: Mapped[str] = mapped_column(String, nullable=False)
+    system_name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (UniqueConstraint("title", "year", name="uix_favorite_title_year"),)

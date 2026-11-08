@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
-from app.api import favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
+from app.api import category_aliases, favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
 from app.config import settings
 from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
@@ -67,7 +67,6 @@ DEFAULT_SYSTEM_CATEGORIES = [
         ("成人", 2),
     ]),
 ]
-
 
 async def check_db_connection() -> None:
     """启动前检查数据库连通性，graceful 启动。"""
@@ -222,6 +221,32 @@ async def _ensure_progress_unique_index() -> None:
         log.warning(f"升级 play_progress 唯一索引失败: {exc}")
 
 
+async def _ensure_category_aliases(force: bool = False) -> None:
+    """首次启动时把现有「站点 × 远程分类」映射聚合成全局别名（幂等）。
+
+    之后新增站点命中别名即自动生效，无需再逐站点配置。
+    force=True 时即使已有别名也重跑（新增系统分类后需要）。
+    """
+    from sqlalchemy import func, select
+
+    from app.models import CategoryAlias
+    from app.services.category_alias import seed_aliases_from_data
+
+    log = logging.getLogger(__name__)
+    try:
+        async with async_session_factory() as db:
+            if not force:
+                count = (
+                    await db.execute(select(func.count()).select_from(CategoryAlias))
+                ).scalar_one()
+                if count > 0:
+                    return
+            summary = await seed_aliases_from_data(db)
+        log.info("首次生成分类别名: %s", summary)
+    except Exception as exc:
+        log.warning(f"生成分类别名失败: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -229,6 +254,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     await _fix_postgres_sequences()
     await _ensure_progress_unique_index()
+    await _ensure_category_aliases()
     await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)
@@ -352,6 +378,7 @@ app.include_router(favorites.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")
 app.include_router(sse.router, prefix="/api")
 app.include_router(system_categories.router, prefix="/api")
+app.include_router(category_aliases.router, prefix="/api")
 
 
 @app.get("/api/health")
