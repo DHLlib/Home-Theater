@@ -281,6 +281,32 @@ class CacheControlStaticFiles(StaticFiles):
             response = await super().get_response(path, scope)
         except Exception as exc:
             if getattr(exc, "status_code", None) == 404:
+                # 旧 index.html（浏览器/云加速缓存了 HTML）会去要已经被构建删掉的 chunk。
+                # 这时不返回 404，而是回一段自愈脚本：清缓存参数重载一次，把用户拉回新版本。
+                # 必须带 no-store，否则这段脚本本身也会被缓存住。
+                # 注意：挂载在 "/" 时 path 可能带前导斜杠；Windows 上还可能被 normpath
+                # 换成反斜杠，这里统一归一化后再判断。
+                rel = path.replace("\\", "/").lstrip("/")
+                if rel.startswith("assets/") and rel.endswith((".js", ".mjs")):
+                    return Response(
+                        content=(
+                            "(function(){"
+                            'var k="ht-missing-asset",n=0;'
+                            'try{n=Number(sessionStorage.getItem(k)||0);}catch(e){}'
+                            "if(Date.now()-n<15000){return;}"
+                            "try{sessionStorage.setItem(k,String(Date.now()));}catch(e){}"
+                            "try{var u=new URL(location.href);"
+                            'u.searchParams.set("_r",String(Date.now()));'
+                            "location.replace(u.toString());}catch(e){location.reload();}"
+                            "})();"
+                        ),
+                        media_type="text/javascript",
+                        headers={
+                            "Cache-Control": "no-store, must-revalidate",
+                            "Pragma": "no-cache",
+                            "Expires": "0",
+                        },
+                    )
                 # 静态资源文件（JS/CSS/图片等）不存在时，不要 fallback 到 index.html，
                 # 否则浏览器会把 HTML 当 JS/CSS 解析导致白屏
                 if "." in path and not path.endswith(".html"):
