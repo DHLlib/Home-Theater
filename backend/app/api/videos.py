@@ -536,7 +536,8 @@ async def _query_aggregated_cache(
                 system_names, remote_names = await _resolve_category_aliases(
                     db, category
                 )
-                if not system_names and fallback_category:
+                # 该分类一个远程类名都没解析出来 → 回退父分类（不展开子分类）
+                if not remote_names and fallback_category:
                     system_names, remote_names = await _resolve_category_aliases(
                         db, fallback_category, expand_children=False
                     )
@@ -1441,3 +1442,25 @@ async def clear_video_cache(db: AsyncSession = Depends(get_db)):
     result = await db.execute(delete(VideoCache))
     await db.commit()
     return {"deleted": result.rowcount}
+
+@router.get("/categories/stats")
+async def category_stats(db: AsyncSession = Depends(get_db)):
+    """视频级分类计数：分类栏只展示有内容的分类，并给出未分类数量。"""
+    rows = await db.execute(
+        select(AggregatedVideoV3.system_category, func.count())
+        .where(AggregatedVideoV3.system_category.isnot(None))
+        .group_by(AggregatedVideoV3.system_category)
+    )
+    counts = {name: count for name, count in rows.all()}
+    uncategorized = (
+        await db.execute(
+            select(func.count())
+            .select_from(AggregatedVideoV3)
+            .where(AggregatedVideoV3.system_category.is_(None))
+        )
+    ).scalar_one()
+    return {
+        "counts": counts,
+        "uncategorized": uncategorized,
+        "total": sum(counts.values()) + uncategorized,
+    }

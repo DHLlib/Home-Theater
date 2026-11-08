@@ -23,6 +23,7 @@ from app.services.category_alias import (
     invalidate_alias_cache,
     list_overrides,
     load_aliases,
+    recompute_videos_for_names,
     unmapped_categories,
     upsert_alias,
 )
@@ -107,6 +108,7 @@ async def create_or_update_alias(
     await db.commit()
     await db.refresh(alias)
     _invalidate_all()
+    await recompute_videos_for_names(db, list(alias.raw_names or [raw_name]))
     logger.info(
         "category_alias_saved key=%s system=%s", alias.name_key, alias.system_name
     )
@@ -134,6 +136,7 @@ async def update_alias(
 
     await db.commit()
     _invalidate_all()
+    await recompute_videos_for_names(db, list(alias.raw_names or [alias.name_key]))
     logger.info(
         "category_alias_updated key=%s system=%s enabled=%s",
         alias.name_key,
@@ -150,10 +153,13 @@ async def update_alias(
 
 @router.delete("/{name_key}")
 async def remove_alias(name_key: str, db: AsyncSession = Depends(get_db)):
+    alias = await db.get(CategoryAlias, name_key)
+    raw_names = list(alias.raw_names or [name_key]) if alias else [name_key]
     removed = await delete_alias(db, name_key)
     await db.commit()
     if removed:
         _invalidate_all()
+        await recompute_videos_for_names(db, raw_names)
     return {"ok": removed}
 
 
@@ -162,15 +168,18 @@ async def adopt_aliases(body: dict = Body(...), db: AsyncSession = Depends(get_d
     """批量采纳：body.items = [{raw_name, system_name}, ...]。"""
     items = body.get("items") or []
     adopted = 0
+    raw_names: list[str] = []
     for item in items:
         raw_name = str(item.get("raw_name") or "").strip()
         system_name = str(item.get("system_name") or "").strip()
         if not raw_name or not system_name:
             continue
         await upsert_alias(db, raw_name, system_name)
+        raw_names.append(raw_name)
         adopted += 1
     if adopted:
         await db.commit()
         _invalidate_all()
+        await recompute_videos_for_names(db, raw_names)
     logger.info("category_aliases_adopted count=%d", adopted)
     return {"ok": True, "adopted": adopted}

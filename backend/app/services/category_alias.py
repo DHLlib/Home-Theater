@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -32,6 +33,14 @@ _ALIAS_CACHE_TTL = 60.0
 
 _alias_cache: dict[str, dict] | None = None
 _alias_cache_ts: float = 0.0
+
+# 来源/站点统计要扫 45 万行，缓存 60 秒；抓取后最多延迟一分钟
+_usage_cache: dict[str, dict] | None = None
+_usage_cache_ts: float = 0.0
+_USAGE_CACHE_TTL = 60.0
+# 串行化统计计算：面板会并发请求别名列表与未分类列表，两者都要统计，
+# 不加锁会同时各扫一遍 45 万行。
+_usage_lock = asyncio.Lock()
 
 
 def normalize_category_name(name: str | None) -> str:
@@ -205,35 +214,48 @@ async def seed_aliases_from_data(db: AsyncSession) -> dict:
     return summary
 
 
-async def alias_usage(db: AsyncSession) -> dict[str, dict]:
+async def alias_usage(db: AsyncSession, *, use_cache: bool = True) -> dict[str, dict]:
     """按远程类名统计来源条数与站点数：{name_key: {sources, sites, raw_names}}。"""
-    rows = (
-        await db.execute(
-            select(
-                AggregatedSource.type_name,
-                AggregatedSource.site_id,
-            ).where(AggregatedSource.type_name.isnot(None))
-        )
-    ).all()
-    usage: dict[str, dict] = {}
-    for type_name, site_id in rows:
-        key = normalize_category_name(type_name)
-        if not key:
-            continue
-        item = usage.setdefault(
-            key, {"sources": 0, "sites": set(), "raw_names": set()}
-        )
-        item["sources"] += 1
-        item["sites"].add(site_id)
-        item["raw_names"].add(type_name)
-    return {
-        key: {
-            "sources": value["sources"],
-            "sites": len(value["sites"]),
-            "raw_names": sorted(value["raw_names"]),
+    global _usage_cache, _usage_cache_ts
+    async with _usage_lock:
+        now = time.monotonic()
+        if (
+            use_cache
+            and _usage_cache is not None
+            and (now - _usage_cache_ts) < _USAGE_CACHE_TTL
+        ):
+            return _usage_cache
+
+        rows = (
+            await db.execute(
+                select(
+                    AggregatedSource.type_name,
+                    AggregatedSource.site_id,
+                ).where(AggregatedSource.type_name.isnot(None))
+            )
+        ).all()
+        usage: dict[str, dict] = {}
+        for type_name, site_id in rows:
+            key = normalize_category_name(type_name)
+            if not key:
+                continue
+            item = usage.setdefault(
+                key, {"sources": 0, "sites": set(), "raw_names": set()}
+            )
+            item["sources"] += 1
+            item["sites"].add(site_id)
+            item["raw_names"].add(type_name)
+        result = {
+            key: {
+                "sources": value["sources"],
+                "sites": len(value["sites"]),
+                "raw_names": sorted(value["raw_names"]),
+            }
+            for key, value in usage.items()
         }
-        for key, value in usage.items()
-    }
+        _usage_cache = result
+        _usage_cache_ts = now
+        return result
 
 
 async def unmapped_categories(db: AsyncSession) -> list[dict]:
@@ -293,6 +315,50 @@ async def upsert_alias(
 async def delete_alias(db: AsyncSession, name_key: str) -> bool:
     result = await db.execute(delete(CategoryAlias).where(CategoryAlias.name_key == name_key))
     return bool(result.rowcount)
+
+
+async def recompute_videos_for_names(
+    db: AsyncSession, raw_names: list[str], *, chunk_size: int = 2000
+) -> int:
+    """别名变更后重算受影响视频的分类（置空后回填）。
+
+    视频级分类是物化字段，不重算的话「改别名」要等下次全量重建才生效。
+    """
+    from sqlalchemy import update
+
+    from app.models import AggregatedVideoV3
+
+    names = [name for name in raw_names if name]
+    if not names:
+        return 0
+
+    video_ids = (
+        await db.execute(
+            select(AggregatedSource.aggregated_video_id)
+            .where(AggregatedSource.type_name.in_(names))
+            .distinct()
+        )
+    ).scalars().all()
+    if not video_ids:
+        return 0
+
+    for start in range(0, len(video_ids), chunk_size):
+        chunk = video_ids[start : start + chunk_size]
+        await db.execute(
+            update(AggregatedVideoV3)
+            .where(AggregatedVideoV3.id.in_(chunk))
+            .values(system_category=None)
+        )
+        await db.commit()
+
+    filled = await backfill_video_categories(db)
+    logger.info(
+        "别名变更后重算视频分类: names=%s videos=%d filled=%d",
+        names[:5],
+        len(video_ids),
+        filled,
+    )
+    return filled
 
 
 async def list_overrides(db: AsyncSession) -> list[SiteCategoryOverride]:

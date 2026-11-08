@@ -1,9 +1,9 @@
 """分类查询走预聚合表（_query_aggregated_cache 分类过滤）测试。
 
-覆盖 list_videos 带 category 时新走的预聚合路径核心逻辑：
-- 命中预聚合表、按 (site_id, type_id) 过滤、跨页不重复
-- 子分类无映射时回退父分类（fallback_category）
-- 预聚合表为空时返回 None（触发 list_videos fallthrough 到实时路径）
+覆盖视频级分类（aggregated_videos.system_category）的查询语义：
+- 命中预聚合表、按视频级分类过滤、跨页不重复
+- 子分类无别名时回退父分类（fallback_category）
+- 聚合表为空时：带分类返回空列表（不 fallback 到实时路径），不带分类返回 None
 """
 
 import pytest
@@ -13,20 +13,23 @@ from app.api.videos import _query_aggregated_cache
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
+    CategoryAlias,
     Site,
-    SiteCategoryMapping,
     SystemCategory,
 )
+from app.services import category_alias
 
 
 @pytest.fixture(autouse=True)
 def _reset_category_cache():
-    """重置 _load_category_filter_maps 的 60 秒模块级缓存，避免测试间污染。"""
+    """重置分类过滤缓存与别名缓存，避免测试间污染。"""
     videos._category_filter_cache = None
     videos._category_filter_cache_ts = 0.0
+    category_alias.invalidate_alias_cache()
     yield
     videos._category_filter_cache = None
     videos._category_filter_cache_ts = 0.0
+    category_alias.invalidate_alias_cache()
 
 
 async def _make_site(db, site_id: int) -> Site:
@@ -42,8 +45,8 @@ async def _make_site(db, site_id: int) -> Site:
     return site
 
 
-async def _add_video(db, title, year, sources):
-    """sources: list of (site_id, original_id, type_id)。"""
+async def _add_video(db, title, year, sources, system_category=None):
+    """sources: list of (site_id, original_id, type_id, type_name)。"""
     video = AggregatedVideoV3(
         title=title,
         year=year,
@@ -51,17 +54,18 @@ async def _add_video(db, title, year, sources):
         norm_title=title.lower(),
         latest_updated_at="2024-01-01 00:00:00",
         source_count=len(sources),
+        system_category=system_category,
     )
     db.add(video)
     await db.flush()
-    for site_id, original_id, type_id in sources:
+    for site_id, original_id, type_id, type_name in sources:
         db.add(
             AggregatedSource(
                 aggregated_video_id=video.id,
                 site_id=site_id,
                 original_id=original_id,
                 site_name=f"site-{site_id}",
-                type_name="动作片",
+                type_name=type_name,
                 type_id=type_id,
                 remarks="HD",
                 updated_at="2024-01-01 00:00:00",
@@ -71,21 +75,35 @@ async def _add_video(db, title, year, sources):
     return video
 
 
+def _add_alias(db, raw_name: str, system_name: str) -> None:
+    db.add(
+        CategoryAlias(
+            name_key=category_alias.normalize_category_name(raw_name),
+            system_name=system_name,
+            raw_names=[raw_name],
+            enabled=True,
+            source="manual",
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_list_videos_category_aggregated_cache(db_session):
-    """分类查询命中预聚合表，且只返回该分类下的视频。"""
+    """分类查询只返回该视频级分类下的视频。"""
     await _make_site(db_session, 1)
-    # 系统分类：电影 > 动作片
     parent = SystemCategory(id=10, parent_id=None, name="电影", enabled=True)
     child = SystemCategory(id=11, parent_id=10, name="动作片", enabled=True)
-    db_session.add_all([parent, child])
-    # 站点 1 把 remote_id="6" 映射到动作片
-    db_session.add(
-        SiteCategoryMapping(site_id=1, remote_id="6", system_name="动作片", enabled=True)
+    other = SystemCategory(id=12, parent_id=10, name="剧情片", enabled=True)
+    db_session.add_all([parent, child, other])
+    _add_alias(db_session, "动作片", "动作片")
+    _add_alias(db_session, "剧情片", "剧情片")
+
+    await _add_video(
+        db_session, "动作大片", 2024, [(1, "1001", 6, "动作片")], "动作片"
     )
-    # 命中：type_id=6（动作片）；不命中：type_id=99（无映射的其它分类）
-    await _add_video(db_session, "动作大片", 2024, [(1, "1001", 6)])
-    await _add_video(db_session, "其它影片", 2024, [(1, "2001", 99)])
+    await _add_video(
+        db_session, "剧情片甲", 2024, [(1, "2001", 7, "剧情片")], "剧情片"
+    )
     await db_session.commit()
 
     sites = [await db_session.get(Site, 1)]
@@ -100,15 +118,19 @@ async def test_list_videos_category_aggregated_cache(db_session):
 
 @pytest.mark.asyncio
 async def test_list_videos_category_no_cross_page_duplicates(db_session):
-    """跨页（pg=1,2）不返回重复视频。"""
+    """跨页（pg=1,2,3）不返回重复视频。"""
     await _make_site(db_session, 1)
     db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
-    db_session.add(
-        SiteCategoryMapping(site_id=1, remote_id="6", system_name="动作片", enabled=True)
-    )
-    # 12 部动作片，per_page=5 → 需要 3 页
+    _add_alias(db_session, "动作片", "动作片")
+
     for i in range(12):
-        await _add_video(db_session, f"动作片-{i:02d}", 2024, [(1, f"3{i:03d}", 6)])
+        await _add_video(
+            db_session,
+            f"动作片-{i:02d}",
+            2024,
+            [(1, f"3{i:03d}", 6, "动作片")],
+            "动作片",
+        )
     await db_session.commit()
 
     sites = [await db_session.get(Site, 1)]
@@ -125,7 +147,6 @@ async def test_list_videos_category_no_cross_page_duplicates(db_session):
     t1 = {item.title for item in page1.items}
     t2 = {item.title for item in page2.items}
     t3 = {item.title for item in page3.items}
-    # 三页互不重叠，且并集覆盖全部 12 部（per_page=5 → 需要 3 页）
     assert t1.isdisjoint(t2)
     assert t1.isdisjoint(t3)
     assert t2.isdisjoint(t3)
@@ -134,16 +155,15 @@ async def test_list_videos_category_no_cross_page_duplicates(db_session):
 
 @pytest.mark.asyncio
 async def test_list_videos_category_fallback(db_session):
-    """子分类无映射时回退父分类，仍能命中。"""
+    """子分类无别名时回退父分类，仍能命中。"""
     await _make_site(db_session, 1)
     parent = SystemCategory(id=10, parent_id=None, name="电影", enabled=True)
     child = SystemCategory(id=11, parent_id=10, name="动作片", enabled=True)
     db_session.add_all([parent, child])
-    # 站点只映射到父分类"电影"，无"动作片"子分类映射
-    db_session.add(
-        SiteCategoryMapping(site_id=1, remote_id="6", system_name="电影", enabled=True)
-    )
-    await _add_video(db_session, "电影甲", 2024, [(1, "4001", 6)])
+    # 只有父分类有别名，子分类没有任何远程类名
+    _add_alias(db_session, "电影", "电影")
+
+    await _add_video(db_session, "电影甲", 2024, [(1, "4001", 6, "电影")], "电影")
     await db_session.commit()
 
     sites = [await db_session.get(Site, 1)]
@@ -162,11 +182,13 @@ async def test_list_videos_category_fallback(db_session):
 
 @pytest.mark.asyncio
 async def test_list_videos_category_no_mapping_returns_empty(db_session):
-    """所有站点都无该分类映射时返回空响应（非 None，不 fallback 到实时路径）。"""
+    """该分类下没有任何视频时返回空响应（非 None，不 fallback 到实时路径）。"""
     await _make_site(db_session, 1)
     db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
-    # 无任何 SiteCategoryMapping
-    await _add_video(db_session, "孤儿视频", 2024, [(1, "5001", 6)])
+    _add_alias(db_session, "剧情片", "剧情片")
+    await _add_video(
+        db_session, "剧情片甲", 2024, [(1, "5001", 6, "剧情片")], "剧情片"
+    )
     await db_session.commit()
 
     sites = [await db_session.get(Site, 1)]
@@ -179,19 +201,43 @@ async def test_list_videos_category_no_mapping_returns_empty(db_session):
 
 
 @pytest.mark.asyncio
-async def test_list_videos_category_cache_empty_fallthrough(db_session):
-    """预聚合表为空时返回 None，让 list_videos fallthrough 到实时路径。"""
+async def test_list_videos_uncategorized(db_session):
+    """「未分类」返回 system_category 为 NULL 的视频。"""
     await _make_site(db_session, 1)
     db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
-    db_session.add(
-        SiteCategoryMapping(site_id=1, remote_id="6", system_name="动作片", enabled=True)
+    _add_alias(db_session, "动作片", "动作片")
+
+    await _add_video(
+        db_session, "动作大片", 2024, [(1, "6001", 6, "动作片")], "动作片"
     )
-    # 有映射但聚合表无数据
+    await _add_video(db_session, "无名视频", 2024, [(1, "7001", 8, "杂项")], None)
     await db_session.commit()
 
     sites = [await db_session.get(Site, 1)]
     resp = await _query_aggregated_cache(
-        db_session, pg=1, per_page=20, category="动作片", sites=sites
+        db_session, pg=1, per_page=20, category="未分类", sites=sites
     )
 
-    assert resp is None
+    assert resp is not None
+    assert {item.title for item in resp.items} == {"无名视频"}
+
+
+@pytest.mark.asyncio
+async def test_list_videos_category_cache_empty_fallthrough(db_session):
+    """聚合表为空时：带分类返回空列表，不带分类返回 None（触发实时路径）。"""
+    await _make_site(db_session, 1)
+    db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
+    _add_alias(db_session, "动作片", "动作片")
+    await db_session.commit()
+
+    sites = [await db_session.get(Site, 1)]
+    with_category = await _query_aggregated_cache(
+        db_session, pg=1, per_page=20, category="动作片", sites=sites
+    )
+    without_category = await _query_aggregated_cache(
+        db_session, pg=1, per_page=20, category=None, sites=sites
+    )
+
+    assert with_category is not None
+    assert with_category.items == []
+    assert without_category is None
