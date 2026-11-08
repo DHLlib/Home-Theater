@@ -298,3 +298,102 @@ async def delete_alias(db: AsyncSession, name_key: str) -> bool:
 async def list_overrides(db: AsyncSession) -> list[SiteCategoryOverride]:
     result = await db.execute(select(SiteCategoryOverride).order_by(SiteCategoryOverride.site_id))
     return list(result.scalars().all())
+
+
+def pick_system_category(
+    type_names: list[str | None],
+    aliases: dict[str, dict],
+    sort_order: dict[str, int] | None = None,
+) -> str | None:
+    """按来源别名投票选一个系统分类；平票取 sort 小的，再平按名字。
+
+    同一个聚合视频可能来自多个站点、被标成不同分类（实测 16.2% 如此），
+    视频级只保留一个分类，避免在多个分类页重复出现。
+    """
+    votes: Counter[str] = Counter()
+    for raw in type_names:
+        if not raw:
+            continue
+        info = aliases.get(normalize_category_name(raw))
+        if not info or not info["enabled"]:
+            continue
+        votes[info["system_name"]] += 1
+    if not votes:
+        return None
+    order = sort_order or {}
+    return max(
+        votes.items(),
+        key=lambda kv: (kv[1], -order.get(kv[0], 10**6), kv[0]),
+    )[0]
+
+
+async def load_category_decision_maps(
+    db: AsyncSession,
+) -> tuple[dict[str, dict], dict[str, int]]:
+    """返回 (别名表, 系统分类排序) 供视频级分类投票使用。"""
+    aliases = await load_aliases(db)
+    rows = await db.execute(select(SystemCategory.name, SystemCategory.sort))
+    sort_order = {name: sort for name, sort in rows.all()}
+    return aliases, sort_order
+
+
+async def backfill_video_categories(
+    db: AsyncSession, *, chunk_size: int = 2000
+) -> int:
+    """为 aggregated_videos 回填 system_category（只处理当前为 NULL 的行）。
+
+    注意：不能把全部 id 一次塞进 IN（asyncpg 参数上限会直接报错），必须分批。
+    """
+    from sqlalchemy import text
+
+    from app.models import AggregatedVideoV3
+
+    aliases, sort_order = await load_category_decision_maps(db)
+
+    null_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                select(AggregatedVideoV3.id).where(
+                    AggregatedVideoV3.system_category.is_(None)
+                )
+            )
+        ).all()
+    ]
+    if not null_ids:
+        return 0
+
+    stmt = text(
+        "UPDATE aggregated_videos SET system_category = :b_cat WHERE id = :b_id"
+    )
+    filled = 0
+    for start in range(0, len(null_ids), chunk_size):
+        chunk = null_ids[start : start + chunk_size]
+        src_rows = (
+            await db.execute(
+                select(
+                    AggregatedSource.aggregated_video_id,
+                    AggregatedSource.type_name,
+                ).where(AggregatedSource.aggregated_video_id.in_(chunk))
+            )
+        ).all()
+        grouped: dict[int, list[str | None]] = {}
+        for video_id, type_name in src_rows:
+            grouped.setdefault(video_id, []).append(type_name)
+
+        computed = []
+        for video_id in chunk:
+            names = grouped.get(video_id)
+            if not names:
+                continue
+            category = pick_system_category(names, aliases, sort_order)
+            if category:
+                computed.append({"b_id": video_id, "b_cat": category})
+
+        if computed:
+            await db.execute(stmt, computed)
+            await db.commit()
+            filled += len(computed)
+
+    logger.info("视频级分类回填完成: %d 条", filled)
+    return filled

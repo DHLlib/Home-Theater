@@ -255,6 +255,7 @@ class AggregatedVideoV3(Base):
     __table_args__ = (
         Index("ix_aggregated_videos_updated", "latest_updated_at"),
         Index("ix_aggregated_videos_year", "year"),
+        Index("ix_aggregated_videos_category", "system_category"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -264,6 +265,8 @@ class AggregatedVideoV3(Base):
     norm_title: Mapped[str] = mapped_column(String, nullable=False, index=True)
     latest_updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # 视频级系统分类（按来源别名多数票）。NULL = 未分类
+    system_category: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     sources_rel: Mapped[list["AggregatedSource"]] = relationship(

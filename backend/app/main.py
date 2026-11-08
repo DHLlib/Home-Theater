@@ -287,6 +287,36 @@ async def _ensure_progress_unique_index() -> None:
         log.warning(f"升级 play_progress 唯一索引失败: {exc}")
 
 
+async def _ensure_aggregate_category_column() -> None:
+    """给 aggregated_videos 增加 system_category 列并回填（幂等）。"""
+    from sqlalchemy import text
+
+    from app.db import engine
+    from app.services.category_alias import backfill_video_categories
+
+    log = logging.getLogger(__name__)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE aggregated_videos "
+                    "ADD COLUMN IF NOT EXISTS system_category VARCHAR"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_category "
+                    "ON aggregated_videos (system_category)"
+                )
+            )
+        async with async_session_factory() as db:
+            filled = await backfill_video_categories(db)
+        if filled:
+            log.info("视频级分类回填 %d 条", filled)
+    except Exception as exc:
+        log.warning(f"初始化视频级分类失败: {exc}")
+
+
 async def _ensure_category_aliases(force: bool = False) -> None:
     """首次启动时把现有「站点 × 远程分类」映射聚合成全局别名（幂等）。
 
@@ -321,6 +351,7 @@ async def lifespan(app: FastAPI):
     await _fix_postgres_sequences()
     await _ensure_progress_unique_index()
     await _ensure_category_aliases()
+    await _ensure_aggregate_category_column()
     await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)

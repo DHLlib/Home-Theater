@@ -14,6 +14,11 @@ from sqlalchemy import bindparam, delete, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.category_alias import (
+    backfill_video_categories,
+    load_category_decision_maps,
+    pick_system_category,
+)
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
@@ -113,6 +118,8 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
 def _aggregate_records(
     records: Iterable[Any],
     site_name_map: dict[int, str | None] | None = None,
+    category_aliases: dict[str, dict] | None = None,
+    category_sort: dict[str, int] | None = None,
 ) -> list[tuple[str, int | None, dict[str, Any], str]]:
     """把 VideoCache 记录按 (norm_title, year) 聚合去重。
 
@@ -193,10 +200,16 @@ def _aggregate_records(
         key=lambda kv: latest_update.get(kv[0], ""),
         reverse=True,
     )
-    return [
-        (key[0], key[1], item, latest_update[key])
-        for key, item in sorted_items
-    ]
+    results = []
+    for key, item in sorted_items:
+        if category_aliases is not None:
+            item["system_category"] = pick_system_category(
+                [s.get("type") for s in item["sources"]],
+                category_aliases,
+                category_sort,
+            )
+        results.append((key[0], key[1], item, latest_update[key]))
+    return results
 
 
 # ------------------------------------------------------------------
@@ -569,8 +582,11 @@ async def incrementally_update_aggregated_tables(
             logger.info("增量聚合无对应原始记录，跳过")
             return True
 
-        # 3. 聚合去重（含 year=None 回填）
-        sorted_items = _aggregate_records(records, site_name_map)
+        # 3. 聚合去重（含 year=None 回填）+ 视频级分类投票
+        category_aliases, category_sort = await load_category_decision_maps(db)
+        sorted_items = _aggregate_records(
+            records, site_name_map, category_aliases, category_sort
+        )
 
         # 4. 插入 aggregated_videos，用 RETURNING 取回 id
         id_map: dict[tuple[str, int | None], int] = {}
@@ -585,6 +601,7 @@ async def incrementally_update_aggregated_tables(
                     "norm_title": norm,
                     "latest_updated_at": lu,
                     "source_count": len(item["sources"]),
+                    "system_category": item.get("system_category"),
                     "cached_at": now,
                 })
 
@@ -637,6 +654,11 @@ async def rebuild_aggregated_tables(db: AsyncSession) -> bool:
         ok = await _rebuild_aggregated_tables_pg(db)
 
         if ok:
+            # SQL 全量重建不参与投票，重建后统一回填视频级分类
+            try:
+                await backfill_video_categories(db)
+            except Exception as exc:
+                logger.warning("重建后回填视频级分类失败: %s", exc)
             logger.info("聚合中间表重建完成")
         return ok
 

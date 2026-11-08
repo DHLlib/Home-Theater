@@ -52,6 +52,9 @@ from app.services.source_client import SourceClient
 router = APIRouter(prefix="/videos", tags=["videos"])
 logger = logging.getLogger(__name__)
 
+# 伪分类名：视频级分类为空（没有任何来源命中别名）时使用
+UNCATEGORIZED_CATEGORY = "未分类"
+
 # ------------------------------------------------------------------
 # 分类禁用过滤：全局缓存（物化视图查询用）
 # ------------------------------------------------------------------
@@ -518,34 +521,43 @@ async def _query_aggregated_cache(
             base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
             count_query = count_query.where(AggregatedVideoV3.id.in_(subq))
 
-        # 分类过滤：系统分类名 → 全局别名 → 远程类名（不再依赖逐站点映射表）。
-        # 子分类无别名时回退父分类，且不展开子分类避免匹配过宽。
-        cat_names: set[str] = set()
+        # 分类过滤：视频级 system_category（聚合时按来源别名多数票算出）。
+        # 未分类 = 没有任何来源命中别名，system_category 为 NULL。
+        cat_sources: set[str] = set()
         if category:
-            _, remote_names = await _resolve_category_aliases(db, category)
-            if not remote_names and fallback_category:
-                _, remote_names = await _resolve_category_aliases(
-                    db, fallback_category, expand_children=False
+            if category == UNCATEGORIZED_CATEGORY:
+                base_query = base_query.where(
+                    AggregatedVideoV3.system_category.is_(None)
                 )
-            # 该分类没有任何别名 → 空结果（不 fallback 到实时路径）
-            if not remote_names:
-                return AggregatedListResponse(items=[], failed_sources=[])
-            cat_names = set(remote_names)
-            cat_subq = (
-                select(AggregatedSource.aggregated_video_id)
-                .where(AggregatedSource.type_name.in_(remote_names))
-                .subquery()
-            )
-            base_query = base_query.where(
-                AggregatedVideoV3.id.in_(select(cat_subq.c.aggregated_video_id))
-            )
-            count_query = count_query.where(
-                AggregatedVideoV3.id.in_(select(cat_subq.c.aggregated_video_id))
-            )
+                count_query = count_query.where(
+                    AggregatedVideoV3.system_category.is_(None)
+                )
+            else:
+                system_names, remote_names = await _resolve_category_aliases(
+                    db, category
+                )
+                if not system_names and fallback_category:
+                    system_names, remote_names = await _resolve_category_aliases(
+                        db, fallback_category, expand_children=False
+                    )
+                # 该分类没有任何别名 → 空结果（不 fallback 到实时路径）
+                if not system_names:
+                    return AggregatedListResponse(items=[], failed_sources=[])
+                cat_sources = set(remote_names)
+                base_query = base_query.where(
+                    AggregatedVideoV3.system_category.in_(system_names)
+                )
+                count_query = count_query.where(
+                    AggregatedVideoV3.system_category.in_(system_names)
+                )
 
         count_result = await db.execute(count_query)
         count = count_result.scalar_one()
         if count == 0:
+            # 分类过滤下 0 条是合法结果（例如「未分类」暂时为空），不能 fallback
+            # 到实时路径——那条路还在用旧的逐站点映射，会给出不一致的结果。
+            if category:
+                return AggregatedListResponse(items=[], failed_sources=[])
             return None
 
         page = pg or 1
@@ -574,7 +586,7 @@ async def _query_aggregated_cache(
         rows = result.scalars().all()
 
         # 构建分类过滤集合，用于过滤 sources
-        cat_filter_set: set[str] = cat_names if category else set()
+        cat_filter_set: set[str] = cat_sources if category else set()
 
         items = []
         for r in rows:
