@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   listSites,
   createSite,
@@ -11,7 +12,7 @@ import {
 import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
-import CategorySettings from "../components/category-settings/CategorySettings";
+import AliasSettings from "../components/category-settings/AliasSettings";
 import SiteHealthDrawer from "../components/SiteHealthDrawer";
 import AddSiteDialog from "../components/AddSiteDialog";
 import BatchSniffDialog from "../components/BatchSniffDialog";
@@ -191,7 +192,17 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<TabKey>("sites");
+  // 当前 tab 由 URL 决定（?tab=categories），便于分享链接与深链
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: TabKey = TABS.some((t) => t.key === tabParam)
+    ? (tabParam as TabKey)
+    : "sites";
+  const setActiveTab = (key: TabKey) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", key);
+    setSearchParams(next, { replace: true });
+  };
   const [sites, setSites] = useState<Site[]>([]);
   const [probeResults, setProbeResults] = useState<
     Record<number, ProbeResult>
@@ -455,6 +466,7 @@ export default function Settings() {
           return (
             <button
               key={t.key}
+              data-tab={t.key}
               className={active ? "btn btn-primary" : "btn"}
               onClick={() => setActiveTab(t.key)}
               style={{
@@ -868,7 +880,7 @@ export default function Settings() {
               分类设置
             </h3>
           </div>
-          <CategorySettings sites={sites} />
+          <AliasSettings />
         </section>
       )}
 

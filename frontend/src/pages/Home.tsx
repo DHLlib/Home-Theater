@@ -219,7 +219,6 @@ export default function Home() {
 
       <div className="home-cats">
         <CategoryBar
-          sites={sites}
           activeCategory={activeCategory}
           onSelect={(cat) => {
             const next = new URLSearchParams(searchParams);

@@ -1,27 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listSystemCategories } from "../api/system-categories";
-import type { Site, SystemCategoryTreeItem } from "../types";
+import { getCategoryStats, type CategoryStats } from "../api/category-aliases";
+import type { SystemCategoryTreeItem } from "../types";
+
+/** 未分类伪分类：后端把 system_category 为空视为未分类 */
+export const UNCATEGORIZED = "未分类";
 
 interface CategoryBarProps {
-  sites: Site[];
   activeCategory: string | null;
   onSelect: (category: string | null) => void;
   variant?: "default" | "inline";
 }
 
 export default function CategoryBar({
-  sites,
   activeCategory,
   onSelect,
   variant = "default",
 }: CategoryBarProps) {
   const isInline = variant === "inline";
   const [systemTree, setSystemTree] = useState<SystemCategoryTreeItem[]>([]);
+  const [stats, setStats] = useState<CategoryStats | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const load = () => listSystemCategories().then(setSystemTree).catch(() => {});
+    const load = () => {
+      listSystemCategories()
+        .then(setSystemTree)
+        .catch(() => {});
+      getCategoryStats()
+        .then(setStats)
+        .catch(() => {});
+    };
     load();
     const handleVisibility = () => {
       if (document.visibilityState === "visible") load();
@@ -39,39 +49,32 @@ export default function CategoryBar({
     };
   }, []);
 
-  const availableCategories = useMemo(() => {
-    const set = new Set<string>();
-    for (const site of sites) {
-      for (const cat of site.categories || []) {
-        if (cat.name) set.add(cat.name);
-      }
-    }
-    return set;
-  }, [sites]);
-
+  // 只展示有内容的分类：计数来自视频级分类（aggregated_videos.system_category）
   const groups = useMemo(() => {
+    if (!stats) return [];
+    const counts = stats.counts;
     const result: { label: string; items: string[] }[] = [];
     for (const parent of systemTree) {
       if (parent.enabled === false) continue;
       const visibleChildren = parent.children
-        .filter((c) => c.enabled !== false)
-        .map((c) => c.name)
-        .filter((name) => availableCategories.has(name));
-      if (visibleChildren.length > 0) {
+        .filter((c) => c.enabled !== false && (counts[c.name] || 0) > 0)
+        .map((c) => c.name);
+      const parentCount = counts[parent.name] || 0;
+      if (visibleChildren.length > 0 || parentCount > 0) {
         result.push({ label: parent.name, items: visibleChildren });
       }
     }
     return result;
-  }, [systemTree, availableCategories]);
+  }, [systemTree, stats]);
+
+  const uncategorizedCount = stats?.uncategorized ?? 0;
 
   // 当前选中的分类属于哪个父类（支持一级分类直接选中）
   const activeParent = useMemo(() => {
     if (!activeCategory) return null;
-    // 如果选中的一级分类，直接返回
     for (const g of groups) {
       if (g.label === activeCategory) return g.label;
     }
-    // 如果选中的二级分类，返回其父类
     for (const g of groups) {
       if (g.items.includes(activeCategory)) return g.label;
     }
@@ -92,7 +95,7 @@ export default function CategoryBar({
     }, 150);
   };
 
-  if (availableCategories.size === 0) return null;
+  if (groups.length === 0 && uncategorizedCount === 0) return null;
 
   return (
     <div
@@ -190,6 +193,7 @@ export default function CategoryBar({
                           onSelect(name);
                           setMenuOpen(null);
                         }}
+                        title={`${(stats?.counts[name] ?? 0).toLocaleString()} 条`}
                       >
                         {name}
                       </button>
@@ -200,6 +204,28 @@ export default function CategoryBar({
             </div>
           );
         })}
+
+        {/* 未分类：视频级分类为空的内容 */}
+        {uncategorizedCount > 0 && (
+          <button
+            className="nav-link"
+            onClick={() => onSelect(UNCATEGORIZED)}
+            title={`${uncategorizedCount.toLocaleString()} 条未分类`}
+            style={{
+              color:
+                activeCategory === UNCATEGORIZED
+                  ? "var(--text-primary)"
+                  : "var(--text-muted)",
+              borderBottom:
+                activeCategory === UNCATEGORIZED
+                  ? "2px solid var(--primary)"
+                  : "2px solid transparent",
+              marginBottom: -1,
+            }}
+          >
+            未分类
+          </button>
+        )}
       </div>
     </div>
   );
