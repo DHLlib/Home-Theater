@@ -96,13 +96,17 @@ async def list_recent(db: AsyncSession = Depends(get_db)):
 async def get_progress(
     title: str, year: int | None = None, db: AsyncSession = Depends(get_db)
 ):
+    # 历史数据里可能有重复（旧约束对 year IS NULL 不生效），取最近一条而不是断言唯一
     result = await db.execute(
-        select(PlayProgress).where(
+        select(PlayProgress)
+        .where(
             PlayProgress.title == title,
             _year_clause(year),
         )
+        .order_by(PlayProgress.updated_at.desc().nullslast(), PlayProgress.id.desc())
+        .limit(1)
     )
-    row = result.scalar_one_or_none()
+    row = result.scalars().first()
     if row:
         logger.info("progress_get title=%s year=%s ep_index=%d pos=%ds", title, year, row.episode_index, row.position_seconds)
     else:

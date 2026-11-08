@@ -165,12 +165,70 @@ async def _ensure_pg_trgm_indexes() -> None:
         logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")
 
 
+async def _ensure_progress_unique_index() -> None:
+    """把 play_progress 的 (title, year) 唯一索引升级为 NULLS NOT DISTINCT。
+
+    旧约束对 year IS NULL 不生效（NULL 互不相等），无年份的片每次上报都会新插入
+    一行，攒出重复后 GET /api/progress 的 scalar_one_or_none 直接 500。
+    PG 15+ 支持 NULLS NOT DISTINCT，这里幂等地补一次：先去重，再重建索引。
+    """
+    if "postgresql" not in settings.database_url.lower():
+        return
+
+    from sqlalchemy import text
+
+    log = logging.getLogger(__name__)
+    try:
+        async with engine.begin() as conn:
+            flag = await conn.execute(
+                text(
+                    "SELECT i.indnullsnotdistinct FROM pg_index i "
+                    "JOIN pg_class c ON c.oid = i.indexrelid "
+                    "WHERE c.relname = 'uix_progress_title_year'"
+                )
+            )
+            row = flag.first()
+            if row is not None and row[0]:
+                return
+
+            # 保留每个 (title, year) 的最新一行
+            deleted = await conn.execute(
+                text(
+                    "DELETE FROM play_progress a USING play_progress b "
+                    "WHERE a.title = b.title "
+                    "AND a.year IS NOT DISTINCT FROM b.year "
+                    "AND (a.updated_at < b.updated_at "
+                    "     OR (a.updated_at = b.updated_at AND a.id < b.id))"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE play_progress "
+                    "DROP CONSTRAINT IF EXISTS uix_progress_title_year"
+                )
+            )
+            await conn.execute(text("DROP INDEX IF EXISTS uix_progress_title_year"))
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uix_progress_title_year "
+                    "ON play_progress (title, year) NULLS NOT DISTINCT"
+                )
+            )
+        log.info(
+            "play_progress 唯一索引已升级为 NULLS NOT DISTINCT（清理重复 %s 行）",
+            deleted.rowcount,
+        )
+    except Exception as exc:
+        log.warning(f"升级 play_progress 唯一索引失败: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     await check_db_connection()
     await init_db()
     await _fix_postgres_sequences()
+    await _ensure_progress_unique_index()
     await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)

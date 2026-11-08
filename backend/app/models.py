@@ -101,7 +101,15 @@ class Favorite(Base):
 class PlayProgress(Base):
     __tablename__ = "play_progress"
     __table_args__ = (
-        UniqueConstraint("title", "year", name="uix_progress_title_year"),
+        # year 可为 NULL，普通唯一约束对 NULL 不生效（NULL 互不相等），
+        # 无年份的片会反复插入新行；必须用 NULLS NOT DISTINCT（PG 15+）。
+        Index(
+            "uix_progress_title_year",
+            "title",
+            "year",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
         Index("ix_progress_updated_at", "updated_at"),
     )
 
