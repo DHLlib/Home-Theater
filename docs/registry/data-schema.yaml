@@ -359,6 +359,302 @@ db_models:
         default: datetime.utcnow
         onupdate: datetime.utcnow
 
+  - name: AggregatedVideoV3
+    table: aggregated_videos
+    owner: backend
+    description: 聚合视频中间表（视频维度，按 norm_title+year 去重）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: norm_title
+        type: String
+        nullable: false
+        index: true
+      - name: latest_updated_at
+        type: String
+        nullable: true
+        description: 资源站 source_updated_at，列表排序字段
+      - name: source_count
+        type: Integer
+        default: 1
+        nullable: false
+      - name: system_category
+        type: String
+        nullable: true
+        description: 视频级系统分类（来源别名多数票）；NULL = 未分类
+      - name: cached_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_aggregated_videos_updated
+        fields: [latest_updated_at]
+      - name: ix_aggregated_videos_year
+        fields: [year]
+      - name: ix_aggregated_videos_category
+        fields: [system_category]
+      - name: ix_aggregated_videos_cat_updated
+        fields: [system_category, latest_updated_at DESC]
+      - name: ix_aggregated_videos_title_trgm
+        fields: [title]
+        type: gin_trgm
+
+  - name: AggregatedSource
+    table: aggregated_sources
+    owner: backend
+    description: 聚合视频来源中间表（来源维度）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: aggregated_video_id
+        type: Integer
+        fk: aggregated_videos.id
+        nullable: false
+      - name: site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: original_id
+        type: String
+        nullable: false
+      - name: site_name
+        type: String
+        nullable: true
+      - name: type_name
+        type: String
+        nullable: true
+        description: 远程类名，分类别名统计来源
+      - name: type_id
+        type: Integer
+        nullable: true
+      - name: remarks
+        type: String
+        nullable: true
+      - name: updated_at
+        type: String
+        nullable: true
+    indexes:
+      - name: uix_aggregated_source
+        fields: [aggregated_video_id, site_id, original_id]
+        unique: true
+      - name: ix_aggregated_sources_site_id
+        fields: [site_id]
+      - name: ix_aggregated_sources_type_id
+        fields: [site_id, type_id]
+
+  - name: RecommendedVideo
+    table: recommended_videos
+    owner: backend
+    description: 预计算推荐视频（替代 mv_recommended_videos）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: title
+        type: String
+        nullable: false
+      - name: year
+        type: Integer
+        nullable: true
+      - name: poster_url
+        type: String
+        nullable: true
+      - name: latest_updated_at
+        type: String
+        nullable: true
+      - name: source_count
+        type: Integer
+        default: 1
+        nullable: false
+      - name: sources
+        type: JSON
+        default: list
+      - name: parent_name
+        type: String
+        nullable: false
+      - name: rn
+        type: Integer
+        nullable: false
+        description: 组内序号（每组取前 N）
+    indexes:
+      - name: ix_recommended_parent
+        fields: [parent_name]
+
+  - name: SystemCategory
+    table: system_categories
+    owner: backend
+    description: 系统分类（父子层级，共 48 个，含体育/短剧）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: parent_id
+        type: Integer
+        fk: system_categories.id
+        nullable: true
+      - name: name
+        type: String
+        nullable: false
+      - name: sort
+        type: Integer
+        default: 0
+        nullable: false
+      - name: enabled
+        type: Boolean
+        default: true
+        nullable: false
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_system_categories_parent
+        fields: [parent_id]
+      - name: uix_system_category_parent_name
+        fields: [parent_id, name]
+        unique: true
+
+  - name: CategoryAlias
+    table: category_aliases
+    owner: backend
+    description: 全局分类别名（远程类名 → 系统分类，跨站共享）
+    fields:
+      - name: name_key
+        type: String
+        pk: true
+        description: 归一化后的类名
+      - name: system_name
+        type: String
+        nullable: false
+        index: true
+      - name: raw_names
+        type: ARRAY(String)
+        nullable: true
+        description: 归一化前实际出现过的写法
+      - name: enabled
+        type: Boolean
+        default: true
+        nullable: false
+      - name: source
+        type: String
+        default: auto
+        nullable: false
+        description: auto = 规则/多数票推断，manual = 用户确认
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+
+  - name: SiteCategoryOverride
+    table: site_category_overrides
+    owner: backend
+    description: 站点级分类例外（同名类名在某站点语义不同时使用）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: name_key
+        type: String
+        nullable: false
+      - name: system_name
+        type: String
+        nullable: false
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: uix_site_override_name
+        fields: [site_id, name_key]
+        unique: true
+
+  - name: SiteCategoryMapping
+    table: site_category_mappings
+    owner: backend
+    description: 旧版站点分类映射（仅实时回退路径使用）
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: remote_id
+        type: String
+        nullable: false
+      - name: remote_name
+        type: String
+        nullable: true
+      - name: system_name
+        type: String
+        nullable: false
+      - name: enabled
+        type: Boolean
+        default: true
+        nullable: false
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: uix_site_remote_id
+        fields: [site_id, remote_id]
+        unique: true
+      - name: ix_site_category_mappings_site_id
+        fields: [site_id]
+      - name: ix_site_category_mappings_system_name
+        fields: [system_name]
+
+  - name: SiteProbeLog
+    table: site_probe_logs
+    owner: backend
+    description: 站点健康探测记录
+    fields:
+      - name: id
+        type: Integer
+        pk: true
+        autoincrement: true
+      - name: site_id
+        type: Integer
+        fk: sites.id
+        nullable: false
+      - name: ok
+        type: Boolean
+        default: false
+        nullable: false
+      - name: error
+        type: Text
+        nullable: true
+      - name: response_time_ms
+        type: Integer
+        nullable: true
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+    indexes:
+      - name: ix_site_probe_logs_site_id
+        fields: [site_id]
+      - name: ix_site_probe_logs_created_at
+        fields: [created_at]
+
+
 # ═══════════════════════════════════════════════════════════════
 # Pydantic Schema（Backend 请求/响应）
 # ═══════════════════════════════════════════════════════════════

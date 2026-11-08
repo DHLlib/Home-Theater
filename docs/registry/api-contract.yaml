@@ -386,6 +386,215 @@ endpoints:
 # ═══════════════════════════════════════════════════════════════
 # 共享 Schema 引用（详见 data-schema.yaml）
 # ═══════════════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════════
+  # 分类别名与系统分类
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-CATEGORY-ALIAS-LIST
+    path: /api/category-aliases
+    method: GET
+    summary: 别名列表（含来源条数与站点数）
+    request_schema: null
+    response_schema: CategoryAliasOut[]
+    consumers: [AC-002]
+    notes: 详情来自 SQL GROUP BY 聚合，服务端缓存 60s
+
+  - id: API-CATEGORY-ALIAS-CREATE
+    path: /api/category-aliases
+    method: POST
+    summary: 新增/修改别名
+    request_schema: CategoryAliasIn
+    response_schema: OkResponse
+    consumers: [AC-002]
+    notes: 先失效缓存再重算受影响视频
+
+  - id: API-CATEGORY-ALIAS-UPDATE
+    path: /api/category-aliases/{name_key}
+    method: PUT
+    summary: 修改别名目标分类
+    request_schema: CategoryAliasUpdate
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-ALIAS-DELETE
+    path: /api/category-aliases/{name_key}
+    method: DELETE
+    summary: 删除别名
+    request_schema: null
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-ALIAS-UNMAPPED
+    path: /api/category-aliases/unmapped
+    method: GET
+    summary: 未归类的远程类名
+    request_schema: null
+    response_schema: UnmappedCategoryOut[]
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-ALIAS-ADOPT
+    path: /api/category-aliases/adopt
+    method: POST
+    summary: 一键采纳未归类建议
+    request_schema: AdoptAliasesRequest
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-OVERRIDE-LIST
+    path: /api/category-aliases/overrides
+    method: GET
+    summary: 站点例外列表
+    request_schema: null
+    response_schema: SiteOverrideOut[]
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-OVERRIDE-SAVE
+    path: /api/category-aliases/overrides
+    method: POST
+    summary: 新增站点例外
+    request_schema: SiteOverrideIn
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-OVERRIDE-DELETE
+    path: /api/category-aliases/overrides
+    method: DELETE
+    summary: 删除站点例外
+    request_schema: SiteOverrideIn
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  - id: API-SYSTEM-CATEGORY-LIST
+    path: /api/system-categories
+    method: GET
+    summary: 系统分类树
+    request_schema: null
+    response_schema: SystemCategoryOut[]
+    consumers: [AC-002]
+
+  - id: API-SYSTEM-CATEGORY-CREATE
+    path: /api/system-categories
+    method: POST
+    summary: 新增系统分类
+    request_schema: SystemCategoryCreate
+    response_schema: SystemCategoryOut
+    consumers: [AC-002]
+
+  - id: API-SYSTEM-CATEGORY-UPDATE
+    path: /api/system-categories/{category_id}
+    method: PATCH
+    summary: 修改系统分类
+    request_schema: SystemCategoryUpdate
+    response_schema: SystemCategoryOut
+    consumers: [AC-002]
+
+  - id: API-SYSTEM-CATEGORY-DELETE
+    path: /api/system-categories/{category_id}
+    method: DELETE
+    summary: 删除系统分类（受保护分类不可删）
+    request_schema: null
+    response_schema: OkResponse
+    consumers: [AC-002]
+
+  # ═══════════════════════════════════════════════════════════════
+  # 视频列表增强
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-VIDEO-RECOMMENDED
+    path: /api/videos/recommended
+    method: GET
+    summary: 首页推荐列表
+    request_schema: null
+    response_schema: AggregatedListResponse
+    consumers: [AC-003]
+    notes: 读 recommended_videos，60s 缓存
+
+  - id: API-VIDEO-CATEGORY-STATS
+    path: /api/videos/categories/stats
+    method: GET
+    summary: 分类计数（只返回非空分类）
+    request_schema: null
+    response_schema: CategoryStat[]
+    consumers: [AC-003]
+    notes: 60s 缓存；禁用站点内容不计入
+
+  # ═══════════════════════════════════════════════════════════════
+  # 播放
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-PLAY-SOURCES
+    path: /api/play/sources
+    method: GET
+    summary: 播放源列表
+    request_schema: null
+    response_schema: SourceDetail[]
+    consumers: [AC-007]
+
+  - id: API-PLAY-PROXY-M3U8
+    path: /api/play/proxy-m3u8
+    method: GET
+    summary: m3u8 去广告代理
+    request_schema: null
+    response_schema: null
+    consumers: [AC-008]
+    notes: 返回 text/plain
+
+  # ═══════════════════════════════════════════════════════════════
+  # 站点增强
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-SITE-PROBE-BATCH
+    path: /api/sites/probe-batch
+    method: POST
+    summary: 批量探测站点
+    request_schema: ProbeSitesBatchRequest
+    response_schema: BatchProbeResponse
+    consumers: [AC-013]
+
+  - id: API-SITE-EXPORT
+    path: /api/sites/export
+    method: GET
+    summary: 导出站点配置
+    request_schema: null
+    response_schema: SiteExportOut
+    consumers: [AC-001]
+
+  - id: API-SITE-IMPORT
+    path: /api/sites/import
+    method: POST
+    summary: 导入站点配置
+    request_schema: SiteImportIn
+    response_schema: SiteImportResult
+    consumers: [AC-001]
+
+  - id: API-SITE-SMART-MATCH
+    path: /api/sites/{site_id}/smart-match
+    method: POST
+    summary: 智能匹配远程分类到系统分类
+    request_schema: null
+    response_schema: SmartMatchResponse
+    consumers: [AC-002]
+
+  - id: API-SITE-TEMPLATES
+    path: /api/sites/templates
+    method: GET
+    summary: 分类模板列表
+    request_schema: null
+    response_schema: CategoryTemplate[]
+    consumers: [AC-028]
+
+  - id: API-SITE-APPLY-TEMPLATE
+    path: /api/sites/{site_id}/apply-template
+    method: POST
+    summary: 应用分类模板
+    request_schema: CategoryTemplate
+    response_schema: TemplateApplyResponse
+    consumers: [AC-028]
+
+  - id: API-FAVORITE-STATUS
+    path: /api/favorites/status
+    method: GET
+    summary: 查询某标题是否已收藏
+    request_schema: null
+    response_schema: FavoriteStatusOut
+    consumers: [AC-010]
+
 schema_references:
   - Site
   - SiteCreate
@@ -415,3 +624,13 @@ schema_references:
   - HealthResponse
   - ValidationErrorResponse
   - CrawlerStatusResponse
+  - FavoriteStatusOut
+  - CategoryAliasIn
+  - CategoryAliasUpdate
+  - CategoryAliasOut
+  - UnmappedCategoryOut
+  - AdoptAliasesRequest
+  - SiteOverrideIn
+  - SiteOverrideOut
+  - SystemCategoryOut
+  - CategoryStat
