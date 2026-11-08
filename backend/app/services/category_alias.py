@@ -14,7 +14,7 @@ import re
 import time
 from collections import Counter
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -232,29 +232,35 @@ async def alias_usage(db: AsyncSession, *, use_cache: bool = True) -> dict[str, 
         ):
             return _usage_cache
 
+        # 在数据库里按原始类名聚合（约 130 行），再在 Python 里做归一化合并。
+        # 之前是把 45 万行全部取回再循环统计，单次要 4 秒多，且期间事件循环被占满。
         rows = (
             await db.execute(
                 select(
                     AggregatedSource.type_name,
-                    AggregatedSource.site_id,
-                ).where(AggregatedSource.type_name.isnot(None))
+                    func.count(),
+                    func.count(distinct(AggregatedSource.site_id)),
+                )
+                .where(AggregatedSource.type_name.isnot(None))
+                .group_by(AggregatedSource.type_name)
             )
         ).all()
+
         usage: dict[str, dict] = {}
-        for type_name, site_id in rows:
+        for type_name, source_count, site_count in rows:
             key = normalize_category_name(type_name)
             if not key:
                 continue
             item = usage.setdefault(
-                key, {"sources": 0, "sites": set(), "raw_names": set()}
+                key, {"sources": 0, "sites": 0, "raw_names": set()}
             )
-            item["sources"] += 1
-            item["sites"].add(site_id)
+            item["sources"] += source_count
+            item["sites"] += site_count
             item["raw_names"].add(type_name)
         result = {
             key: {
                 "sources": value["sources"],
-                "sites": len(value["sites"]),
+                "sites": value["sites"],
                 "raw_names": sorted(value["raw_names"]),
             }
             for key, value in usage.items()
