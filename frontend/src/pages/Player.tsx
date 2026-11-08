@@ -538,8 +538,11 @@ export default function Player() {
           zIndex: 10,
           padding: "8px 12px",
           fontSize: 13,
-          background: "rgba(0,0,0,0.7)",
-          border: "1px solid var(--border)",
+          // 按钮浮在始终为黑色的播放器上：固定白字 + 半透明黑底，不跟随主题翻转
+          color: "#f5f5f7",
+          background: "rgba(0, 0, 0, 0.55)",
+          border: "1px solid rgba(255, 255, 255, 0.28)",
+          backdropFilter: "blur(6px)",
           opacity: showControls ? 1 : 0,
           transform: showControls ? "translateY(0)" : "translateY(-8px)",
           transition: "opacity var(--transition-base), transform var(--transition-base)",
