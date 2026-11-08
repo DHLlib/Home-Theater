@@ -88,7 +88,9 @@ export function getDetail(req: DetailRequest): Promise<DetailResponse> {
   const promise = (async () => {
     await acquireDetailSlot();
     try {
-      return await post<DetailResponse>("/api/videos/detail", req);
+      // 后端已把详情限制在 ~12 秒内（每来源 6 秒硬超时），客户端 15 秒兜底，
+      // 避免默认 30 秒把交互拖成「一直在转圈」
+      return await post<DetailResponse>("/api/videos/detail", req, 15000);
     } finally {
       releaseDetailSlot();
     }
