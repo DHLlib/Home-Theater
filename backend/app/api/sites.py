@@ -505,12 +505,17 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
 
     # 只保存高置信度（auto_mapped）的结果
     auto_mappings = []
+    alias_pairs: list[tuple[str, str]] = []
     for m in result.matches:
         if m.status == "auto_mapped" and m.suggested_system_name:
             auto_mappings.append({
                 "remote_id": m.remote_id,
                 "name": m.suggested_system_name,
             })
+            # 同时并入全局别名：新站点的高置信类名让所有站点受益，
+            # 未识别/低置信的留给「分类设置 → 未分类」人工确认。
+            if m.remote_name:
+                alias_pairs.append((m.remote_name, m.suggested_system_name))
 
     if auto_mappings:
         existing = await get_site_category_mappings(db, db_site.id)
@@ -521,13 +526,21 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
                 existing.append(am)
         await save_site_category_mappings(db, db_site.id, existing)
 
+    aliases_added = 0
+    if alias_pairs:
+        from app.services.category_alias import seed_aliases_from_names
+
+        aliases_added = await seed_aliases_from_names(db, alias_pairs)
+
     summary = result.summary.model_dump()
+    summary["aliases_added"] = aliases_added
     logger.info(
-        "site_auto_matched site_id=%d name=%s auto=%d suggested=%d unrecognized=%d",
+        "site_auto_matched site_id=%d name=%s auto=%d suggested=%d unrecognized=%d aliases_added=%d",
         db_site.id, db_site.name,
         summary.get("auto_mapped", 0),
         summary.get("suggested", 0),
         summary.get("unrecognized", 0),
+        aliases_added,
     )
     return summary
 

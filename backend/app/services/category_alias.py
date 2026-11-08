@@ -317,6 +317,46 @@ async def delete_alias(db: AsyncSession, name_key: str) -> bool:
     return bool(result.rowcount)
 
 
+async def seed_aliases_from_names(
+    db: AsyncSession, pairs: list[tuple[str, str]], *, source: str = "auto"
+) -> int:
+    """把 (远程类名, 系统分类) 批量并入别名表，已存在的 key 不覆盖。
+
+    用于「新站点自动匹配」：高置信结果直接进全局别名，老站点也能受益。
+    只新增、不改写已有别名（人工确认过的不覆盖）。
+    """
+    existing = await load_aliases(db)
+    created_names: list[str] = []
+    for raw_name, system_name in pairs:
+        key = normalize_category_name(raw_name)
+        if not key or not system_name or key in existing:
+            continue
+        db.add(
+            CategoryAlias(
+                name_key=key,
+                system_name=system_name,
+                raw_names=[raw_name],
+                enabled=True,
+                source=source,
+            )
+        )
+        existing[key] = {
+            "system_name": system_name,
+            "enabled": True,
+            "raw_names": [raw_name],
+        }
+        created_names.append(raw_name)
+
+    if not created_names:
+        return 0
+
+    await db.commit()
+    invalidate_alias_cache()
+    await recompute_videos_for_names(db, created_names)
+    logger.info("新站点自动匹配并入别名: %d 条", len(created_names))
+    return len(created_names)
+
+
 async def recompute_videos_for_names(
     db: AsyncSession, raw_names: list[str], *, chunk_size: int = 2000
 ) -> int:
