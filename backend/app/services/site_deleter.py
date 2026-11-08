@@ -124,6 +124,8 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
         logger.warning("删除站点失败：全局操作锁被占用 site_id=%d", site_id)
         return
 
+    lock_released = False
+
     try:
         async with async_session_factory() as db:
             # 先禁用站点，防止删除过程中调度器继续刮削
@@ -223,11 +225,21 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
             await _send_progress(site_id, "running", 90, "已删除站点")
 
         # 9. 刷新聚合缓存（使用新 session，仅增量更新受影响的 norm_title）
+        #    必须先释放全局操作锁：refresh_aggregated_view 一旦检测到「有操作进行中」
+        #    就会直接跳过，导致被删除站点的多来源视频不会重建、分类也跟着消失。
+        release_operation_lock(f"delete_site_{site_id}")
+        lock_released = True
         await _send_progress(site_id, "running", 92, "开始刷新聚合缓存")
         async with async_session_factory() as db:
-            await refresh_aggregated_view(
+            ok = await refresh_aggregated_view(
                 db,
                 affected_norm_titles=affected_norm_titles if affected_norm_titles else None,
+            )
+        if not ok:
+            logger.warning(
+                "site_delete_refresh_skipped site_id=%d 聚合缓存未刷新，"
+                "受影响视频会在下次刮削时恢复",
+                site_id,
             )
         await _send_progress(site_id, "completed", 100, "删除完成")
         logger.info("site_delete_completed site_id=%d name=%s", site_id, site_name)
@@ -237,4 +249,5 @@ async def delete_site_background(site_id: int, site_name: str) -> None:
         await _send_progress(site_id, "failed", 0, f"删除失败: {exc}")
         raise
     finally:
-        release_operation_lock(f"delete_site_{site_id}")
+        if not lock_released:
+            release_operation_lock(f"delete_site_{site_id}")
