@@ -523,6 +523,19 @@ class CacheControlStaticFiles(StaticFiles):
 
 app = FastAPI(title="Home Theater", lifespan=lifespan)
 
+# 慢请求日志：超过 1.5 秒的请求记一条，便于发现「偶发卡顿」而不是只看平均值
+@app.middleware("http")
+async def slow_request_logger(request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    elapsed = time.monotonic() - start
+    if elapsed > 1.5:
+        logging.getLogger(__name__).warning(
+            "slow_request %s %s %.2fs", request.method, request.url.path, elapsed
+        )
+    return response
+
+
 # 注册全局异常处理器（顺序：先具体后通用）
 app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
