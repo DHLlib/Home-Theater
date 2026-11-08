@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import MobileVideoCard from "../components/MobileVideoCard";
+import ContinueWatching, {
+  buildContinueWatchingPosterMap,
+} from "../../components/ContinueWatching";
 import { SearchIcon } from "../../components/icons";
 import {
   useCrawlerStatusQuery,
@@ -8,6 +11,7 @@ import {
   useSitesQuery,
   useVideosInfinite,
 } from "../../hooks/useVideos";
+import { useContinueWatching } from "../../hooks/useContinueWatching";
 import { listSystemCategories } from "../../api/system-categories";
 import { useQuery } from "@tanstack/react-query";
 
@@ -50,6 +54,15 @@ export default function MobileHome() {
   } = useVideosInfinite({ category: activeCategory, wd: "", sort });
 
   const videos = useMemo(() => data?.pages.flat() ?? [], [data]);
+
+  // 继续观看：与桌面共用同一数据源（listRecent）和卡片组件
+  const { items: continueWatchingItems } = useContinueWatching({
+    enabled: !activeCategory,
+  });
+  const continueWatchingPosters = useMemo(
+    () => buildContinueWatchingPosterMap(recommendedVideos, videos),
+    [recommendedVideos, videos]
+  );
 
   const parentCategories = useMemo(
     () =>
@@ -232,6 +245,14 @@ export default function MobileHome() {
               </button>
             ))}
         </div>
+      )}
+
+      {/* 继续观看：位于分类 tabs 下方、推荐上方；无记录时整块不渲染 */}
+      {!activeCategory && (
+        <ContinueWatching
+          items={continueWatchingItems}
+          posterMap={continueWatchingPosters}
+        />
       )}
 
       {/* 推荐轮播 / 横向滚动 */}

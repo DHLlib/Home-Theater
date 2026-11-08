@@ -5,6 +5,7 @@ import ActionSheet from "../components/ActionSheet";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useLongPress } from "../hooks/useLongPress";
 import { useIsMobile } from "../hooks/useViewport";
+import { buildResumePlayerUrl } from "../utils/playback";
 import { toastSuccess } from "../utils/toast";
 import type { PlayProgress } from "../types";
 
@@ -112,14 +113,7 @@ function ProgressCard({
     : 0;
 
   const handleActivate = () => {
-    const yearParam = item.year != null ? `&year=${item.year}` : "";
-    navigate(
-      `/player?site_id=${item.source_site_id}&original_id=${encodeURIComponent(
-        item.source_video_id
-      )}&ep=${item.episode_index}&title=${encodeURIComponent(
-        item.title
-      )}${yearParam}`
-    );
+    navigate(buildResumePlayerUrl(item));
   };
 
   const handleRemove = (e: React.MouseEvent) => {
@@ -301,14 +295,7 @@ export default function Progress() {
   );
 
   const handleActivate = (item: PlayProgress) => {
-    const yearParam = item.year != null ? `&year=${item.year}` : "";
-    navigate(
-      `/player?site_id=${item.source_site_id}&original_id=${encodeURIComponent(
-        item.source_video_id
-      )}&ep=${item.episode_index}&title=${encodeURIComponent(
-        item.title
-      )}${yearParam}`
-    );
+    navigate(buildResumePlayerUrl(item));
   };
 
   const handleDeleteOne = (id: number) => {
