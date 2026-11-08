@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.errors import crawler_not_running, validation_error
-from sqlalchemy import delete, desc, exists, func, or_, select
+from sqlalchemy import delete, desc, exists, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -991,6 +991,21 @@ async def video_detail(
     CACHE_TTL_DAYS = 7
     expire_threshold = _utcnow() - timedelta(days=CACHE_TTL_DAYS)
 
+    # 一次性批量读缓存：AsyncSession 不能并发使用，fetch_one 里再查库会与
+    # gather 的其他任务竞争同一个 session（多源时表现为卡住/超时）。
+    cache_map: dict[tuple[int, str], VideoCache] = {}
+    if sources:
+        pairs = [(s.site_id, s.original_id) for s in sources]
+        cached_rows = await db.execute(
+            select(VideoCache).where(
+                tuple_(VideoCache.site_id, VideoCache.original_id).in_(pairs)
+            )
+        )
+        cache_map = {
+            (row.site_id, row.original_id): row
+            for row in cached_rows.scalars().all()
+        }
+
     async def fetch_one(source_ref):
         site = sites.get(source_ref.site_id)
         if not site:
@@ -1000,14 +1015,8 @@ async def video_detail(
                 error="site not found",
             )
 
-        # 1. 查缓存
-        cached_result = await db.execute(
-            select(VideoCache).where(
-                VideoCache.site_id == source_ref.site_id,
-                VideoCache.original_id == source_ref.original_id,
-            )
-        )
-        cached = cached_result.scalar_one_or_none()
+        # 1. 查缓存（已在上面批量取好，这里不再碰数据库）
+        cached = cache_map.get((source_ref.site_id, source_ref.original_id))
 
         # 缓存有效条件：有 play_url_raw 且未过期
         cache_valid = (
@@ -1122,11 +1131,29 @@ async def video_detail(
         if error:
             failed_sources.append(error.model_dump())
         if data:
-            if data.get("episodes"):
-                data["episodes"] = await _normalize_episode_suffixes(data["episodes"])
             sources.append(data)
         if cache_entry:
             cache_entries.append(cache_entry)
+
+    # 分享页解析（feifan/360zy → 真实 m3u8）要发网络请求：多个来源并发处理，
+    # 并设总预算，超时就先返回未解析的地址，避免详情弹窗超过前端 30 秒超时。
+    pending = [d for d in sources if d.get("episodes")]
+    if pending:
+        try:
+            normalized = await asyncio.wait_for(
+                asyncio.gather(
+                    *[_normalize_episode_suffixes(d["episodes"]) for d in pending]
+                ),
+                timeout=12,
+            )
+            for data, episodes in zip(pending, normalized):
+                data["episodes"] = episodes
+        except asyncio.TimeoutError:
+            logger.warning(
+                "detail_normalize_timeout title=%s sources=%d",
+                req.title,
+                len(pending),
+            )
 
     # 统一写入缓存（upsert）
     for entry in cache_entries:
