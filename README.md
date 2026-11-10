@@ -48,9 +48,13 @@ cd backend && pip install -e .
 cd frontend && npm install
 
 # 3. 启动（Windows）
-.\start.ps1        # 生产模式
-.\start.ps1 -Dev   # 开发模式
-.\stop.ps1         # 停止
+.\start.cmd        # 生产模式（推荐：绕过 PowerShell 执行策略）
+.\start.cmd -Dev   # 开发模式
+.\stop.cmd         # 停止
+
+# 等价写法（若执行策略允许未签名脚本）
+.\start.ps1
+.\stop.ps1
 ```
 
 Docker：
