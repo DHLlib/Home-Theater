@@ -55,6 +55,31 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
 export const getRecommendedVideos = () =>
   get<AggregatedListResponse>("/api/videos/recommended", 15000);
 
+/* ===== 未分类归因 ===== */
+
+export interface UncategorizedSource {
+  site_id: number;
+  site_name: string | null;
+  type_name: string | null;
+  reason: "no_type_name" | "no_alias" | "adult_blocked" | "alias_disabled" | "alias_mismatch";
+  reason_text: string;
+  alias_system: string | null;
+}
+
+export interface UncategorizedItem {
+  title: string;
+  year: number | null;
+  poster_url: string | null;
+  sources: UncategorizedSource[];
+  candidate_name: string | null;
+  candidate_system: string | null;
+}
+
+export const listUncategorizedVideos = (limit = 100) =>
+  get<{ total: number; items: UncategorizedItem[] }>(
+    `/api/videos/uncategorized?limit=${limit}`
+  );
+
 const pendingDetails = new Map<string, Promise<DetailResponse>>();
 
 const MAX_CONCURRENT_DETAILS = 6;

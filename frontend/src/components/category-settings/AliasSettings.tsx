@@ -16,6 +16,7 @@ import { listSites } from "../../api/sites";
 import { toastError, toastSuccess } from "../../utils/toast";
 import type { Site } from "../../types";
 import CategoryStructure from "./CategoryStructure";
+import UncategorizedDiagnosis from "./UncategorizedDiagnosis";
 import "./AliasSettings.css";
 
 interface OverrideItem {
@@ -261,6 +262,8 @@ export default function AliasSettings() {
       </div>
 
       <CategoryStructure onChanged={reload} />
+
+      <UncategorizedDiagnosis systemCategories={systemCategories} onChanged={reload} />
 
       {unmapped.length > 0 && (
         <section className="alias-block">

@@ -1,0 +1,36 @@
+/* 未分类诊断：折叠面板，复用别名行样式 */
+
+.uncat-diag {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.uncat-diag summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.uncat-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.uncat-nofix {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .uncat-nofix {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}

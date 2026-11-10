@@ -39,7 +39,12 @@ from app.schemas import (
     SourceRef,
 )
 from app.services.aggregator import _aggregate_records, refresh_aggregated_view
-from app.services.category_alias import resolve_remote_names
+from app.services.category_alias import (
+    load_aliases,
+    normalize_category_name,
+    resolve_remote_names,
+)
+from app.services.smart_matcher import _is_adult, _match_one
 from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,
@@ -1766,3 +1771,99 @@ async def category_stats(db: AsyncSession = Depends(get_db)):
     _category_stats_cache = payload
     _category_stats_cache_ts = now
     return payload
+
+
+# 未分类归因：每个来源为什么没算进系统分类
+_UNCATEGORIZED_REASON = {
+    "no_type_name": "来源没有给分类名",
+    "no_alias": "这个类名还没有对应系统分类",
+    "adult_blocked": "类名命中成人词库，被自动归类跳过",
+    "alias_disabled": "类名的别名被停用了",
+    "alias_mismatch": "有别名但视频级分类为空（可重算一次）",
+}
+
+
+@router.get("/uncategorized")
+async def list_uncategorized(
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """未分类内容 + 归因。
+
+    对每条未分类视频逐个来源说明「为什么没归类」，并给出可一键采纳的候选
+    （来源类名 + 建议系统分类），前端点一下即可把类名补成别名并重算。
+    """
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(AggregatedVideoV3)
+            .where(AggregatedVideoV3.system_category.is_(None))
+        )
+    ).scalar_one()
+
+    rows = (
+        await db.execute(
+            select(AggregatedVideoV3)
+            .where(AggregatedVideoV3.system_category.is_(None))
+            .order_by(
+                AggregatedVideoV3.latest_updated_at.desc().nullslast(),
+                AggregatedVideoV3.id.desc(),
+            )
+            .limit(max(1, min(limit, 500)))
+            .options(selectinload(AggregatedVideoV3.sources_rel))
+        )
+    ).scalars().all()
+
+    aliases = await load_aliases(db)
+    items = []
+    for video in rows:
+        sources = []
+        name_votes: dict[str, int] = {}
+        for src in video.sources_rel:
+            raw = (src.type_name or "").strip()
+            key = normalize_category_name(raw)
+            info = aliases.get(key) if key else None
+            if not raw:
+                reason = "no_type_name"
+            elif info is not None and not info["enabled"]:
+                reason = "alias_disabled"
+            elif info is not None:
+                reason = "alias_mismatch"
+            elif _is_adult(raw):
+                reason = "adult_blocked"
+            else:
+                reason = "no_alias"
+
+            if raw:
+                name_votes[raw] = name_votes.get(raw, 0) + 1
+
+            sources.append(
+                {
+                    "site_id": src.site_id,
+                    "site_name": src.site_name,
+                    "type_name": raw or None,
+                    "reason": reason,
+                    "reason_text": _UNCATEGORIZED_REASON[reason],
+                    "alias_system": info["system_name"] if info else None,
+                }
+            )
+
+        candidate_name = None
+        candidate_system = None
+        if name_votes:
+            candidate_name = max(name_votes, key=lambda name: name_votes[name])
+            suggested, confidence = _match_one(candidate_name)
+            candidate_system = suggested if confidence >= 0.6 else None
+
+        items.append(
+            {
+                "title": video.title,
+                "year": video.year,
+                "poster_url": video.poster_url,
+                "sources": sources,
+                "candidate_name": candidate_name,
+                "candidate_system": candidate_system,
+            }
+        )
+
+    return {"total": total, "items": items}
