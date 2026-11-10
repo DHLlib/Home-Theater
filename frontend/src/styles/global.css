@@ -62,9 +62,16 @@
   --btn-primary-fg: #0a0a0b;
 
   --tint-soft: rgba(255, 255, 255, 0.03);
-  --tint-softer: var(--tint-softer);
+  --tint-softer: rgba(255, 255, 255, 0.015);
   --tint-line: rgba(255, 255, 255, 0.09);
   --scrim: rgba(0, 0, 0, 0.8);
+
+  /* === 玻璃层（弹窗 / 抽屉 / 看板卡片 / 设置分组） === */
+  --glass-bg: rgba(18, 18, 20, 0.94);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-bright: rgba(255, 255, 255, 0.18);
+  --surface: #17171a;
+  --primary-glow: rgba(74, 222, 128, 0.35);
 
   /* === 层级系统 === */
   --z-toast: 2000;
@@ -116,6 +123,12 @@
   --tint-softer: rgba(0, 0, 0, 0.02);
   --tint-line: rgba(0, 0, 0, 0.09);
   --scrim: rgba(0, 0, 0, 0.45);
+
+  --glass-bg: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(16, 16, 18, 0.1);
+  --glass-border-bright: rgba(16, 16, 18, 0.18);
+  --surface: #ececef;
+  --primary-glow: rgba(22, 163, 74, 0.25);
 }
 
 /* ============================================================
