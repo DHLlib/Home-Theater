@@ -690,9 +690,11 @@ async def _query_aggregated_cache(
         offset = (page - 1) * per_page
 
         if sort == "year":
+            # 必须写成 `year DESC NULLS LAST`，不能写 `(year IS NULL) ASC, year DESC`：
+            # 后者是个表达式，用不上 (year DESC NULLS LAST, id DESC) 索引，18 万行
+            # 要整表排序（实测 136ms）；改写后走 index-only scan，0.5ms。
             order_by = [
-                AggregatedVideoV3.year.is_(None).asc(),
-                desc(AggregatedVideoV3.year),
+                AggregatedVideoV3.year.desc().nullslast(),
                 desc(AggregatedVideoV3.id),
             ]
         else:

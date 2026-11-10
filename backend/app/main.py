@@ -270,6 +270,14 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON aggregated_sources (type_name, site_id)"
                 )
             )
+            # 按年份排序（sort=year）：必须与 ORDER BY year DESC NULLS LAST, id DESC
+            # 完全一致，才能走 index-only scan（18 万行整表排序 136ms → 0.5ms）
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_year_desc "
+                    "ON aggregated_videos (year DESC NULLS LAST, id DESC)"
+                )
+            )
         logger.info("pg_trgm 标题索引已就绪")
     except Exception as exc:
         logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")
