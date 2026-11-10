@@ -21,7 +21,7 @@
 - 首页/分类 40ms 级、搜索 20ms 级、详情 40ms 级（本地库实测）
 - 事件循环看门狗（`event_loop_lag`）+ 慢请求日志（`slow_request`），排查卡顿先看这两个
 - 网络层按站点复用连接池、共享 SSLContext；爬虫与前台请求分离开超时策略
-- 详细规则见 [AGENTS.md §15 性能检查清单](AGENTS.md)
+- 详细规则见本地 `AGENTS.md` 的 §15 性能检查清单（个人文件，不入库）
 
 ## 技术栈
 
@@ -93,7 +93,7 @@ Home Theater/
 
 - [部署与数据库配置](docs/setup.md)
 - [踩坑记录](docs/lessons-learned.md)
-- [项目规范（含性能检查清单）](AGENTS.md)
+- 项目规范（含性能检查清单）：本地 `AGENTS.md`（个人文件，不入库）
 - [设计系统](DESIGN.md)
 - [产品定位](PRODUCT.md)
 - [系统注册表](docs/registry/system-context.md)
@@ -101,4 +101,4 @@ Home Theater/
 
 ## 核心规范
 
-采集站参数、播放地址解析、分类体系、显式选源、性能红线等硬规范详见 [AGENTS.md](AGENTS.md)。
+采集站参数、播放地址解析、分类体系、显式选源、性能红线等硬规范详见本地 `AGENTS.md`（个人文件，不入库）。

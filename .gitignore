@@ -80,3 +80,6 @@ backend/data/
 /shared/
 /test/
 /BUGlist.md
+
+# 个人 agent 说明（只在本机生效，规则同步在 ~/.dsh/AGENTS.md）
+/AGENTS.md
