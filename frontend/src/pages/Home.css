@@ -191,20 +191,56 @@
   border-radius: 6px;
 }
 
-.home-back-top {
+/* 返回顶部：浮层按钮。用与主题相反的实心色（深色主题=白底黑箭头，
+   浅色主题=黑底白箭头），保证在任何背景上都清晰可见 */
+.home-back-top.btn {
   position: fixed;
   right: 20px;
   bottom: 24px;
   z-index: 100;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
   padding: 0;
+  background: var(--btn-primary-bg);
+  border: 1px solid var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+[data-theme="light"] .home-back-top.btn {
+  box-shadow:
+    0 10px 26px rgba(16, 16, 18, 0.28),
+    0 2px 6px rgba(16, 16, 18, 0.18);
+}
+
+@media (hover: hover) {
+  .home-back-top.btn:hover {
+    background: var(--btn-primary-bg);
+    border-color: var(--btn-primary-bg);
+    color: var(--btn-primary-fg);
+    transform: translateY(-1px);
+    box-shadow:
+      0 14px 30px rgba(0, 0, 0, 0.55),
+      0 3px 8px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.home-back-top.btn:active {
+  transform: translateY(0);
+}
+
+.home-back-top.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .home-back-top.mobile {
