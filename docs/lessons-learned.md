@@ -1021,11 +1021,42 @@ param(
 
 **原因**：pg_trgm 的 GIN 索引只对 ≥3 个字符的 `%kw%` 有效；2 字查询退化为全表顺序扫描。
 
-**解决**：`len(kw) < 3` 时先走 `lower(title) LIKE 'kw%'`（`text_pattern_ops` 前缀索引），前缀无结果再回退子串扫描；回退在聚合表（18 万行）而不是 `video_cache`（230 万行）上做。
+**解决**（两步，第二步才根治）：
 
-**效果**：2 字前缀命中 17–33ms；2 字中间命中 327ms（原 1350ms）。
+1. `len(kw) < 3` 时先走 `lower(title) LIKE 'kw%'`（`text_pattern_ops` 前缀索引），前缀无结果再回退子串——只能把 2 字中缀从 1350ms 降到 327ms，回退仍然是顺序扫。
+2. 给标题建「字符加倍」表达式索引：索引 `regexp_replace(lower(title), '(.)', '\1\1', 'g')`，查询时把关键字也加倍（`白蛇` → `白白蛇蛇`）。4 个字符足够提取 trigram，GIN 索引重新可用，且对任意 2 字子串都成立。
 
-**教训**：索引是否生效取决于查询形态，短词要单独设计路径。
+**效果**：2 字中缀 276ms → 1ms（接口 348ms → 45ms）；索引 38MB，建一次 9s。
+
+**教训**：索引是否生效取决于查询形态；trigram 的「3 字符下限」可以用等长变换绕过，只要变换对标题和关键字一致且函数 immutable。
+
+---
+
+## 42. 分类别名面板冷启 2 秒（GROUP BY 外排）
+
+**症状**：打开分类设置面板，第一次要 ~2 秒，之后一分钟内都是几十毫秒（60s 统计缓存）。
+
+**原因**：`alias_usage()` 对 `aggregated_sources` 做 `group by type_name, count(distinct site_id)`，45 万行没有可用索引 → Seq Scan + `external merge Disk: 12MB` 排序，单次 2.0s，且期间占着连接。
+
+**解决**：加 `ix_aggregated_sources_type_name ON aggregated_sources (type_name, site_id)`，让 PG 走 index-only scan 并按索引顺序分组，省掉排序。
+
+**效果**：1.99s → 0.26s（接口冷启 1.9s → 0.3s，热 32ms）。
+
+**教训**：统计类 `GROUP BY` 也要看执行计划，`Sort Method: external merge` 就是要补覆盖索引的信号；补索引比在应用层加缓存更根本。
+
+---
+
+## 43. `ORDER BY (year IS NULL) ASC, year DESC` 用不上索引
+
+**症状**：首页默认排序 55ms，切到「按年份」245ms，深度翻页也不变差——说明每次都在整表排序。
+
+**原因**：`(year IS NULL) AS 表达式` 参与排序时，`(year, id)` 索引无法提供排序顺序，18 万行必须 Gather Merge + Sort。
+
+**解决**：改写为等价的 `year DESC NULLS LAST, id DESC`，并建 `ix_aggregated_videos_year_desc ON aggregated_videos (year DESC NULLS LAST, id DESC)`。
+
+**效果**：DB 136ms → 0.5ms（index-only scan），接口 245ms → 54ms。
+
+**教训**：`ORDER BY` 里出现表达式（`IS NULL`、`COALESCE`、`CASE`）就等于放弃索引顺序；SQL 有等价写法（`NULLS LAST`）时要优先用它。
 
 ---
 
@@ -1072,3 +1103,5 @@ param(
 | 增量、翻页、100 页、变慢 | #39 增量抓取无页数上限 |
 | 满屏超时、toast 堆叠、重试 | #40 错误风暴：重试 + toast 堆叠 |
 | 搜索、2 个字、1.3 秒、pg_trgm | #41 短词搜索索引失效 |
+| 别名面板、2 秒、GROUP BY、external merge | #42 统计缺覆盖索引 |
+| 按年份、排序、245ms、ORDER BY 表达式 | #43 表达式排序用不上索引 |
