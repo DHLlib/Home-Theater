@@ -6,6 +6,7 @@ import {
   listCategoryAliases,
   listCategoryOverrides,
   listUnmappedCategories,
+  saveCategoryAlias,
   saveCategoryOverride,
   updateCategoryAlias,
   type CategoryAliasItem,
@@ -44,6 +45,8 @@ export default function AliasSettings() {
   const [draftSite, setDraftSite] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftSystem, setDraftSystem] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newSystem, setNewSystem] = useState("");
 
   const reload = useCallback(async () => {
     try {
@@ -183,6 +186,20 @@ export default function AliasSettings() {
     });
   };
 
+  const addAlias = () => {
+    const rawName = newName.trim();
+    if (!rawName || !newSystem) {
+      toastError("类名和系统分类都要填");
+      return;
+    }
+    run(async () => {
+      await saveCategoryAlias(rawName, newSystem);
+      toastSuccess(`已新增「${rawName}」→ ${newSystem}`);
+      setNewName("");
+      await reload();
+    });
+  };
+
   const addOverride = () => {
     const siteId = Number(draftSite);
     if (!siteId || !draftName.trim() || !draftSystem) {
@@ -301,6 +318,52 @@ export default function AliasSettings() {
           </div>
         </section>
       )}
+
+      <section className="alias-block">
+        <div className="alias-block-head">
+          <div>
+            <div className="alias-block-title">新增映射</div>
+            <div className="alias-block-hint">
+              类名没有出现在上面「未分类」列表时（例如被成人词库过滤掉的类名），在这里手动添加；
+              添加后立即重算受影响视频。
+            </div>
+          </div>
+        </div>
+        <div className="alias-add-form">
+          <input
+            className="alias-search"
+            type="text"
+            placeholder="远程类名，如：福利"
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") addAlias();
+            }}
+            aria-label="远程类名"
+          />
+          <select
+            className="alias-select"
+            value={newSystem}
+            onChange={(event) => setNewSystem(event.target.value)}
+            aria-label="选择系统分类"
+          >
+            <option value="">选择系统分类</option>
+            {systemCategories.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-primary alias-btn"
+            onClick={addAlias}
+            disabled={busy || !newName.trim() || !newSystem}
+          >
+            新增
+          </button>
+        </div>
+      </section>
 
       <section className="alias-block">
         <div className="alias-block-head">

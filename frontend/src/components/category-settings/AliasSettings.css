@@ -307,7 +307,8 @@
   margin-left: auto;
 }
 
-.alias-override-form {
+.alias-override-form,
+.alias-add-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -315,12 +316,14 @@
   margin-top: 10px;
 }
 
-.alias-override-form .alias-search {
+.alias-override-form .alias-search,
+.alias-add-form .alias-search {
   flex: 1 1 180px;
   min-width: 160px;
 }
 
-.alias-override-form .alias-select {
+.alias-override-form .alias-select,
+.alias-add-form .alias-select {
   flex: 0 1 170px;
 }
 
@@ -334,7 +337,9 @@
   }
 
   .alias-override-form .alias-select,
-  .alias-override-form .alias-btn {
+  .alias-override-form .alias-btn,
+  .alias-add-form .alias-select,
+  .alias-add-form .alias-btn {
     flex: 1 1 100%;
   }
 }
