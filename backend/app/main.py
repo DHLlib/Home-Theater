@@ -207,10 +207,12 @@ async def _fix_postgres_sequences() -> None:
 
 
 async def _ensure_pg_trgm_indexes() -> None:
-    """为搜索的 ILIKE 查询创建 pg_trgm GIN 索引（仅 PostgreSQL）。
+    """搜索 / 分类统计用到的 PostgreSQL 索引（仅 PostgreSQL）。
 
-    搜索走 VideoCache.title.ilike('%kw%')，前置通配在大表上必然全表扫描；
-    pg_trgm + GIN 索引能让 PG 自动加速该模式。DDL 幂等，启动时执行一次即可。
+    搜索已从 video_cache 迁到 aggregated_videos：3 字以上靠 pg_trgm GIN，
+    1–2 字靠 text_pattern_ops 前缀索引，2 字子串靠「字符加倍」表达式 trigram 索引。
+    另外补一个 aggregated_sources(type_name, site_id) 供分类别名面板统计。
+    DDL 幂等，启动时执行一次即可。
     """
     if "postgresql" not in settings.database_url.lower():
         return
@@ -222,17 +224,26 @@ async def _ensure_pg_trgm_indexes() -> None:
     try:
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            await conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_video_cache_title_trgm "
-                    "ON video_cache USING gin (title gin_trgm_ops)"
-                )
-            )
+            # video_cache 的 trigram 索引已移除：搜索全部走 aggregated_videos，
+            # 实时回退路径只剩「聚合表为空」时才会触发。保留它反而让每次爬虫
+            # upsert 都要维护一个 70MB 的 GIN 索引（写放大）。
+            await conn.execute(text("DROP INDEX IF EXISTS ix_video_cache_title_trgm"))
             # 搜索改走聚合表（18 万行 vs video_cache 中的冗余副本），同样需要 trgm 索引
             await conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_title_trgm "
                     "ON aggregated_videos USING gin (title gin_trgm_ops)"
+                )
+            )
+            # 2 字子串搜索：pg_trgm 从 2 字模式提取不出 trigram，于是索引「每字符
+            # 重复两次」的标题（'白蛇' → '白白蛇蛇'），4 个字符即可命中 GIN。
+            # 实测 18 万行顺序扫描 276ms → 1ms；表达式必须与 videos.py 的
+            # _doubled_title_column() 完全一致。
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_videos_title_doubled_trgm "
+                    "ON aggregated_videos USING gin "
+                    "((regexp_replace(lower(title), '(.)', '\\1\\1', 'g')) gin_trgm_ops)"
                 )
             )
             # 分类分页：按分类 + 最新排序取前 N，缺这个复合索引会沿「最新」索引

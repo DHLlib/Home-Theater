@@ -562,6 +562,26 @@ async def _query_and_aggregate(
 # 预聚合表双缓冲查询
 # ------------------------------------------------------------------
 
+def _like_escaped(value: str) -> str:
+    """转义 LIKE 元字符，用户输入按字面匹配（\\ % _）。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _doubled_keyword(value: str) -> str:
+    """关键字「每字符重复两次」，与 _doubled_title_column() 的标题变换对齐。"""
+    return "".join(ch * 2 for ch in value.lower())
+
+
+def _doubled_title_column():
+    """标题「每字符重复两次」表达式，配合 trigram 索引服务 2 字子串搜索。
+
+    必须与 main.py 的 ix_aggregated_videos_title_doubled_trgm 索引表达式一致。
+    """
+    return func.regexp_replace(
+        func.lower(AggregatedVideoV3.title), "(.)", r"\1\1", "g"
+    )
+
+
 async def _query_aggregated_cache(
     db: AsyncSession,
     pg: int | None = 1,
@@ -631,11 +651,23 @@ async def _query_aggregated_cache(
                 # pg_trgm 只对 3 字以上生效；1–2 字改用前缀匹配，走 lower(title)
                 # 的 text_pattern_ops 索引，避免全表扫描（321ms → 毫秒级）
                 base_query = base_query.where(
-                    func.lower(AggregatedVideoV3.title).like(f"{kw.lower()}%")
+                    func.lower(AggregatedVideoV3.title).like(
+                        f"{_like_escaped(kw.lower())}%"
+                    )
+                )
+            elif len(kw) < 3:
+                # 2 字子串：pg_trgm 从 2 字模式里提取不出 trigram，直接 ILIKE 会退化成
+                # 18 万行顺序扫描（实测 276ms，冷缓存 1.2s）。这里改走「字符加倍」表达式
+                # 索引：标题与关键字都把每个字符重复一次（'白蛇' → '白白蛇蛇'），
+                # 4 个字符足以提取 trigram，GIN 索引可用（实测 1ms）。
+                # 表达式必须与 main.py 建索引时完全一致，否则用不上索引。
+                doubled = _doubled_keyword(kw)
+                base_query = base_query.where(
+                    _doubled_title_column().like(f"%{_like_escaped(doubled)}%")
                 )
             else:
                 base_query = base_query.where(
-                    AggregatedVideoV3.title.ilike(f"%{kw}%")
+                    AggregatedVideoV3.title.ilike(f"%{_like_escaped(kw)}%")
                 )
 
         # 只判断「有没有数据」：count(*) 在 18 万行上要 110ms，EXISTS 取 1 行即可
