@@ -60,6 +60,12 @@ htmlcov/
 # Logs
 *.log
 *.log.*
+backend/logs/
+frontend/logs/
+
+# 运行时 PID 文件（start.ps1 / stop.ps1 写入）
+backend/.pid
+frontend/.pid
 
 # 设计/图表等本地工作产物
 .archify/
