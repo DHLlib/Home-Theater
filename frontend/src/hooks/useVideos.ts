@@ -3,7 +3,7 @@ import {
   useInfiniteQuery,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listSites } from "../api/sites";
 import {
   getDetail,
@@ -17,6 +17,9 @@ import type { AggregatedVideo, SourceRef } from "../types";
 
 /* 无限分页内存封顶：超过该数量后裁剪最旧页面，防止 JS 堆无限增长 */
 const MAX_INFINITE_ITEMS = 1000;
+
+/* 刷新后恢复已加载页数（配合滚动位置恢复，避免深滚动只能回到第一页底部） */
+const PAGES_STORAGE_PREFIX = "home-pages:";
 
 export const queryKeys = {
   sites: ["sites"] as const,
@@ -57,6 +60,7 @@ export function useVideosInfinite(filters: {
   sort?: string;
 }) {
   const wd = filters.wd?.trim() ?? "";
+  const pagesKey = PAGES_STORAGE_PREFIX + JSON.stringify(filters);
   const query = useInfiniteQuery({
     queryKey: queryKeys.videosInfinite(filters),
     queryFn: async ({ pageParam = 1 }) => {
@@ -86,6 +90,55 @@ export function useVideosInfinite(filters: {
     },
     initialPageParam: 1,
   });
+
+  const fetchNextPage = query.fetchNextPage;
+  const [pagesRestored, setPagesRestored] = useState(false);
+  const restoredPagesRef = useRef(false);
+
+  // 切换筛选条件时允许对新 key 重新恢复
+  useEffect(() => {
+    restoredPagesRef.current = false;
+    setPagesRestored(false);
+  }, [pagesKey]);
+
+  // 记录已加载页数，供刷新后补齐；恢复完成前不写入，避免把保存值冲成 1
+  useEffect(() => {
+    if (!query.data || !pagesRestored) return;
+    try {
+      sessionStorage.setItem(pagesKey, String(query.data.pages.length));
+    } catch {
+      // 隐私模式/配额满：忽略
+    }
+  }, [query.data, pagesKey, pagesRestored]);
+
+  // 刷新后把页数补回保存值，补完再允许滚动恢复
+  useEffect(() => {
+    if (restoredPagesRef.current) return;
+    const data = query.data;
+    if (!data) return;
+
+    let saved = 1;
+    try {
+      saved = Number(sessionStorage.getItem(pagesKey) ?? "1") || 1;
+    } catch {
+      saved = 1;
+    }
+
+    if (data.pages.length >= saved || !query.hasNextPage) {
+      restoredPagesRef.current = true;
+      setPagesRestored(true);
+      return;
+    }
+    if (!query.isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [
+    query.data,
+    query.hasNextPage,
+    query.isFetchingNextPage,
+    fetchNextPage,
+    pagesKey,
+  ]);
 
   // 内存封顶：当缓存页累计超过阈值时，裁剪最旧的页面
   useEffect(() => {
@@ -123,7 +176,13 @@ export function useVideosInfinite(filters: {
     query.data?.pages.reduce((sum, page) => sum + page.length, 0) ?? 0;
   const isCapped = totalItems >= MAX_INFINITE_ITEMS;
 
-  return { ...query, totalItems, isCapped, maxItems: MAX_INFINITE_ITEMS };
+  return {
+    ...query,
+    totalItems,
+    isCapped,
+    maxItems: MAX_INFINITE_ITEMS,
+    pagesRestored,
+  };
 }
 
 export function useSearchVideosQuery(wd: string) {

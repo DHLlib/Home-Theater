@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
 import SpotlightRow from "../components/SpotlightRow";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
 import { useIsMobile } from "../hooks/useViewport";
+import { useScrollRestoration } from "../hooks/useScrollRestoration";
 import {
   useSitesQuery,
   useRecommendedVideosQuery,
@@ -45,6 +46,7 @@ function compareByYearDescNullLast(a: AggregatedVideo, b: AggregatedVideo): numb
 export default function Home() {
   const [showBackTop, setShowBackTop] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
 
@@ -64,6 +66,7 @@ export default function Home() {
     fetchNextPage,
     refetch,
     isCapped,
+    pagesRestored,
   } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl, sort });
 
   const videos = useMemo(() => {
@@ -93,6 +96,13 @@ export default function Home() {
   const renderGridItem = useCallback(
     (v: AggregatedVideo) => <VideoCard item={v} />,
     []
+  );
+
+  // F5/浏览器刷新后恢复滚动位置：等虚拟列表把内容高度撑起来再滚，
+  // 否则浏览器的默认恢复会被夹到顶部
+  useScrollRestoration(
+    `home:${location.pathname}${location.search}`,
+    sites.length > 0 && !isLoading && pagesRestored
   );
 
   // 返回顶部按钮显隐
