@@ -100,7 +100,6 @@ function ProgressCard({
   onDeleteOne?: (id: number) => void;
 }) {
   const navigate = useNavigate();
-  const [hovered, setHovered] = useState(false);
   const longPress = useLongPress({
     onLongPress: () => {
       if (isMobile) onOpenMenu?.(item.id);
@@ -142,8 +141,6 @@ function ProgressCard({
         WebkitUserSelect: "none",
       }}
       onClick={handleActivate}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -157,36 +154,15 @@ function ProgressCard({
       {!isMobile && (
         <button
           type="button"
-          className="btn"
+          className="card-action-btn"
           onClick={handleRemove}
           aria-label={`删除记录 ${item.title} ${item.episode_name}`}
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            zIndex: 3,
-            width: 32,
-            height: 32,
-            minHeight: 32,
-            padding: 0,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: hovered ? 1 : 0,
-            transform: hovered ? "scale(1)" : "scale(0.85)",
-            transition: "all var(--transition-fast)",
-            pointerEvents: hovered ? "auto" : "none",
-            background: "rgba(0,0,0,0.75)",
-            borderColor: "var(--glass-border-bright)",
-            color: "var(--text-secondary)",
-          }}
         >
           <TrashIcon size={14} />
         </button>
       )}
 
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, paddingRight: 44 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{

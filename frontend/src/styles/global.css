@@ -338,6 +338,68 @@ textarea,
   transition: transform var(--transition-fast);
 }
 
+/* 卡片右上角的操作按钮（删除记录 / 取消收藏）
+   红色标识，常驻显示；hover 时填充实心。
+   需要「悬浮才出现」的场景（如收藏海报）加 .is-hover-only 修饰。 */
+.card-action-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--danger-dim);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 17px;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.card-action-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  /* 深色主题 danger 偏亮用深色图标，浅色主题用白图标，保证对比 */
+  color: var(--bg);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.card-action-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 悬浮才出现的变体（收藏海报） */
+.card-action-btn.is-hover-only {
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: none;
+}
+
+.card-action-btn.is-hover-only.is-visible,
+.card-action-btn.is-hover-only:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+[data-theme="light"] .card-action-btn {
+  box-shadow: 0 4px 12px rgba(16, 16, 18, 0.14);
+}
+
 /* === Layout 工具类 === */
 .row {
   display: flex;

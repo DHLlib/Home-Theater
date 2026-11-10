@@ -106,29 +106,10 @@ function ArchiveCard({
     >
       {!isMobile && (
         <button
-          className="btn"
+          className={`card-action-btn is-hover-only${hovered ? " is-visible" : ""}`}
           onClick={handleRemove}
           aria-label={`取消收藏 ${item.title}`}
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 8,
-            zIndex: 3,
-            width: 32,
-            height: 32,
-            minHeight: 32,
-            padding: 0,
-            borderRadius: "50%",
-            opacity: hovered ? 1 : 0,
-            transform: hovered ? "scale(1)" : "scale(0.85)",
-            transition: "all var(--transition-fast)",
-            background: "rgba(0,0,0,0.75)",
-            borderColor: "var(--glass-border-bright)",
-            color: "var(--text-secondary)",
-            fontSize: 18,
-            lineHeight: 1,
-            pointerEvents: hovered ? "auto" : "none",
-          }}
+          style={{ top: 8, right: 8 }}
         >
           ×
         </button>
@@ -141,7 +122,7 @@ function ArchiveCard({
           overflow: "hidden",
           borderRadius: "var(--card-radius)",
           border: "1px solid var(--border)",
-          background: "rgba(0,0,0,0.3)",
+          background: "var(--bg-surface)",
         }}
       >
         <PosterImage
