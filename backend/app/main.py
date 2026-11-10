@@ -261,6 +261,15 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON aggregated_videos (lower(title) text_pattern_ops)"
                 )
             )
+            # 分类别名面板统计：按 type_name 分组数来源/站点。没有这个索引时
+            # 45 万行要 Seq Scan + 外排排序，冷启动 1.9s；有索引走 index-only scan，
+            # 降到 0.17s。
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_sources_type_name "
+                    "ON aggregated_sources (type_name, site_id)"
+                )
+            )
         logger.info("pg_trgm 标题索引已就绪")
     except Exception as exc:
         logger.warning(f"创建 pg_trgm 标题索引失败: {exc}")

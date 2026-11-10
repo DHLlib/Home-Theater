@@ -52,7 +52,7 @@ async def _system_category_names(db: AsyncSession) -> list[str]:
 @router.get("")
 async def list_category_aliases(db: AsyncSession = Depends(get_db)):
     """别名列表：附来源条数/站点数，按来源数倒序，便于优先处理热门类名。"""
-    aliases = await load_aliases(db, use_cache=False)
+    aliases = await load_aliases(db)
     usage = await alias_usage(db)
     system_names = await _system_category_names(db)
 
