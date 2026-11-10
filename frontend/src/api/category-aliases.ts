@@ -16,6 +16,10 @@ export interface UnmappedCategoryItem {
   source_count: number;
   site_count: number;
   suggested_system_name: string | null;
+  /** 命中共成人词库（默认不展示，需要显式展开） */
+  adult?: boolean;
+  /** 几条最新标题，帮助判断该归到哪一类 */
+  sample_titles?: string[];
 }
 
 export interface CategoryStats {
@@ -29,8 +33,10 @@ export const listCategoryAliases = () =>
     "/api/category-aliases"
   );
 
-export const listUnmappedCategories = () =>
-  get<{ items: UnmappedCategoryItem[] }>("/api/category-aliases/unmapped");
+export const listUnmappedCategories = (includeAdult = false) =>
+  get<{ items: UnmappedCategoryItem[] }>(
+    `/api/category-aliases/unmapped${includeAdult ? "?include_adult=true" : ""}`
+  );
 
 export const listCategoryOverrides = () =>
   get<{

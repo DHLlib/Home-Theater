@@ -270,29 +270,149 @@ async def alias_usage(db: AsyncSession, *, use_cache: bool = True) -> dict[str, 
         return result
 
 
-async def unmapped_categories(db: AsyncSession) -> list[dict]:
-    """未归类的远程类名（按来源条数倒序），用于「未分类」桶。"""
+async def unmapped_categories(
+    db: AsyncSession, *, include_adult: bool = False
+) -> list[dict]:
+    """未归类的远程类名（按来源条数倒序），用于「未分类」桶。
+
+    include_adult=False 时会隐藏命中共成人词库的类名——它们不会被自动建议，
+    但确实存在且带有内容，面板上需要能按需展开（见 include_adult 参数）。
+    附带每个类名的样例标题，方便判断归到哪个系统分类。
+    """
     aliases = await load_aliases(db)
     usage = await alias_usage(db)
-    result = []
+
+    candidates: list[dict] = []
+    raw_names: set[str] = set()
     for key, info in usage.items():
         if key in aliases:
             continue
         raw = info["raw_names"][0]
-        if _is_adult(raw):
+        adult = _is_adult(raw)
+        if adult and not include_adult:
             continue
         suggested, confidence = _match_one(raw)
-        result.append(
+        raw_names.update(info["raw_names"])
+        candidates.append(
             {
                 "name_key": key,
                 "raw_names": info["raw_names"],
                 "source_count": info["sources"],
                 "site_count": info["sites"],
+                "adult": adult,
                 "suggested_system_name": suggested if confidence >= 0.6 else None,
             }
         )
-    result.sort(key=lambda item: item["source_count"], reverse=True)
+
+    if candidates and raw_names:
+        samples = await _sample_titles(db, raw_names)
+        for item in candidates:
+            titles: list[str] = []
+            for raw in item["raw_names"]:
+                for title in samples.get(raw, []):
+                    if title not in titles:
+                        titles.append(title)
+            item["sample_titles"] = titles[:3]
+
+    candidates.sort(key=lambda item: item["source_count"], reverse=True)
+    return candidates
+
+
+async def _sample_titles(
+    db: AsyncSession, raw_names: set[str], per_name: int = 3
+) -> dict[str, list[str]]:
+    """按远程类名取几条最新标题，作为归类时的上下文提示。"""
+    from app.models import AggregatedVideoV3
+
+    rn = func.row_number().over(
+        partition_by=AggregatedSource.type_name,
+        order_by=(
+            AggregatedVideoV3.latest_updated_at.desc().nullslast(),
+            AggregatedVideoV3.id.desc(),
+        ),
+    )
+    ranked = (
+        select(
+            AggregatedSource.type_name.label("type_name"),
+            AggregatedVideoV3.title.label("title"),
+            rn.label("rn"),
+        )
+        .join(
+            AggregatedVideoV3,
+            AggregatedVideoV3.id == AggregatedSource.aggregated_video_id,
+        )
+        .where(AggregatedSource.type_name.in_(sorted(raw_names)))
+        .subquery()
+    )
+    rows = (
+        await db.execute(
+            select(ranked.c.type_name, ranked.c.title).where(ranked.c.rn <= per_name)
+        )
+    ).all()
+
+    result: dict[str, list[str]] = {}
+    for type_name, title in rows:
+        result.setdefault(type_name, []).append(title)
     return result
+
+
+async def repoint_category(db: AsyncSession, old_name: str, new_name: str) -> tuple[int, int]:
+    """把「旧分类名」的所有引用改指到新名字。
+
+    别名表与视频级分类存的是分类名字符串，分类改名或删除前必须先走这一步，
+    否则别名会悬空、视频会挂在已不存在的分类上。返回 (别名数, 视频数)。
+    """
+    from sqlalchemy import update
+
+    from app.models import AggregatedVideoV3
+
+    if old_name == new_name:
+        return 0, 0
+
+    alias_result = await db.execute(
+        update(CategoryAlias)
+        .where(CategoryAlias.system_name == old_name)
+        .values(system_name=new_name)
+    )
+    video_result = await db.execute(
+        update(AggregatedVideoV3)
+        .where(AggregatedVideoV3.system_category == old_name)
+        .values(system_category=new_name)
+    )
+    return (alias_result.rowcount or 0), (video_result.rowcount or 0)
+
+
+async def category_reference_counts(
+    db: AsyncSession, names: list[str]
+) -> dict[str, dict[str, int]]:
+    """统计一批分类名分别被多少条别名、多少个视频引用。"""
+    from app.models import AggregatedVideoV3
+
+    if not names:
+        return {}
+
+    alias_rows = (
+        await db.execute(
+            select(CategoryAlias.system_name, func.count())
+            .where(CategoryAlias.system_name.in_(names))
+            .group_by(CategoryAlias.system_name)
+        )
+    ).all()
+    video_rows = (
+        await db.execute(
+            select(AggregatedVideoV3.system_category, func.count())
+            .where(AggregatedVideoV3.system_category.in_(names))
+            .group_by(AggregatedVideoV3.system_category)
+        )
+    ).all()
+
+    result = {name: {"aliases": 0, "videos": 0} for name in names}
+    for name, count in alias_rows:
+        result.setdefault(name, {"aliases": 0, "videos": 0})["aliases"] = count
+    for name, count in video_rows:
+        result.setdefault(name, {"aliases": 0, "videos": 0})["videos"] = count
+    return result
+
 
 
 async def upsert_alias(

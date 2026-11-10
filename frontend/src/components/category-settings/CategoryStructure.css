@@ -1,0 +1,106 @@
+/* 分类结构管理：折叠面板 + 行 + 新增表单 */
+
+.cat-structure {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cat-structure summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.cat-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.cat-add .alias-search {
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+
+.cat-add .alias-select {
+  flex: 0 1 190px;
+}
+
+.cat-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cat-group {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-row:last-child {
+  border-bottom: none;
+}
+
+.cat-row--parent {
+  background: var(--bg-surface);
+}
+
+.cat-row--child {
+  padding-left: 28px;
+}
+
+.cat-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cat-row--child .cat-name {
+  color: var(--text-secondary);
+}
+
+.cat-badge {
+  flex: none;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .cat-row {
+    flex-wrap: wrap;
+  }
+
+  .cat-name {
+    flex-basis: 100%;
+  }
+
+  .cat-add .alias-select,
+  .cat-add .alias-btn {
+    flex: 1 1 100%;
+  }
+}

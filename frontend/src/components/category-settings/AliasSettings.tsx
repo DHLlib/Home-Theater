@@ -15,6 +15,7 @@ import {
 import { listSites } from "../../api/sites";
 import { toastError, toastSuccess } from "../../utils/toast";
 import type { Site } from "../../types";
+import CategoryStructure from "./CategoryStructure";
 import "./AliasSettings.css";
 
 interface OverrideItem {
@@ -47,12 +48,13 @@ export default function AliasSettings() {
   const [draftSystem, setDraftSystem] = useState("");
   const [newName, setNewName] = useState("");
   const [newSystem, setNewSystem] = useState("");
+  const [includeAdult, setIncludeAdult] = useState(false);
 
   const reload = useCallback(async () => {
     try {
       const [aliasResp, unmappedResp, overrideResp, siteList] = await Promise.all([
         listCategoryAliases(),
-        listUnmappedCategories(),
+        listUnmappedCategories(includeAdult),
         listCategoryOverrides(),
         listSites(),
       ]);
@@ -66,7 +68,7 @@ export default function AliasSettings() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [includeAdult]);
 
   useEffect(() => {
     reload();
@@ -248,7 +250,17 @@ export default function AliasSettings() {
         <span className={unmapped.length > 0 ? "alias-warn" : undefined}>
           <strong>{unmapped.length}</strong> 个未分类
         </span>
+        <label className="alias-adult-toggle">
+          <input
+            type="checkbox"
+            checked={includeAdult}
+            onChange={(event) => setIncludeAdult(event.target.checked)}
+          />
+          含成人词库忽略的类名
+        </label>
       </div>
+
+      <CategoryStructure onChanged={reload} />
 
       {unmapped.length > 0 && (
         <section className="alias-block">
@@ -278,9 +290,17 @@ export default function AliasSettings() {
               return (
                 <div className="alias-row alias-row--unmapped" key={item.name_key}>
                   <div className="alias-row-main">
-                    <span className="alias-name">{rawName}</span>
+                    <span className="alias-name">
+                      {rawName}
+                      {item.adult && <span className="cat-badge">成人</span>}
+                    </span>
                     {item.raw_names.length > 1 && (
                       <span className="alias-sub">{item.raw_names.join(" / ")}</span>
+                    )}
+                    {item.sample_titles && item.sample_titles.length > 0 && (
+                      <span className="alias-sub">
+                        {item.sample_titles.join(" / ")}
+                      </span>
                     )}
                     <span className="alias-meta">
                       {item.source_count.toLocaleString()} 条 · {item.site_count} 个站点

@@ -35,6 +35,22 @@
   color: var(--primary);
 }
 
+/* 未分类列表：展开被成人词库忽略的类名 */
+.alias-adult-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.alias-name .cat-badge {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 /* ===== 区块 ===== */
 
 .alias-block {

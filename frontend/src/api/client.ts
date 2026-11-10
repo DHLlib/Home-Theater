@@ -29,10 +29,13 @@ async function request<T>(
     const resp = await fetch(path, opts);
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
+      // 后端有两种错误格式：{detail: "..."} 与统一错误体 {code, message, details}
       const detail =
         typeof data.detail === "string"
           ? data.detail
-          : data.msg || JSON.stringify(data.detail || data);
+          : typeof data.message === "string"
+            ? data.message
+            : data.msg || JSON.stringify(data.detail || data);
       const err = new ApiError(resp.status, detail || `${resp.status} error`);
       toastError(err.detail);
       throw err;

@@ -77,8 +77,9 @@ async def list_category_aliases(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/unmapped")
-async def list_unmapped(db: AsyncSession = Depends(get_db)):
-    return {"items": await unmapped_categories(db)}
+async def list_unmapped(include_adult: bool = False, db: AsyncSession = Depends(get_db)):
+    """未归类的远程类名；include_adult=true 时把成人词库命中的类名也列出来。"""
+    return {"items": await unmapped_categories(db, include_adult=include_adult)}
 
 
 @router.get("/overrides")

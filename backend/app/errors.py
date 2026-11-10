@@ -124,6 +124,19 @@ def category_cycle() -> ApiError:
     return ApiError(ErrorCode.CATEGORY_CYCLE, "不能形成循环父子关系", 400)
 
 
+def category_in_use(referenced: dict[str, dict[str, int]]) -> ApiError:
+    """分类仍被别名/视频引用，不能直接删除。"""
+    aliases = sum(stat.get("aliases", 0) for stat in referenced.values())
+    videos = sum(stat.get("videos", 0) for stat in referenced.values())
+    names = "、".join(referenced.keys())
+    return ApiError(
+        ErrorCode.CONFLICT,
+        f"分类仍被引用（别名 {aliases} 条、视频 {videos} 个：{names}），请先迁移引用",
+        409,
+        {"referenced": referenced, "hint": "传 remap_to=目标分类名，或先改别名"},
+    )
+
+
 def favorite_not_found(fav_id: int) -> ApiError:
     return ApiError(ErrorCode.FAVORITE_NOT_FOUND, f"收藏不存在: {fav_id}", 404)
 

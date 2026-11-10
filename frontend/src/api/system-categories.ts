@@ -10,5 +10,13 @@ export const createSystemCategory = (body: { name: string; parent_id?: number | 
 export const updateSystemCategory = (id: number, body: { name?: string; parent_id?: number | null; sort?: number; enabled?: boolean }) =>
   patch<SystemCategory>(`/api/system-categories/${id}`, body);
 
-export const deleteSystemCategory = (id: number) =>
-  del<{ ok: boolean }>(`/api/system-categories/${id}`);
+/**
+ * 删除分类。分类仍被别名/视频引用时后端返回 409，
+ * 需要传 remapTo 先把引用迁到目标分类再删。
+ */
+export const deleteSystemCategory = (id: number, remapTo?: string) =>
+  del<{ ok: boolean; remapped_to?: string | null; names?: string[] }>(
+    `/api/system-categories/${id}${
+      remapTo ? `?remap_to=${encodeURIComponent(remapTo)}` : ""
+    }`
+  );
