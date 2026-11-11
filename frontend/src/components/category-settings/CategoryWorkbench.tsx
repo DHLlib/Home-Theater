@@ -40,6 +40,23 @@ export default function CategoryWorkbench() {
   useEffect(() => {
     sitesRef.current = sites;
   }, [sites]);
+  // 概览计数与「用户是否手动选过站点」：两者共同决定初始站点，避免概览
+  // 先于站点列表到达时选不出站点、页面停在加载中
+  const countsRef = useRef<Record<number, number> | null>(null);
+  const userPickedRef = useRef(false);
+
+  const pickInitialSite = useCallback((siteList: Site[], counts: Record<number, number> | null) => {
+    const saved = Number(localStorage.getItem("ht-category-site") || 0);
+    const savedSite = siteList.find((site) => site.id === saved);
+    if (savedSite) return savedSite.id;
+    if (counts) {
+      const broken = [...siteList]
+        .sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+        .find((site) => (counts[site.id] ?? 0) > 0);
+      if (broken) return broken.id;
+    }
+    return siteList[0]?.id ?? null;
+  }, []);
   const [unmappedBySite, setUnmappedBySite] = useState<Record<number, number>>({});
   const [siteId, setSiteId] = useState<number | null>(null);
   const [data, setData] = useState<CategoryMapResponse | null>(null);
@@ -85,18 +102,14 @@ export default function CategoryWorkbench() {
         if (cancelled) return;
         setSites(siteList);
         setTree(treeResp);
-        const saved = Number(localStorage.getItem("ht-category-site") || 0);
-        const preferred = siteList.find((site) => site.id === saved);
-        if (preferred) {
-          // 有上次记忆就用它，避免每次都被「问题最多的站」抢走
-          setSiteId(preferred.id);
-        }
+        // 这里必须兜底选一个：概览可能晚到、也可能先到（先到时 countsRef 已就位）
+        setSiteId((prev) => prev ?? pickInitialSite(siteList, countsRef.current));
       })
       .catch(() => {
         // client 已统一 toast
       });
 
-    // 非关键路径：概览只用来排序/标注，晚到不影响首屏
+    // 非关键路径：概览只用来排序/标注；晚到或先到都不能让页面停在「加载中」
     getCategoryMapSummary()
       .then((summaryResp) => {
         if (cancelled) return;
@@ -104,22 +117,32 @@ export default function CategoryWorkbench() {
         for (const item of summaryResp.items) {
           counts[item.site_id] = item.unmapped;
         }
+        countsRef.current = counts;
         setUnmappedBySite(counts);
+
+        const current = sitesRef.current;
+        if (current.length === 0) {
+          // 站点还没到：等站点回调里用 countsRef 选，这里只存数据
+          return;
+        }
         setSites((prev) =>
           [...prev].sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
         );
-        // 首次进入（没有上次记忆）时，切到「问题最多」的站点
+        if (userPickedRef.current) return;
         setSiteId((prev) => {
-          if (prev !== null) return prev;
-          const ordered = [...sitesRef.current].sort(
-            (a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0)
-          );
-          return ordered.find((site) => (counts[site.id] ?? 0) > 0)?.id ?? ordered[0]?.id ?? null;
+          const broken = current.find((site) => (counts[site.id] ?? 0) > 0);
+          if (!broken) return prev ?? current[0]?.id ?? null;
+          // 用户有上次记忆时不抢它
+          const saved = Number(localStorage.getItem("ht-category-site") || 0);
+          if (saved) return prev;
+          return broken.id;
         });
       })
       .catch(() => {
         // 概览失败时退回第一个站点，保证页面仍可用
-        setSiteId((prev) => prev ?? sitesRef.current[0]?.id ?? null);
+        if (!cancelled) {
+          setSiteId((prev) => prev ?? sitesRef.current[0]?.id ?? null);
+        }
       });
 
     return () => {
@@ -460,6 +483,7 @@ export default function CategoryWorkbench() {
           value={siteId ?? ""}
           onChange={(event) => {
             const next = Number(event.target.value);
+            userPickedRef.current = true;
             setSiteId(next);
             try {
               localStorage.setItem("ht-category-site", String(next));
