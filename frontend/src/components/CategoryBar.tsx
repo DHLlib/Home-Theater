@@ -205,27 +205,8 @@ export default function CategoryBar({
           );
         })}
 
-        {/* 未分类：视频级分类为空的内容 */}
-        {uncategorizedCount > 0 && (
-          <button
-            className="nav-link"
-            onClick={() => onSelect(UNCATEGORIZED)}
-            title={`${uncategorizedCount.toLocaleString()} 条未分类`}
-            style={{
-              color:
-                activeCategory === UNCATEGORIZED
-                  ? "var(--text-primary)"
-                  : "var(--text-muted)",
-              borderBottom:
-                activeCategory === UNCATEGORIZED
-                  ? "2px solid var(--primary)"
-                  : "2px solid transparent",
-              marginBottom: -1,
-            }}
-          >
-            未分类
-          </button>
-        )}
+        {/* 「未分类」不再作为大类出现在分类栏：它是内容没归类的结果，不是分类。
+            未分类内容在「设置 → 分类 → 映射工作台 / 高级」里处理，首页与「全部」仍能看到。 */}
       </div>
     </div>
   );
