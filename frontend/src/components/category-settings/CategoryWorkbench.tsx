@@ -363,7 +363,18 @@ export default function CategoryWorkbench() {
             <span className="wb-src">{group.scope === "site" ? "站点例外" : "全局别名"}</span>
           ) : suggestion ? (
             <>
-              <span className={`wb-pill${low ? " is-low" : ""}`}>
+              <span
+                className={`wb-pill${low ? " is-low" : ""}`}
+                title={
+                  group.suggestion_source === "history"
+                    ? `本站旧映射曾把「${first.raw_name}」归到「${suggestion}」`
+                    : group.suggestion_source === "rule"
+                    ? `命中关键词规则，置信度 ${Math.round(confidence * 100)}%`
+                    : group.suggestion_source === "similarity"
+                    ? `与系统分类「${suggestion}」名称相似 ${Math.round(confidence * 100)}%`
+                    : undefined
+                }
+              >
                 {low ? "低置信 " : "建议 · "}
                 {suggestion} {Math.round(confidence * 100)}%
               </span>
