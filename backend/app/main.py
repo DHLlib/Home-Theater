@@ -270,6 +270,30 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON aggregated_sources (type_name, site_id)"
                 )
             )
+            # 站点分类映射工作台：按站点取类名统计 / 取每条类名的 3 个样例标题。
+            # 没有索引时单个站点要 1.8–2.7s（类名统计 657ms + 样本窗口 1.1s）。
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_sources_site_type_id "
+                    "ON aggregated_sources (site_id, type_name, id DESC)"
+                )
+            )
+            # 覆盖索引：类名统计的 count(distinct aggregated_video_id) 与旧映射查询
+            # 都能走 index-only（657ms → 100ms，284ms → 70ms）
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_sources_site_type_video "
+                    "ON aggregated_sources (site_id, type_name) "
+                    "INCLUDE (aggregated_video_id, type_id)"
+                )
+            )
+            # 站点视频数：count(distinct aggregated_video_id)（371ms → 26ms）
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_aggregated_sources_site_video "
+                    "ON aggregated_sources (site_id, aggregated_video_id)"
+                )
+            )
             # 按年份排序（sort=year）：必须与 ORDER BY year DESC NULLS LAST, id DESC
             # 完全一致，才能走 index-only scan（18 万行整表排序 136ms → 0.5ms）
             await conn.execute(

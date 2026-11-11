@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy import func, select
@@ -21,10 +22,19 @@ from app.services.category_map import apply_site_map, build_site_map, undo_last_
 router = APIRouter(prefix="/sites", tags=["category-map"])
 logger = logging.getLogger(__name__)
 
+# 站点概览只用于「默认选中哪个站」，缓存 60 秒足够
+_SUMMARY_TTL = 60.0
+_summary_cache: tuple[float, dict] | None = None
+
 
 @router.get("/category-map/summary")
 async def category_map_summary(db: AsyncSession = Depends(get_db)):
     """各站点的类名覆盖概况，用于默认选中「问题最多」的站点。"""
+    global _summary_cache
+    now = time.monotonic()
+    if _summary_cache is not None and now - _summary_cache[0] < _SUMMARY_TTL:
+        return _summary_cache[1]
+
     aliases = await load_aliases(db)
     rows = (
         await db.execute(
@@ -51,7 +61,9 @@ async def category_map_summary(db: AsyncSession = Depends(get_db)):
         if info is None or not info["enabled"]:
             item["unmapped"] += 1
 
-    return {"items": sorted(summary.values(), key=lambda item: -item["unmapped"])}
+    payload = {"items": sorted(summary.values(), key=lambda item: -item["unmapped"])}
+    _summary_cache = (now, payload)
+    return payload
 
 
 @router.get("/{site_id}/category-map")
