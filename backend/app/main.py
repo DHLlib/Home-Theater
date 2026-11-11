@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
-from app.api import category_aliases, favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
+from app.api import category_aliases, category_map, favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
 from app.config import settings
 from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
@@ -588,6 +588,7 @@ app.include_router(settings_api.router, prefix="/api")
 app.include_router(sse.router, prefix="/api")
 app.include_router(system_categories.router, prefix="/api")
 app.include_router(category_aliases.router, prefix="/api")
+app.include_router(category_map.router, prefix="/api")
 
 
 @app.get("/api/health")
