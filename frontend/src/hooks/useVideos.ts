@@ -202,7 +202,7 @@ export function useDetailQuery(
 ) {
   return useQuery({
     queryKey: queryKeys.detail(title, year),
-    queryFn: () => getDetail({ title, year, sources }).then((r) => r.sources),
+    queryFn: () => getDetail({ title, year, sources }),
     enabled: title.length > 0 && sources.length > 0,
     // 详情失败时不再自动重试：一次 15 秒超时已经够久，重试只会叠出多个 toast
     retry: false,

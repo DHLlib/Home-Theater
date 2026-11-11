@@ -38,7 +38,7 @@ from app.schemas import (
     SiteStat,
     SourceRef,
 )
-from app.services.aggregator import _aggregate_records, refresh_aggregated_view
+from app.services.aggregator import _aggregate_records, normalize_title, refresh_aggregated_view
 from app.services.category_alias import (
     load_aliases,
     normalize_category_name,
@@ -1378,10 +1378,23 @@ async def video_detail(
         "api_video_detail_done title=%s sources=%d failed=%d cached=%d elapsed=%.2fs",
         req.title, len(sources), len(failed_sources), len(cache_entries), elapsed,
     )
+    # 视频级系统分类：详情页据此展示「系统把它归到哪一类」
+    system_category = None
+    if req.title:
+        cat_query = select(AggregatedVideoV3.system_category).where(
+            AggregatedVideoV3.norm_title == normalize_title(req.title)
+        )
+        if req.year is None:
+            cat_query = cat_query.where(AggregatedVideoV3.year.is_(None))
+        else:
+            cat_query = cat_query.where(AggregatedVideoV3.year == req.year)
+        system_category = (await db.execute(cat_query.limit(1))).scalar_one_or_none()
+
     return DetailResponse(
         title=req.title,
         year=req.year,
         sources=sources,
+        system_category=system_category,
     )
 
 

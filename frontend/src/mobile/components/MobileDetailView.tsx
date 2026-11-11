@@ -88,11 +88,12 @@ export default function MobileDetailView() {
     [state]
   );
 
-  const { data: detail = [], isLoading } = useDetailQuery(
+  const { data: detailResp, isLoading } = useDetailQuery(
     item.title,
     item.year,
     item.sources
   );
+  const detail = detailResp?.sources ?? [];
 
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [isFavorited, setIsFavorited] = useState(false);

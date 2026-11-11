@@ -66,6 +66,8 @@ export interface DetailResponse {
   title: string;
   year?: number | null;
   sources: SourceDetail[];
+  /** 视频级系统分类（聚合表算出来的），null 表示未分类 */
+  system_category?: string | null;
 }
 
 export interface DownloadTaskCreate {

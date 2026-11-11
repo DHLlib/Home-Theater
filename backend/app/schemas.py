@@ -62,6 +62,8 @@ class DetailResponse(BaseModel):
     title: str
     year: int | None = None
     sources: list[SourceDetail]
+    # 视频级系统分类（聚合表算出来的），用于详情页展示「系统怎么归的类」
+    system_category: str | None = None
 
 
 class DownloadTaskCreate(BaseModel):

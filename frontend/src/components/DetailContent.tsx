@@ -73,11 +73,13 @@ export default function DetailContent({
     };
   }, []);
 
-  const { data: detail = [], isLoading } = useDetailQuery(
+  const { data: detailResp, isLoading } = useDetailQuery(
     item.title,
     item.year,
     item.sources
   );
+  const detail = detailResp?.sources ?? [];
+  const systemCategory = detailResp?.system_category ?? null;
 
   const detailReady = !isLoading && detail.length > 0;
 
@@ -411,8 +413,11 @@ export default function DetailContent({
             {[
               item.year != null ? String(displayYear(item.year) ?? "") || null : null,
               detail[0]?.area ?? null,
-              detail[0]?.type_name ?? null,
+              // 来源分类 = 第一个来源站的原始类名；系统分类 = 聚合后的归类结果
+              detail[0]?.type_name ? `来源分类 ${detail[0].type_name}` : null,
               item.sources.length > 0 ? `${item.sources.length} 个来源` : null,
+              // 系统分类是聚合后的归类结果；与上面「来源原始类名」不同，便于核对映射
+              `系统分类 ${systemCategory ?? "未分类"}`,
             ]
               .filter(Boolean)
               .map((label, i) => (
