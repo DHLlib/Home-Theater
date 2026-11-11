@@ -13,6 +13,8 @@ import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, trig
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
 import AliasSettings from "../components/category-settings/AliasSettings";
+import CategoryStructure from "../components/category-settings/CategoryStructure";
+import CategoryWorkbench from "../components/category-settings/CategoryWorkbench";
 import SiteHealthDrawer from "../components/SiteHealthDrawer";
 import AddSiteDialog from "../components/AddSiteDialog";
 import BatchSniffDialog from "../components/BatchSniffDialog";
@@ -194,6 +196,13 @@ const inputStyle: React.CSSProperties = {
 export default function Settings() {
   // 当前 tab 由 URL 决定（?tab=categories），便于分享链接与深链
   const [searchParams, setSearchParams] = useSearchParams();
+  // 分类映射只在桌面端配置：移动端复用了这个页面，需要按视口收口
+  const isMobileView =
+    typeof window !== "undefined" &&
+    (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
+  const [categoryView, setCategoryView] = useState<
+    "workbench" | "structure" | "advanced"
+  >("workbench");
   const tabParam = searchParams.get("tab");
   const activeTab: TabKey = TABS.some((t) => t.key === tabParam)
     ? (tabParam as TabKey)
@@ -880,7 +889,37 @@ export default function Settings() {
               分类设置
             </h3>
           </div>
-          <AliasSettings />
+
+          {isMobileView ? (
+            <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text-secondary)" }}>
+              分类映射只在桌面端配置。移动端会直接使用已配置好的分类，不需要在这里操作。
+            </div>
+          ) : (
+            <>
+              <div className="row settings-tab-bar" style={{ gap: 6, marginBottom: 14 }}>
+                {(
+                  [
+                    { key: "workbench", label: "映射工作台" },
+                    { key: "structure", label: "分类结构" },
+                    { key: "advanced", label: "别名与例外（高级）" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`btn${categoryView === item.key ? " btn-primary" : ""}`}
+                    onClick={() => setCategoryView(item.key)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {categoryView === "workbench" && <CategoryWorkbench />}
+              {categoryView === "structure" && <CategoryStructure />}
+              {categoryView === "advanced" && <AliasSettings />}
+            </>
+          )}
         </section>
       )}
 
