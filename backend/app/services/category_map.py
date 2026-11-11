@@ -267,14 +267,23 @@ async def build_site_map(db: AsyncSession, site_id: int) -> dict:
 
     names = list(stats.keys())
     groups = []
+    mapped_names_total = 0
     for cluster in _cluster_names(names):
         cluster = sorted(cluster, key=lambda name: stats[name]["sources"], reverse=True)
         members = []
         sources = videos = 0
+        mapped_state: dict[str, tuple[str, str]] = {}
         for name in cluster:
             stat = stats[name]
             sources += stat["sources"]
             videos += stat["videos"]
+            key = normalize_category_name(name)
+            if key in overrides:
+                mapped_state[name] = (overrides[key], "site")
+            else:
+                info = aliases.get(key)
+                if info and info["enabled"]:
+                    mapped_state[name] = (info["system_name"], "global")
             members.append(
                 {
                     "raw_name": name,
@@ -285,17 +294,17 @@ async def build_site_map(db: AsyncSession, site_id: int) -> dict:
                 }
             )
 
+        mapped_names_total += len(mapped_state)
         current_system = None
         scope = None
         for name in cluster:
-            key = normalize_category_name(name)
-            if key in overrides:
-                current_system, scope = overrides[key], "site"
+            if name in mapped_state:
+                current_system, scope = mapped_state[name]
                 break
-            info = aliases.get(key)
-            if info and info["enabled"]:
-                current_system, scope = info["system_name"], "global"
-                break
+        # 只有组内每个类名都有映射才算真的映射完成；否则「部分映射」仍要露出来，
+        # 否则未映射的变体（如「福利片」）会被已映射的主名（「福利」）藏起来。
+        all_mapped = len(mapped_state) == len(cluster)
+        partial = bool(mapped_state) and not all_mapped
 
         suggested = source = None
         confidence = 0.0
@@ -315,7 +324,8 @@ async def build_site_map(db: AsyncSession, site_id: int) -> dict:
                 "names": members,
                 "sources": sources,
                 "videos": videos,
-                "mapped": current_system is not None,
+                "mapped": all_mapped,
+                "partial": partial,
                 "current_system": current_system,
                 "scope": scope,
                 "suggested_system": suggested,
@@ -329,7 +339,7 @@ async def build_site_map(db: AsyncSession, site_id: int) -> dict:
         )
 
     groups.sort(key=lambda g: (g["mapped"], g["confidence"], -g["sources"]))
-    mapped_count = sum(1 for g in groups if g["mapped"])
+    mapped_count = mapped_names_total
 
     uncategorized = (
         await db.execute(
