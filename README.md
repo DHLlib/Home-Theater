@@ -4,23 +4,61 @@
 
 本机或局域网访问，纯 Python 部署。
 
+## 界面
+
+首页：分类栏（含搜索）、推荐横条、全部视频卡片墙。
+
+![首页](docs/assets/screenshots/home.jpg)
+
+详情：**来源分类**（采集站的原始类名）与**系统分类**（聚合后的归类结果）并列，一眼看出系统是怎么归的类。
+
+![详情](docs/assets/screenshots/detail.jpg)
+
+分类映射工作台：按站点列出远程类名，自动聚类、给建议、批量保存，可一键撤销。
+
+![分类映射工作台](docs/assets/screenshots/category-workbench.png)
+
 ## 特性
 
-- 多源并发采集，按「名称 + 年份」聚合去重
-- 本地 `VideoCache` + 预聚合缓存（PostgreSQL），首页/搜索纯本地查询
-- **分类体系**：全局别名（远程类名 → 系统分类，跨站共享）+ 站点例外 + 视频级分类；
-  内置 48 个分类（含体育、短剧），新增站点命中别名即自动归类
-- 显式选源播放 / 下载，xgplayer 支持 HLS/MP4/WebM；无首帧 12 秒提示 + 线路可达性预探测
-- 播放进度、收藏、断点续传下载
-- 站点健康探测、后台自动刮削与增量更新（单次增量限 30 页）
-- 深色 / 浅色双主题，响应式布局（含移动端、平板适配）
+**采集与聚合**
+
+- 多源并发采集，按「规范化名称 + 年份」聚合去重；首页与搜索走本地预聚合表
+- 站点健康探测、自动禁用 / 恢复；增量抓取单次限 30 页，避免和前台抢资源
+
+**分类**
+
+- 48 个系统分类（7 大类 + 41 小类），支持增删改；改名/删除会级联更新别名与视频分类
+- 全局别名（远程类名 → 系统分类，跨站共享）+ 站点例外 + 视频级多数票
+- **映射工作台**：按站点把类名聚成组（编辑相似度 ≥ 0.75），建议来源优先级为
+  「本站历史映射 > 关键词规则 > 名称相似」；置信度 ≤70% 不预填；批量 upsert 后立即重算，
+  支持撤销与完成态引导
+- 可搜索的分类选择器，支持就地「新建分类」；分类栏支持搜索与最近使用
+- 详情页并列展示来源分类与系统分类；未分类内容可在工作台诊断原因并一键归类
+
+**播放与下载**
+
+- 显式选源播放 / 下载，xgplayer 支持 HLS/MP4/WebM
+- 12 秒无首帧提示 + 重试/换源；播放前对 m3u8 做 HEAD 探测并标记不可达线路
+- 播放进度记忆、收藏、断点续传下载；m3u8 并发分片下载，ffmpeg 合并失败时降级拼接
+
+**体验与运维**
+
+- 深色 / 浅色双主题，响应式布局；移动端只读浏览，不提供映射配置
 - 更新自愈：旧 HTML 引用失效 chunk 时自动带 `_r` 重载，不会白屏
+- 事件循环看门狗 + 慢请求日志，排查卡顿先看这两个
 
-## 性能与可观测性
+## 性能（本地库实测）
 
-- 首页/分类 40ms 级、搜索 20ms 级、详情 40ms 级（本地库实测）
-- 事件循环看门狗（`event_loop_lag`）+ 慢请求日志（`slow_request`），排查卡顿先看这两个
-- 网络层按站点复用连接池、共享 SSLContext；爬虫与前台请求分离开超时策略
+| 场景 | 耗时 |
+|---|---|
+| 首页 / 分类列表 | 40ms 级 |
+| 搜索（3 字以上，pg_trgm） | 20ms 级 |
+| 详情（多源） | 20–40ms |
+| 分类映射工作台（接口） | 414ms 冷 / 7ms 热（按站点缓存 2 分钟） |
+| 进入「设置 → 分类」到内容出现 | 258ms（再次进入） |
+
+- 两个反例：45 万行取回 Python 循环卡 4.7 秒；请求路径里 `ssl.create_default_context()`
+  卡 45 秒。统一改为 SQL 下推与进程级共享 SSLContext。
 - 详细规则见本地 `AGENTS.md` 的 §15 性能检查清单（个人文件，不入库）
 
 ## 技术栈
@@ -72,8 +110,9 @@ docker compose up --build -d
 | `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` | 后端开发 |
 | `cd frontend && npm run dev` | 前端开发 |
 | `cd frontend && npm run build` | 构建前端 |
-| `cd backend && pip install -e ".[dev]" && pytest` | 后端测试 |
-| `.\start.ps1` / `.\stop.ps1` | Windows 一键启停 |
+| `cd frontend && npm run typecheck && npm run test` | 前端类型检查与测试 |
+| `cd backend && pytest` | 后端测试 |
+| `.\start.cmd` / `.\stop.cmd` | Windows 一键启停 |
 | `docker compose up --build -d` | Docker 部署 |
 
 ## 项目结构
@@ -82,9 +121,8 @@ docker compose up --build -d
 Home Theater/
 ├── backend/         # FastAPI + 业务逻辑 + PostgreSQL 初始化脚本
 ├── frontend/        # React + Vite SPA
-├── docs/            # 文档（部署、踩坑、设计规格）
-├── CLAUDE.md        # 项目硬规范
-├── start.ps1        # Windows 一键启动
+├── docs/            # 部署、踩坑、设计规格；assets/screenshots 为界面截图
+├── start.ps1        # Windows 一键启动（start.cmd 为绕过执行策略的包装器）
 ├── stop.ps1         # Windows 一键停止
 └── docker-compose.yml
 ```
@@ -97,7 +135,6 @@ Home Theater/
 - [设计系统](DESIGN.md)
 - [产品定位](PRODUCT.md)
 - [系统注册表](docs/registry/system-context.md)
-- [设计规格与计划](docs/superpowers/)
 
 ## 核心规范
 
