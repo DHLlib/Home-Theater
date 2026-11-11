@@ -21,6 +21,16 @@ export default function CategoryBar({
   const [systemTree, setSystemTree] = useState<SystemCategoryTreeItem[]>([]);
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [recent, setRecent] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ht-recent-categories") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const searchRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -68,6 +78,55 @@ export default function CategoryBar({
   }, [systemTree, stats]);
 
   const uncategorizedCount = stats?.uncategorized ?? 0;
+
+  // 扁平收集所有分类（父 + 子），供搜索用
+  const flatCategories = useMemo(() => {
+    const list: { name: string; parent: string | null }[] = [];
+    for (const group of groups) {
+      list.push({ name: group.label, parent: null });
+      for (const item of group.items) list.push({ name: item, parent: group.label });
+    }
+    return list;
+  }, [groups]);
+
+  const searchResults = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) {
+      return recent
+        .map((name) => flatCategories.find((item) => item.name === name))
+        .filter((item): item is { name: string; parent: string | null } => Boolean(item))
+        .slice(0, 6);
+    }
+    return flatCategories
+      .filter((item) => item.name.toLowerCase().includes(keyword))
+      .slice(0, 12);
+  }, [query, recent, flatCategories]);
+
+  // 点搜索框外部关闭
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      if (!searchRef.current?.contains(event.target as Node)) setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [searchOpen]);
+
+  const pickCategory = (name: string) => {
+    onSelect(name);
+    setMenuOpen(null);
+    setSearchOpen(false);
+    setQuery("");
+    setRecent((prev) => {
+      const next = [name, ...prev.filter((item) => item !== name)].slice(0, 6);
+      try {
+        localStorage.setItem("ht-recent-categories", JSON.stringify(next));
+      } catch {
+        // 隐私模式下写入失败可忽略
+      }
+      return next;
+    });
+  };
 
   // 当前选中的分类属于哪个父类（支持一级分类直接选中）
   const activeParent = useMemo(() => {
@@ -207,6 +266,63 @@ export default function CategoryBar({
 
         {/* 「未分类」不再作为大类出现在分类栏：它是内容没归类的结果，不是分类。
             未分类内容在「设置 → 分类 → 映射工作台 / 高级」里处理，首页与「全部」仍能看到。 */}
+
+        {/* 分类搜索：48 个小类靠 hover 逐个找太慢 */}
+        <div className="category-search" ref={searchRef}>
+          <button
+            type="button"
+            className="nav-link category-search-toggle"
+            onClick={() => setSearchOpen((prev) => !prev)}
+            aria-label="搜索分类"
+            aria-expanded={searchOpen}
+            title="搜索分类"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+              <path d="M20 20l-3.6-3.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+          {searchOpen && (
+            <div className="category-search-pop">
+              <input
+                className="category-search-input"
+                autoFocus
+                type="search"
+                placeholder="搜索分类…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSearchOpen(false);
+                  if (event.key === "Enter" && searchResults[0]) {
+                    pickCategory(searchResults[0].name);
+                  }
+                }}
+              />
+              <div className="category-search-label">
+                {query.trim() ? "匹配" : "最近使用"}
+              </div>
+              {searchResults.length === 0 ? (
+                <div className="category-search-empty">
+                  {query.trim() ? "没有匹配的分类" : "还没有最近使用的分类"}
+                </div>
+              ) : (
+                searchResults.map((item) => (
+                  <button
+                    type="button"
+                    key={item.name}
+                    className="category-search-option"
+                    onClick={() => pickCategory(item.name)}
+                  >
+                    <span>{item.name}</span>
+                    {item.parent && (
+                      <span className="category-search-parent">{item.parent}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
