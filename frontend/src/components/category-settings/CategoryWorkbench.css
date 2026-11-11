@@ -610,6 +610,32 @@
   padding: 16px 20px;
 }
 
+.wb-done {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 26px 16px;
+  text-align: center;
+}
+
+.wb-done-title {
+  font-size: 14px;
+  color: var(--primary);
+}
+
+.wb-done-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.wb-done-next b {
+  color: var(--text-primary);
+}
+
 .wb-empty {
   padding: 32px 12px;
   text-align: center;

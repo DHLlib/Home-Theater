@@ -287,6 +287,14 @@ export default function CategoryWorkbench() {
   }, [groups, drafts, effectiveSystem]);
 
   const dirtyCount = pending.length;
+
+  const nextSite = useMemo(
+    () =>
+      sites.find(
+        (site) => site.id !== siteId && (unmappedBySite[site.id] ?? 0) > 0
+      ) ?? null,
+    [sites, siteId, unmappedBySite]
+  );
   const filteredUnmapped = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     const list = unmapped.filter(
@@ -529,9 +537,33 @@ export default function CategoryWorkbench() {
           </div>
 
           {filteredUnmapped.map((group) => renderRow(group, true))}
-          {filteredUnmapped.length === 0 && (
-            <div className="wb-empty">没有未映射的类名了 🎉</div>
-          )}
+          {filteredUnmapped.length === 0 &&
+            (unmapped.length === 0 ? (
+              <div className="wb-done">
+                <div className="wb-done-title">
+                  ✓ {data.site.name} 已全部映射（{data.stats.names} 个类名）
+                </div>
+                {nextSite ? (
+                  <div className="wb-done-next">
+                    <span>
+                      下一个待处理：<b>{nextSite.name}</b>（
+                      {unmappedBySite[nextSite.id]} 个未映射）
+                    </span>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      onClick={() => setSiteId(nextSite.id)}
+                    >
+                      去处理
+                    </button>
+                  </div>
+                ) : (
+                  <div className="wb-done-next">所有站点都没有未映射的类名了。</div>
+                )}
+              </div>
+            ) : (
+              <div className="wb-empty">没有匹配的类名</div>
+            ))}
 
           {view === "all" && mapped.length > 0 && (
             <details>
