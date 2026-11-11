@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { listCategoryAliases } from "../../api/category-aliases";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getCategoryMapSummary,
   getSiteCategoryMap,
@@ -37,6 +36,10 @@ function groupLabel(group: CategoryMapGroup): string {
 
 export default function CategoryWorkbench() {
   const [sites, setSites] = useState<Site[]>([]);
+  const sitesRef = useRef<Site[]>([]);
+  useEffect(() => {
+    sitesRef.current = sites;
+  }, [sites]);
   const [unmappedBySite, setUnmappedBySite] = useState<Record<number, number>>({});
   const [siteId, setSiteId] = useState<number | null>(null);
   const [data, setData] = useState<CategoryMapResponse | null>(null);
@@ -53,8 +56,8 @@ export default function CategoryWorkbench() {
   const [sort, setSort] = useState<"confidence" | "sources">("confidence");
   const [query, setQuery] = useState("");
   const [showSamples, setShowSamples] = useState(true);
+  const [mappedOpen, setMappedOpen] = useState(false);
 
-  const [categories, setCategories] = useState<string[]>([]);
   const [tree, setTree] = useState<SystemCategoryTreeItem[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null);
@@ -74,33 +77,54 @@ export default function CategoryWorkbench() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      listSites(),
-      listCategoryAliases(),
-      listSystemCategories(),
-      getCategoryMapSummary().catch(() => ({ items: [] })),
-    ])
-      .then(([siteList, aliasResp, treeResp, summaryResp]) => {
-        const counts: Record<number, number> = {};
-        for (const item of summaryResp.items) {
-          counts[item.site_id] = item.unmapped;
-        }
-        setUnmappedBySite(counts);
-        // 默认选中「问题最多」的站点；都干净时退回第一个
-        const ordered = [...siteList].sort(
-          (a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0)
-        );
-        setSites(ordered);
-        setCategories(aliasResp.system_categories);
+    let cancelled = false;
+
+    // 关键路径：站点 + 分类树就位后立刻开拉映射（不等站点概览）
+    Promise.all([listSites(), listSystemCategories()])
+      .then(([siteList, treeResp]) => {
+        if (cancelled) return;
+        setSites(siteList);
         setTree(treeResp);
-        const firstBroken = ordered.find((site) => (counts[site.id] ?? 0) > 0);
-        if (firstBroken ?? ordered[0]) {
-          setSiteId((firstBroken ?? ordered[0]).id);
+        const saved = Number(localStorage.getItem("ht-category-site") || 0);
+        const preferred = siteList.find((site) => site.id === saved);
+        if (preferred) {
+          // 有上次记忆就用它，避免每次都被「问题最多的站」抢走
+          setSiteId(preferred.id);
         }
       })
       .catch(() => {
         // client 已统一 toast
       });
+
+    // 非关键路径：概览只用来排序/标注，晚到不影响首屏
+    getCategoryMapSummary()
+      .then((summaryResp) => {
+        if (cancelled) return;
+        const counts: Record<number, number> = {};
+        for (const item of summaryResp.items) {
+          counts[item.site_id] = item.unmapped;
+        }
+        setUnmappedBySite(counts);
+        setSites((prev) =>
+          [...prev].sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+        );
+        // 首次进入（没有上次记忆）时，切到「问题最多」的站点
+        setSiteId((prev) => {
+          if (prev !== null) return prev;
+          const ordered = [...sitesRef.current].sort(
+            (a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0)
+          );
+          return ordered.find((site) => (counts[site.id] ?? 0) > 0)?.id ?? ordered[0]?.id ?? null;
+        });
+      })
+      .catch(() => {
+        // 概览失败时退回第一个站点，保证页面仍可用
+        setSiteId((prev) => prev ?? sitesRef.current[0]?.id ?? null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -118,6 +142,21 @@ export default function CategoryWorkbench() {
     () => new Map(tree.map((item) => [item.name, item.id])),
     [tree]
   );
+
+  // 下拉选项直接由已加载的分类树推导，避免为了 system_categories 再拉一遍
+  // /api/category-aliases（它会顺带做 45 万行的来源统计，冷启动 ~250ms）
+  const categories = useMemo(() => {
+    const names: string[] = [];
+    for (const parent of tree) {
+      if (parent.enabled === false) continue;
+      names.push(parent.name);
+      for (const child of parent.children) {
+        if (child.enabled === false) continue;
+        names.push(child.name);
+      }
+    }
+    return names;
+  }, [tree]);
 
   const options: CategoryOption[] = useMemo(
     () => categories.map((name) => ({ name })),
@@ -214,8 +253,6 @@ export default function CategoryWorkbench() {
       // 同名已存在时也直接选中，避免打断流程
     }
     try {
-      const resp = await listCategoryAliases();
-      setCategories(resp.system_categories);
       setTree(await listSystemCategories());
     } catch {
       // ignore
@@ -421,7 +458,15 @@ export default function CategoryWorkbench() {
         <select
           className="wb-site"
           value={siteId ?? ""}
-          onChange={(event) => setSiteId(Number(event.target.value))}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            setSiteId(next);
+            try {
+              localStorage.setItem("ht-category-site", String(next));
+            } catch {
+              // 隐私模式下写入失败可忽略
+            }
+          }}
           aria-label="选择站点"
         >
           {sites.map((site) => (
@@ -577,12 +622,18 @@ export default function CategoryWorkbench() {
             ))}
 
           {view === "all" && mapped.length > 0 && (
-            <details>
-              <summary className="wb-mapped-head">
-                ▶ 已映射（{mapped.length}）—— 展开可改分类 / 改范围
-              </summary>
-              {mapped.map((group) => renderRow(group, false))}
-            </details>
+            <>
+              <button
+                type="button"
+                className="wb-mapped-head"
+                onClick={() => setMappedOpen((prev) => !prev)}
+                aria-expanded={mappedOpen}
+              >
+                {mappedOpen ? "▼" : "▶"} 已映射（{mapped.length}）—— 展开可改分类 / 改范围
+              </button>
+              {/* 折叠时不渲染行：每个行都有一个分类选择器，几十行一起渲染会拖慢首屏 */}
+              {mappedOpen && mapped.map((group) => renderRow(group, false))}
+            </>
           )}
 
           <div className="wb-foot">
