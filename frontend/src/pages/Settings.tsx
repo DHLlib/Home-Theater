@@ -307,7 +307,7 @@ export default function Settings() {
   }, []);
 
   const handleCleanupExpired = () => {
-    if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在，每个站点最多检查 2000 条，可能需要一些时间。")) return;
+    if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在。任务在后台分批执行，单次跑几分钟，下次会从断点继续，直到覆盖全部缓存。")) return;
     if (cleaningUp) return;
     setCleaningUp(true);
     setCleanupProgress(null);
