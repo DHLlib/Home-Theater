@@ -9,7 +9,16 @@ import {
   exportSites,
   importSites,
 } from "../api/sites";
-import { getCleanupStatus, startCleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
+import {
+  cancelCleanupExpired,
+  getCleanupStatus,
+  startCleanupExpired,
+  getCrawlerLogs,
+  getCrawlerStats,
+  triggerFullCrawl,
+  triggerIncremental,
+  type CleanupStatus,
+} from "../api/videos";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
 import AliasSettings from "../components/category-settings/AliasSettings";
@@ -96,6 +105,16 @@ function ServerIcon({ size = 16 }: { size?: number }) {
       <line x1="6" y1="18" x2="6.01" y2="18" />
     </svg>
   );
+}
+
+/** 把秒数写成「12 分钟 / 1 小时 20 分」 */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} 秒`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
 }
 
 function FolderIcon({ size = 16 }: { size?: number }) {
@@ -221,20 +240,11 @@ export default function Settings() {
   const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
-  const [cleaningUp, setCleaningUp] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<{
-    deleted: number;
-    checked: number;
-    dry_run?: boolean;
-  } | null>(null);
-  const [cleanupProgress, setCleanupProgress] = useState<{
-    sites_done: number;
-    sites_total: number;
-    checked: number;
-    deleted: number;
-    dry_run?: boolean;
-  } | null>(null);
+  const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
+  const [cleanupStarting, setCleanupStarting] = useState(false);
   const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cleanupWasRunning = useRef(false);
+
   useEffect(() => {
     return () => {
       if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
@@ -306,71 +316,78 @@ export default function Settings() {
     return () => unsubscribe();
   }, []);
 
-  const handleCleanupExpired = () => {
-    if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在。任务在后台分批执行，单次跑几分钟，下次会从断点继续，直到覆盖全部缓存。")) return;
-    if (cleaningUp) return;
-    setCleaningUp(true);
-    setCleanupProgress(null);
+  /* ---- 清除失效资源：后台任务 + 进度轮询 ---- */
+  const stopCleanupPolling = () => {
+    if (cleanupTimerRef.current) {
+      clearInterval(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    }
+  };
 
-    const stopPolling = () => {
-      if (cleanupTimerRef.current) {
-        clearInterval(cleanupTimerRef.current);
-        cleanupTimerRef.current = null;
-      }
-    };
+  const applyCleanupStatus = (status: CleanupStatus) => {
+    setCleanupStatus(status);
+    const wasRunning = cleanupWasRunning.current;
+    cleanupWasRunning.current = status.running;
+    if (status.running) return;
+    stopCleanupPolling();
+    if (!wasRunning) return;
+    if (status.error) {
+      toastError(`清理失败：${status.error}`);
+    } else if (status.dry_run) {
+      toastSuccess(
+        `演练完成：检查 ${status.checked} 条，待删除 ${status.deleted} 条（未真正删除）`
+      );
+    } else {
+      toastSuccess(
+        `清理完成：检查 ${status.checked} 条，删除 ${status.deleted} 条，待确认 ${status.pending} 条`
+      );
+    }
+  };
 
-    // 单次轮询失败（网络抖动/后端重启）不应该让进度条直接断掉
-    let failures = 0;
-    const poll = () =>
+  const startCleanupPolling = () => {
+    stopCleanupPolling();
+    cleanupTimerRef.current = setInterval(() => {
       getCleanupStatus()
-        .then((status) => {
-          failures = 0;
-          setCleanupProgress({
-            sites_done: status.sites_done,
-            sites_total: status.sites_total,
-            checked: status.checked,
-            deleted: status.deleted,
-            dry_run: Boolean(status.dry_run),
-          });
-          if (status.running) return;
-          stopPolling();
-          setCleaningUp(false);
-          setCleanupResult({
-            deleted: status.deleted,
-            checked: status.checked,
-            dry_run: Boolean(status.dry_run),
-          });
-          if (status.error) {
-            toastError(`清理失败：${status.error}`);
-          } else if (status.dry_run) {
-            toastSuccess(`演练完成：检查 ${status.checked} 条，将删除 ${status.deleted} 条（未真正删除）`);
-          } else {
-            toastSuccess(`已检查 ${status.checked} 条，删除 ${status.deleted} 条失效资源`);
-          }
-          setTimeout(() => setCleanupResult(null), 8000);
-        })
+        .then(applyCleanupStatus)
         .catch(() => {
-          failures += 1;
-          if (failures < 3) return;
-          stopPolling();
-          setCleaningUp(false);
-          toastError("查询清理进度失败，任务可能仍在后台运行，稍后刷新查看");
+          // 单次失败忽略，下一轮继续；后端重启后任务会变成 idle
         });
+    }, 2000);
+  };
+
+  // 进入页面时如果任务还在跑，直接接管进度条
+  useEffect(() => {
+    getCleanupStatus()
+      .then((status) => {
+        applyCleanupStatus(status);
+        if (status.running) startCleanupPolling();
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCleanupExpired = () => {
+    if (!confirm("确定要清除失效资源吗？会后台扫完全部站点的缓存，连续两轮都没被资源站返回的条目才会删除，整个过程可能需要约 1 小时。")) return;
+    if (cleanupStarting) return;
+    setCleanupStarting(true);
 
     // ?cleanup_dry_run=1 时不真正删除，用于验证任务链路
     const dryRun =
       new URLSearchParams(window.location.search).get("cleanup_dry_run") === "1";
     startCleanupExpired(undefined, dryRun)
-      .then(() => {
-        cleanupTimerRef.current = setInterval(poll, 2000);
-        // 立即查一次，让按钮上的进度马上有数
-        poll();
+      .then((status) => {
+        cleanupWasRunning.current = true;
+        applyCleanupStatus({ ...status, running: true });
+        startCleanupPolling();
       })
-      .catch(() => {
-        stopPolling();
-        setCleaningUp(false);
-        toastError("启动清理任务失败");
-      });
+      .catch(() => toastError("启动清理任务失败"))
+      .finally(() => setCleanupStarting(false));
+  };
+
+  const handleCancelCleanup = () => {
+    cancelCleanupExpired()
+      .then(applyCleanupStatus)
+      .catch(() => toastError("停止清理失败"));
   };
 
   /* ---- add site (inline) ---- */
@@ -1072,28 +1089,55 @@ export default function Settings() {
               <ActivityIcon size={14} />
               {triggeringFull ? "启动中..." : "重新全量刮削"}
             </button>
-            <button
-              className="btn"
-              disabled={cleaningUp}
-              onClick={handleCleanupExpired}
-              style={{ gap: 6, color: "var(--danger)", borderColor: "var(--danger)" }}
-            >
-              <TrashIcon size={14} />
-              {cleaningUp
-                ? cleanupProgress
-                  ? `清除中… ${cleanupProgress.sites_done}/${cleanupProgress.sites_total} 站 · ${
-                      cleanupProgress.dry_run ? "将删" : "已删"
-                    } ${cleanupProgress.deleted}`
-                  : "清除中..."
-                : "清除失效资源"}
-            </button>
-            {cleanupResult && (
-              <span style={{ fontSize: 13, color: "var(--success)" }}>
-                已检查 {cleanupResult.checked} 条，
-                {cleanupResult.dry_run
-                  ? `将删除 ${cleanupResult.deleted} 条（演练，未真正删除）`
-                  : `删除 ${cleanupResult.deleted} 条失效资源`}
-              </span>
+            {cleanupStatus?.running ? (
+              <div className="cleanup-progress">
+                <div className="cleanup-progress-track">
+                  <i style={{ width: `${Math.min(cleanupStatus.percent ?? 0, 100)}%` }} />
+                </div>
+                <div className="cleanup-progress-meta">
+                  <b>
+                    {(cleanupStatus.percent ?? 0) < 10
+                      ? (cleanupStatus.percent ?? 0).toFixed(1)
+                      : Math.round(cleanupStatus.percent ?? 0)}
+                    %
+                  </b>
+                  <span>
+                    {cleanupStatus.checked.toLocaleString()} /{" "}
+                    {(cleanupStatus.total ?? 0).toLocaleString()}
+                  </span>
+                  {cleanupStatus.current_site && (
+                    <span className="cleanup-progress-site">
+                      正在检查 {cleanupStatus.current_site.name}
+                    </span>
+                  )}
+                  {cleanupStatus.deleted > 0 && (
+                    <span>已删 {cleanupStatus.deleted.toLocaleString()}</span>
+                  )}
+                  {cleanupStatus.pending > 0 && (
+                    <span>待确认 {cleanupStatus.pending.toLocaleString()}</span>
+                  )}
+                  {cleanupStatus.eta_seconds != null && cleanupStatus.eta_seconds > 0 && (
+                    <span>剩余约 {formatDuration(cleanupStatus.eta_seconds)}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="cleanup-progress-stop"
+                  onClick={handleCancelCleanup}
+                >
+                  停止
+                </button>
+              </div>
+            ) : (
+              <button
+                className="btn"
+                disabled={cleanupStarting}
+                onClick={handleCleanupExpired}
+                style={{ gap: 6, color: "var(--danger)", borderColor: "var(--danger)" }}
+              >
+                <TrashIcon size={14} />
+                {cleanupStarting ? "启动中..." : "清除失效资源"}
+              </button>
             )}
           </div>
 

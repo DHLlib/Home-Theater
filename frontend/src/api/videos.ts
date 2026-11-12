@@ -132,17 +132,25 @@ export interface CleanupStatus {
   running: boolean;
   /** 演练模式：只统计不删除（?cleanup_dry_run=1 或 ?dry_run=true） */
   dry_run?: boolean;
+  cancel_requested?: boolean;
+  phase?: "idle" | "scanning" | "done";
   started_at: number | null;
   finished_at: number | null;
   checked: number;
+  total: number;
+  percent: number;
+  eta_seconds: number | null;
   deleted: number;
+  pending: number;
   sites_total: number;
   sites_done: number;
+  current_site: { id: number; name: string } | null;
   by_site: {
     site_id: number;
     site_name: string;
     checked: number;
     deleted: number;
+    pending?: number;
   }[];
   error: string | null;
 }
@@ -162,6 +170,13 @@ export const startCleanupExpired = (siteId?: number, dryRun = false) => {
 
 export const getCleanupStatus = () =>
   get<CleanupStatus>("/api/videos/cleanup-expired/status", 15000);
+
+export const cancelCleanupExpired = () =>
+  post<{ cancelled: boolean } & CleanupStatus>(
+    "/api/videos/cleanup-expired/cancel",
+    undefined,
+    15000
+  );
 
 export const getCrawlerStatus = () => get<{ running: boolean; site_status: Record<string, string> }>("/api/videos/crawler/status");
 
