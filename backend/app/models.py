@@ -248,6 +248,27 @@ class AggregatedVideo(Base):
     source_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
+class CleanupCandidate(Base):
+    """清除失效资源时的「待确认」记录。
+
+    资源站一次没返回某个 id 可能是站点抖动，也可能是真的下架了；这里记下缺失
+    轮次，连续两轮都缺失才真删，避免把有效缓存误清掉。
+    """
+
+    __tablename__ = "cleanup_candidates"
+    __table_args__ = (
+        Index("ix_cleanup_candidates_site_id", "site_id"),
+    )
+
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True
+    )
+    original_id: Mapped[str] = mapped_column(String, primary_key=True)
+    miss_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class AggregatedVideoV3(Base):
     """聚合视频中间表 v3（替代物化视图，PostgreSQL 下使用）。"""
 

@@ -19,6 +19,7 @@ from app.models import (
     AggregatedVideo as AggregatedVideoMV,
     AggregatedVideoV3,
     AppConfig,
+    CleanupCandidate,
     RecommendedVideo,
     Site,
     SystemCategory,
@@ -1644,53 +1645,71 @@ async def _evict_video_cache_overflow(db) -> None:
 
 @router.post("/cleanup-expired")
 async def cleanup_expired(site_id: int | None = None, dry_run: bool = False):
-    """启动「清除失效资源」后台任务，立即返回；用 status 接口查进度。
+    """启动「清除失效资源」后台任务，立即返回；进度用 status 接口查。
 
-    以前是同步跑完再返回：21 个站点 × 每站 2000 条 ÷ 每批 20 ≈ 2100 次外部
-    请求，前端 30 秒必超时。现在改成后台任务，前端轮询进度。
+    一次任务会扫完全部启用站点的全部缓存（按 id 游标分页、断点续跑），
+    连续两轮都没被资源站返回的条目才会真正删除。
     """
     global _CLEANUP_TASK
     if _CLEANUP_STATE["running"]:
-        return {"started": False, **_CLEANUP_STATE}
+        return {"started": False, **_cleanup_status()}
 
     _reset_cleanup_state()
+    global _cleanup_rate_ema
+    _cleanup_rate_ema = 0.0
     _CLEANUP_STATE["running"] = True
     _CLEANUP_STATE["dry_run"] = dry_run
     _CLEANUP_STATE["started_at"] = time.time()
     _CLEANUP_TASK = asyncio.create_task(_cleanup_worker(site_id, dry_run))
     logger.info("cleanup_expired_started site_id=%s dry_run=%s", site_id, dry_run)
-    return {"started": True, **_CLEANUP_STATE}
+    return {"started": True, **_cleanup_status()}
 
 
 @router.get("/cleanup-expired/status")
 async def cleanup_expired_status():
-    return _CLEANUP_STATE
+    return _cleanup_status()
+
+
+@router.post("/cleanup-expired/cancel")
+async def cleanup_expired_cancel():
+    if not _CLEANUP_STATE["running"]:
+        return {"cancelled": False, **_cleanup_status()}
+    _CLEANUP_STATE["cancel_requested"] = True
+    logger.info("cleanup_expired_cancel_requested")
+    return {"cancelled": True, **_cleanup_status()}
 
 
 # 后台清理任务状态（进程内；单进程部署）
 _CLEANUP_STATE: dict = {
     "running": False,
     "dry_run": False,
+    "cancel_requested": False,
     "started_at": None,
     "finished_at": None,
     "checked": 0,
+    "total": 0,
     "deleted": 0,
+    "pending": 0,
     "sites_total": 0,
     "sites_done": 0,
-    "by_site": [],
+    "current_site": None,
     "error": None,
 }
 _CLEANUP_TASK: asyncio.Task | None = None
+_cleanup_rate_ema = 0.0
 
+# 一批查多少个 id：实测资源站 ids 参数上限就是 20 条（传 50 只回前 20），
+# 超过这个数会把「没返回」误判成失效，所以必须保持 20
 CLEANUP_BATCH = 20
-# 每次从库里取一页、边取边验；单个站点可能有十几万条缓存，不能只查前 2000
-CLEANUP_PAGE_SIZE = 1000
-CLEANUP_BATCH_CONCURRENCY = 5
-CLEANUP_SITE_CONCURRENCY = 4
-# 单个站点的预算：站点不可达时别把全局预算吃光
-CLEANUP_SITE_SECONDS = 120
-# 单次清理的总预算：超过就不再开始新批次，避免跑一晚上
-CLEANUP_MAX_SECONDS = 900
+CLEANUP_IDS_CAP = 20
+# 同时发几批：靠并发提吞吐，不靠加大批量
+CLEANUP_BATCH_CONCURRENCY = 16
+# 每页从库里取多少行
+CLEANUP_PAGE_SIZE = 2000
+# 连续缺失几轮才删
+CLEANUP_CONFIRM_ROUNDS = 2
+# 兜底总预算，防止异常情况下无限跑
+CLEANUP_MAX_SECONDS = 6 * 3600
 
 
 def _reset_cleanup_state() -> None:
@@ -1698,16 +1717,46 @@ def _reset_cleanup_state() -> None:
         {
             "running": False,
             "dry_run": False,
+            "cancel_requested": False,
             "started_at": None,
             "finished_at": None,
             "checked": 0,
+            "total": 0,
             "deleted": 0,
+            "pending": 0,
             "sites_total": 0,
             "sites_done": 0,
-            "by_site": [],
+            "current_site": None,
             "error": None,
         }
     )
+
+
+def _cleanup_status() -> dict:
+    """状态 + 派生字段（百分比 / 预计剩余时间）。"""
+    global _cleanup_rate_ema
+    status = dict(_CLEANUP_STATE)
+    total = status["total"] or 0
+    checked = status["checked"]
+    status["percent"] = round(checked / total * 100, 1) if total else 0.0
+    elapsed = (
+        time.time() - status["started_at"] if status["started_at"] else 0.0
+    )
+    # 前 20 秒的速率样本太短，算出来的 ETA 会乱跳，这段时间不报
+    remaining = max(total - checked, 0)
+    eta = None
+    if elapsed >= 20 and checked >= 1000:
+        instant = checked / elapsed
+        _cleanup_rate_ema = (
+            instant if _cleanup_rate_ema == 0 else _cleanup_rate_ema * 0.7 + instant * 0.3
+        )
+        if _cleanup_rate_ema > 0:
+            eta = int(remaining / _cleanup_rate_ema)
+    status["eta_seconds"] = eta
+    status["phase"] = (
+        "scanning" if status["running"] else ("done" if status["finished_at"] else "idle")
+    )
+    return status
 
 
 async def _cleanup_cursor(db: AsyncSession, site_id: int) -> int:
@@ -1729,106 +1778,190 @@ async def _set_cleanup_cursor(db: AsyncSession, site_id: int, value: int) -> Non
         row.value = str(value)
 
 
-async def _cleanup_one_site(
-    site: tuple[int, str, str], deadline: float, dry_run: bool = False
-) -> tuple[dict, set[str]]:
-    """分页验证单个站点的失效缓存，返回 (统计, 受影响的归一化标题)。
+async def _apply_missing(
+    db: AsyncSession,
+    site_id: int,
+    present_ids: list[str],
+    missing_ids: list[str],
+    dry_run: bool,
+) -> tuple[int, int, set[str]]:
+    """更新候选表并删除确认失效的缓存。
 
-    一个站点可能有十几万条缓存，不能只查前 2000 条：按 id 游标分页，每轮到
-    单站时间预算就停，游标记在 app_config 里，下次从断点继续（扫完一轮回到 0）。
+    返回 (本次确认删除数, 新增待确认数, 受影响的 norm_title)。
+    dry_run 时不写候选表、不删除，只按本轮缺失数返回。
+    """
+    if dry_run:
+        return 0, len(missing_ids), set()
+
+    if present_ids:
+        # 资源站这轮返回了 → 之前的缺失记录作废
+        await db.execute(
+            delete(CleanupCandidate).where(
+                CleanupCandidate.site_id == site_id,
+                CleanupCandidate.original_id.in_(present_ids),
+            )
+        )
+
+    if missing_ids:
+        now = _utcnow()
+        stmt = insert_cls(CleanupCandidate).values(
+            [
+                {
+                    "site_id": site_id,
+                    "original_id": original_id,
+                    "miss_count": 1,
+                    "first_seen_at": now,
+                    "last_seen_at": now,
+                }
+                for original_id in missing_ids
+            ]
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                CleanupCandidate.site_id,
+                CleanupCandidate.original_id,
+            ],
+            set_={
+                "miss_count": CleanupCandidate.miss_count + 1,
+                "last_seen_at": now,
+            },
+        )
+        await db.execute(stmt)
+
+    confirmed_rows = (
+        await db.execute(
+            select(CleanupCandidate.original_id).where(
+                CleanupCandidate.site_id == site_id,
+                CleanupCandidate.original_id.in_(missing_ids),
+                CleanupCandidate.miss_count >= CLEANUP_CONFIRM_ROUNDS,
+            )
+        )
+    ).all()
+    confirmed = [row[0] for row in confirmed_rows]
+    pending = max(len(missing_ids) - len(confirmed), 0)
+
+    affected: set[str] = set()
+    if confirmed:
+        norm_rows = (
+            await db.execute(
+                select(VideoCache.norm_title).where(
+                    VideoCache.site_id == site_id,
+                    VideoCache.original_id.in_(confirmed),
+                )
+            )
+        ).all()
+        affected.update(row[0] for row in norm_rows if row[0])
+        await db.execute(
+            delete(VideoCache).where(
+                VideoCache.site_id == site_id,
+                VideoCache.original_id.in_(confirmed),
+            )
+        )
+        await db.execute(
+            delete(CleanupCandidate).where(
+                CleanupCandidate.site_id == site_id,
+                CleanupCandidate.original_id.in_(confirmed),
+            )
+        )
+
+    return len(confirmed), pending, affected
+
+
+async def _cleanup_one_site(
+    site: tuple[int, str, str], deadline: float
+) -> tuple[dict, set[str]]:
+    """分页扫完一个站点，返回 (统计, 受影响的归一化标题)。
+
+    游标存在 app_config 里：中途停止/后端重启后，下次从断点继续；跑完一整轮
+    游标归零，下一轮从表头重新校验。
     """
     site_id, name, base_url = site
     checked = 0
     deleted_total = 0
+    pending_total = 0
     affected: set[str] = set()
-
-    # 单站预算：站点不可达时不要拿满全局预算
-    site_deadline = min(deadline, time.monotonic() + CLEANUP_SITE_SECONDS)
     sem = asyncio.Semaphore(CLEANUP_BATCH_CONCURRENCY)
+    dry_run = bool(_CLEANUP_STATE["dry_run"])
 
     async with async_session_factory() as db:
+        cursor = await _cleanup_cursor(db, site_id)
         async with SourceClient(
-            site_id=site_id, base_url=base_url, name=name, timeout=10
+            site_id=site_id, base_url=base_url, name=name, timeout=15
         ) as client:
 
-            async def run_batch(batch: list) -> list[str]:
-                if time.monotonic() > site_deadline:
+            async def run_batch(batch: list[str]) -> list[str]:
+                """返回这一批里「站点没返回」的 id。"""
+                if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
                     return []
                 async with sem:
                     try:
                         items = await client.videolist(ids=batch, op="cleanup_expired")
                     except Exception:
-                        # 失败也算「检查过」，否则不可达站点的进度永远不动
+                        # 请求失败不能当成「视频不存在」，但确实「检查过」
                         _CLEANUP_STATE["checked"] += len(batch)
                         return []
                     _CLEANUP_STATE["checked"] += len(batch)
-                    returned = {item["original_id"] for item in items}
-                    return [str(vid) for vid in batch if str(vid) not in returned]
+                    returned = {str(item["original_id"]) for item in items}
+                    # 防御：如果返回条数正好撞上资源站的 ids 上限、而请求更多，
+                    # 说明结果被截断，不能把剩下的判成缺失
+                    if len(batch) > CLEANUP_IDS_CAP and len(returned) >= CLEANUP_IDS_CAP:
+                        logger.warning(
+                            "cleanup_batch_truncated site=%s requested=%d returned=%d",
+                            site_id,
+                            len(batch),
+                            len(returned),
+                        )
+                        return []
+                    return [vid for vid in batch if vid not in returned]
 
-            cursor = await _cleanup_cursor(db, site_id)
-            while time.monotonic() < site_deadline:
+            while True:
+                if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
+                    break
+
                 rows = (
                     await db.execute(
                         select(VideoCache.id, VideoCache.original_id)
-                        .where(
-                            VideoCache.site_id == site_id,
-                            VideoCache.id > cursor,
-                        )
+                        .where(VideoCache.site_id == site_id, VideoCache.id > cursor)
                         .order_by(VideoCache.id)
                         .limit(CLEANUP_PAGE_SIZE)
                     )
                 ).all()
                 if not rows:
-                    # 这一轮扫完了，游标归零，下次从头再来
-                    cursor = 0
+                    # 这一轮扫完，游标归零
                     await _set_cleanup_cursor(db, site_id, 0)
                     await db.commit()
                     break
 
-                ids = [row[1] for row in rows]
-                checked += len(ids)
+                ids = [str(row[1]) for row in rows]
                 next_cursor = rows[-1][0]
+                checked += len(ids)
 
                 batches = [
                     ids[i : i + CLEANUP_BATCH]
                     for i in range(0, len(ids), CLEANUP_BATCH)
                 ]
-                expired: list[str] = []
+                missing: list[str] = []
                 for result in await asyncio.gather(*(run_batch(b) for b in batches)):
-                    expired.extend(result)
+                    missing.extend(result)
 
-                if expired:
-                    deleted_total += len(expired)
-                    if dry_run:
-                        logger.info(
-                            "cleanup_expired_dry_run site=%s would_delete=%d",
-                            site_id,
-                            len(expired),
-                        )
-                    else:
-                        norm_rows = (
-                            await db.execute(
-                                select(VideoCache.norm_title).where(
-                                    VideoCache.site_id == site_id,
-                                    VideoCache.original_id.in_(expired),
-                                )
-                            )
-                        ).all()
-                        affected.update(row[0] for row in norm_rows if row[0])
-                        await db.execute(
-                            delete(VideoCache).where(
-                                VideoCache.site_id == site_id,
-                                VideoCache.original_id.in_(expired),
-                            )
-                        )
+                missing_set = set(missing)
+                present_ids = [vid for vid in ids if vid not in missing_set]
+
+                confirmed, pending, site_affected = await _apply_missing(
+                    db, site_id, present_ids, missing, dry_run
+                )
+                deleted_total += confirmed
+                pending_total += pending
+                affected.update(site_affected)
 
                 cursor = next_cursor
                 await _set_cleanup_cursor(db, site_id, cursor)
                 await db.commit()
 
-                # 一页没占满说明这轮到底了
+                _CLEANUP_STATE["deleted"] += confirmed
+                _CLEANUP_STATE["pending"] += pending
+
                 if len(rows) < CLEANUP_PAGE_SIZE:
-                    cursor = 0
                     await _set_cleanup_cursor(db, site_id, 0)
                     await db.commit()
                     break
@@ -1839,6 +1972,7 @@ async def _cleanup_one_site(
             "site_name": name,
             "checked": checked,
             "deleted": deleted_total,
+            "pending": pending_total,
         },
         affected,
     )
@@ -1867,19 +2001,31 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
         sites = [(row[0], row[1], row[2]) for row in rows]
         _CLEANUP_STATE["sites_total"] = len(sites)
 
-        sem = asyncio.Semaphore(CLEANUP_SITE_CONCURRENCY)
+        # 本次任务要检查的总量 = 各站点游标之后的行数
+        total = 0
+        async with async_session_factory() as db:
+            for sid, _name, _url in sites:
+                cursor = await _cleanup_cursor(db, sid)
+                count = (
+                    await db.execute(
+                        select(func.count())
+                        .select_from(VideoCache)
+                        .where(VideoCache.site_id == sid, VideoCache.id > cursor)
+                    )
+                ).scalar_one()
+                total += count
+        _CLEANUP_STATE["total"] = total
+
         affected: set[str] = set()
-
-        async def run(site: tuple[int, str, str]) -> None:
-            async with sem:
-                stat, site_affected = await _cleanup_one_site(site, deadline, dry_run)
+        for sid, name, url in sites:
+            if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
+                break
+            _CLEANUP_STATE["current_site"] = {"id": sid, "name": name}
+            _stat, site_affected = await _cleanup_one_site((sid, name, url), deadline)
             affected.update(site_affected)
-            # checked 已按批次累加，这里只汇总删除数与站点进度
-            _CLEANUP_STATE["deleted"] += stat["deleted"]
             _CLEANUP_STATE["sites_done"] += 1
-            _CLEANUP_STATE["by_site"].append(stat)
 
-        await asyncio.gather(*(run(site) for site in sites))
+        _CLEANUP_STATE["current_site"] = None
 
         if affected:
             async with async_session_factory() as db:
@@ -1887,10 +2033,11 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
                 invalidate_category_filter_cache()
 
         logger.info(
-            "cleanup_expired_done sites=%d checked=%d deleted=%d",
-            len(sites),
+            "cleanup_expired_done sites=%d checked=%d deleted=%d pending=%d",
+            _CLEANUP_STATE["sites_done"],
             _CLEANUP_STATE["checked"],
             _CLEANUP_STATE["deleted"],
+            _CLEANUP_STATE["pending"],
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("cleanup_expired_failed")
