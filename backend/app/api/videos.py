@@ -1683,13 +1683,14 @@ _CLEANUP_STATE: dict = {
 _CLEANUP_TASK: asyncio.Task | None = None
 
 CLEANUP_BATCH = 20
-CLEANUP_MAX_PER_SITE = 2000
+# 每次从库里取一页、边取边验；单个站点可能有十几万条缓存，不能只查前 2000
+CLEANUP_PAGE_SIZE = 1000
 CLEANUP_BATCH_CONCURRENCY = 5
 CLEANUP_SITE_CONCURRENCY = 4
 # 单个站点的预算：站点不可达时别把全局预算吃光
 CLEANUP_SITE_SECONDS = 120
 # 单次清理的总预算：超过就不再开始新批次，避免跑一晚上
-CLEANUP_MAX_SECONDS = 600
+CLEANUP_MAX_SECONDS = 900
 
 
 def _reset_cleanup_state() -> None:
@@ -1709,33 +1710,43 @@ def _reset_cleanup_state() -> None:
     )
 
 
+async def _cleanup_cursor(db: AsyncSession, site_id: int) -> int:
+    row = await db.get(AppConfig, f"cleanup_cursor:{site_id}")
+    if row is None:
+        return 0
+    try:
+        return int(row.value)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _set_cleanup_cursor(db: AsyncSession, site_id: int, value: int) -> None:
+    key = f"cleanup_cursor:{site_id}"
+    row = await db.get(AppConfig, key)
+    if row is None:
+        db.add(AppConfig(key=key, value=str(value)))
+    else:
+        row.value = str(value)
+
+
 async def _cleanup_one_site(
     site: tuple[int, str, str], deadline: float, dry_run: bool = False
 ) -> tuple[dict, set[str]]:
-    """验证并删除单个站点的失效缓存，返回 (统计, 受影响的归一化标题)。"""
+    """分页验证单个站点的失效缓存，返回 (统计, 受影响的归一化标题)。
+
+    一个站点可能有十几万条缓存，不能只查前 2000 条：按 id 游标分页，每轮到
+    单站时间预算就停，游标记在 app_config 里，下次从断点继续（扫完一轮回到 0）。
+    """
     site_id, name, base_url = site
     checked = 0
-    expired_ids: list[str] = []
+    deleted_total = 0
     affected: set[str] = set()
 
+    # 单站预算：站点不可达时不要拿满全局预算
+    site_deadline = min(deadline, time.monotonic() + CLEANUP_SITE_SECONDS)
+    sem = asyncio.Semaphore(CLEANUP_BATCH_CONCURRENCY)
+
     async with async_session_factory() as db:
-        rows = (
-            await db.execute(
-                select(VideoCache.original_id)
-                .where(VideoCache.site_id == site_id)
-                .order_by(VideoCache.id)
-                .limit(CLEANUP_MAX_PER_SITE)
-            )
-        ).all()
-        ids = [row[0] for row in rows]
-        checked = len(ids)
-        if not ids:
-            return {"site_id": site_id, "site_name": name, "checked": 0, "deleted": 0}, affected
-
-        sem = asyncio.Semaphore(CLEANUP_BATCH_CONCURRENCY)
-        # 单站预算：站点不可达时不要拿满全局预算
-        site_deadline = min(deadline, time.monotonic() + CLEANUP_SITE_SECONDS + 30)
-
         async with SourceClient(
             site_id=site_id, base_url=base_url, name=name, timeout=10
         ) as client:
@@ -1754,43 +1765,80 @@ async def _cleanup_one_site(
                     returned = {item["original_id"] for item in items}
                     return [str(vid) for vid in batch if str(vid) not in returned]
 
-            batches = [
-                ids[i : i + CLEANUP_BATCH]
-                for i in range(0, len(ids), CLEANUP_BATCH)
-            ]
-            for result in await asyncio.gather(*(run_batch(b) for b in batches)):
-                expired_ids.extend(result)
-
-        if expired_ids and dry_run:
-            logger.info(
-                "cleanup_expired_dry_run site=%s would_delete=%d",
-                site_id,
-                len(expired_ids),
-            )
-        if expired_ids and not dry_run:
-            norm_rows = (
-                await db.execute(
-                    select(VideoCache.norm_title).where(
-                        VideoCache.site_id == site_id,
-                        VideoCache.original_id.in_(expired_ids),
+            cursor = await _cleanup_cursor(db, site_id)
+            while time.monotonic() < site_deadline:
+                rows = (
+                    await db.execute(
+                        select(VideoCache.id, VideoCache.original_id)
+                        .where(
+                            VideoCache.site_id == site_id,
+                            VideoCache.id > cursor,
+                        )
+                        .order_by(VideoCache.id)
+                        .limit(CLEANUP_PAGE_SIZE)
                     )
-                )
-            ).all()
-            affected.update(row[0] for row in norm_rows if row[0])
-            await db.execute(
-                delete(VideoCache).where(
-                    VideoCache.site_id == site_id,
-                    VideoCache.original_id.in_(expired_ids),
-                )
-            )
-            await db.commit()
+                ).all()
+                if not rows:
+                    # 这一轮扫完了，游标归零，下次从头再来
+                    cursor = 0
+                    await _set_cleanup_cursor(db, site_id, 0)
+                    await db.commit()
+                    break
+
+                ids = [row[1] for row in rows]
+                checked += len(ids)
+                next_cursor = rows[-1][0]
+
+                batches = [
+                    ids[i : i + CLEANUP_BATCH]
+                    for i in range(0, len(ids), CLEANUP_BATCH)
+                ]
+                expired: list[str] = []
+                for result in await asyncio.gather(*(run_batch(b) for b in batches)):
+                    expired.extend(result)
+
+                if expired:
+                    deleted_total += len(expired)
+                    if dry_run:
+                        logger.info(
+                            "cleanup_expired_dry_run site=%s would_delete=%d",
+                            site_id,
+                            len(expired),
+                        )
+                    else:
+                        norm_rows = (
+                            await db.execute(
+                                select(VideoCache.norm_title).where(
+                                    VideoCache.site_id == site_id,
+                                    VideoCache.original_id.in_(expired),
+                                )
+                            )
+                        ).all()
+                        affected.update(row[0] for row in norm_rows if row[0])
+                        await db.execute(
+                            delete(VideoCache).where(
+                                VideoCache.site_id == site_id,
+                                VideoCache.original_id.in_(expired),
+                            )
+                        )
+
+                cursor = next_cursor
+                await _set_cleanup_cursor(db, site_id, cursor)
+                await db.commit()
+
+                # 一页没占满说明这轮到底了
+                if len(rows) < CLEANUP_PAGE_SIZE:
+                    cursor = 0
+                    await _set_cleanup_cursor(db, site_id, 0)
+                    await db.commit()
+                    break
 
     return (
         {
             "site_id": site_id,
             "site_name": name,
             "checked": checked,
-            "deleted": len(expired_ids),
+            "deleted": deleted_total,
         },
         affected,
     )
