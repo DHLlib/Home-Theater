@@ -128,10 +128,40 @@ export function getDetail(req: DetailRequest): Promise<DetailResponse> {
 
 export const clearVideoCache = () => del<{ deleted: number }>("/api/videos/cache");
 
-export const cleanupExpired = (siteId?: number) =>
-  post<{ deleted: number; checked: number; by_site: { site_id: number; site_name: string; checked: number; deleted: number }[] }>(
-    `/api/videos/cleanup-expired${siteId != null ? `?site_id=${siteId}` : ""}`
+export interface CleanupStatus {
+  running: boolean;
+  /** 演练模式：只统计不删除（?cleanup_dry_run=1 或 ?dry_run=true） */
+  dry_run?: boolean;
+  started_at: number | null;
+  finished_at: number | null;
+  checked: number;
+  deleted: number;
+  sites_total: number;
+  sites_done: number;
+  by_site: {
+    site_id: number;
+    site_name: string;
+    checked: number;
+    deleted: number;
+  }[];
+  error: string | null;
+}
+
+/** 启动后台清理任务（立即返回，进度用 getCleanupStatus 轮询） */
+export const startCleanupExpired = (siteId?: number, dryRun = false) => {
+  const params = new URLSearchParams();
+  if (siteId != null) params.set("site_id", String(siteId));
+  if (dryRun) params.set("dry_run", "true");
+  const qs = params.toString();
+  return post<{ started: boolean } & CleanupStatus>(
+    `/api/videos/cleanup-expired${qs ? `?${qs}` : ""}`,
+    undefined,
+    15000
   );
+};
+
+export const getCleanupStatus = () =>
+  get<CleanupStatus>("/api/videos/cleanup-expired/status", 15000);
 
 export const getCrawlerStatus = () => get<{ running: boolean; site_status: Record<string, string> }>("/api/videos/crawler/status");
 

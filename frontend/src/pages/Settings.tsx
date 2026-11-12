@@ -9,7 +9,7 @@ import {
   exportSites,
   importSites,
 } from "../api/sites";
-import { cleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
+import { getCleanupStatus, startCleanupExpired, getCrawlerLogs, getCrawlerStats, triggerFullCrawl, triggerIncremental } from "../api/videos";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
 import AliasSettings from "../components/category-settings/AliasSettings";
@@ -222,7 +222,24 @@ export default function Settings() {
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
   const [cleaningUp, setCleaningUp] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<{ deleted: number; checked: number } | null>(null);
+  const [cleanupResult, setCleanupResult] = useState<{
+    deleted: number;
+    checked: number;
+    dry_run?: boolean;
+  } | null>(null);
+  const [cleanupProgress, setCleanupProgress] = useState<{
+    sites_done: number;
+    sites_total: number;
+    checked: number;
+    deleted: number;
+    dry_run?: boolean;
+  } | null>(null);
+  const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+    };
+  }, []);
   const [drawerSite, setDrawerSite] = useState<Site | null>(null);
 
   /* ---- inline edit states ---- */
@@ -291,14 +308,69 @@ export default function Settings() {
 
   const handleCleanupExpired = () => {
     if (!confirm("确定要清除失效资源吗？这会向各资源站验证视频是否存在，每个站点最多检查 2000 条，可能需要一些时间。")) return;
+    if (cleaningUp) return;
     setCleaningUp(true);
-    cleanupExpired()
-      .then((res) => {
-        setCleanupResult({ deleted: res.deleted, checked: res.checked });
-        setTimeout(() => setCleanupResult(null), 5000);
+    setCleanupProgress(null);
+
+    const stopPolling = () => {
+      if (cleanupTimerRef.current) {
+        clearInterval(cleanupTimerRef.current);
+        cleanupTimerRef.current = null;
+      }
+    };
+
+    // 单次轮询失败（网络抖动/后端重启）不应该让进度条直接断掉
+    let failures = 0;
+    const poll = () =>
+      getCleanupStatus()
+        .then((status) => {
+          failures = 0;
+          setCleanupProgress({
+            sites_done: status.sites_done,
+            sites_total: status.sites_total,
+            checked: status.checked,
+            deleted: status.deleted,
+            dry_run: Boolean(status.dry_run),
+          });
+          if (status.running) return;
+          stopPolling();
+          setCleaningUp(false);
+          setCleanupResult({
+            deleted: status.deleted,
+            checked: status.checked,
+            dry_run: Boolean(status.dry_run),
+          });
+          if (status.error) {
+            toastError(`清理失败：${status.error}`);
+          } else if (status.dry_run) {
+            toastSuccess(`演练完成：检查 ${status.checked} 条，将删除 ${status.deleted} 条（未真正删除）`);
+          } else {
+            toastSuccess(`已检查 ${status.checked} 条，删除 ${status.deleted} 条失效资源`);
+          }
+          setTimeout(() => setCleanupResult(null), 8000);
+        })
+        .catch(() => {
+          failures += 1;
+          if (failures < 3) return;
+          stopPolling();
+          setCleaningUp(false);
+          toastError("查询清理进度失败，任务可能仍在后台运行，稍后刷新查看");
+        });
+
+    // ?cleanup_dry_run=1 时不真正删除，用于验证任务链路
+    const dryRun =
+      new URLSearchParams(window.location.search).get("cleanup_dry_run") === "1";
+    startCleanupExpired(undefined, dryRun)
+      .then(() => {
+        cleanupTimerRef.current = setInterval(poll, 2000);
+        // 立即查一次，让按钮上的进度马上有数
+        poll();
       })
-      .catch(() => alert("清除失效资源失败"))
-      .finally(() => setCleaningUp(false));
+      .catch(() => {
+        stopPolling();
+        setCleaningUp(false);
+        toastError("启动清理任务失败");
+      });
   };
 
   /* ---- add site (inline) ---- */
@@ -1007,11 +1079,20 @@ export default function Settings() {
               style={{ gap: 6, color: "var(--danger)", borderColor: "var(--danger)" }}
             >
               <TrashIcon size={14} />
-              {cleaningUp ? "清除中..." : "清除失效资源"}
+              {cleaningUp
+                ? cleanupProgress
+                  ? `清除中… ${cleanupProgress.sites_done}/${cleanupProgress.sites_total} 站 · ${
+                      cleanupProgress.dry_run ? "将删" : "已删"
+                    } ${cleanupProgress.deleted}`
+                  : "清除中..."
+                : "清除失效资源"}
             </button>
             {cleanupResult && (
               <span style={{ fontSize: 13, color: "var(--success)" }}>
-                已检查 {cleanupResult.checked} 条，删除 {cleanupResult.deleted} 条失效资源
+                已检查 {cleanupResult.checked} 条，
+                {cleanupResult.dry_run
+                  ? `将删除 ${cleanupResult.deleted} 条（演练，未真正删除）`
+                  : `删除 ${cleanupResult.deleted} 条失效资源`}
               </span>
             )}
           </div>
