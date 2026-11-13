@@ -1102,8 +1102,9 @@ export default function Settings() {
                     %
                   </b>
                   <span>
-                    {cleanupStatus.checked.toLocaleString()} /{" "}
-                    {(cleanupStatus.total ?? 0).toLocaleString()}
+                    {(cleanupStatus.total ?? 0) > 0
+                      ? `${cleanupStatus.checked.toLocaleString()} / ${(cleanupStatus.total ?? 0).toLocaleString()}`
+                      : "正在统计总量…"}
                   </span>
                   {cleanupStatus.current_site && (
                     <span className="cleanup-progress-site">
