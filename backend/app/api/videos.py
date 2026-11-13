@@ -1644,24 +1644,39 @@ async def _evict_video_cache_overflow(db) -> None:
 # ------------------------------------------------------------------
 
 @router.post("/cleanup-expired")
-async def cleanup_expired(site_id: int | None = None, dry_run: bool = False):
+async def cleanup_expired(
+    site_id: int | None = None,
+    dry_run: bool = False,
+    speed: str = "eco",
+):
     """启动「清除失效资源」后台任务，立即返回；进度用 status 接口查。
 
     一次任务会扫完全部启用站点的全部缓存（按 id 游标分页、断点续跑），
     连续两轮都没被资源站返回的条目才会真正删除。
+
+    speed 控制对资源站的压力：eco 省流 / normal 标准 / fast 快速。
     """
     global _CLEANUP_TASK
     if _CLEANUP_STATE["running"]:
         return {"started": False, **_cleanup_status()}
+
+    if speed not in CLEANUP_SPEEDS:
+        speed = "eco"
 
     _reset_cleanup_state()
     global _cleanup_rate_ema
     _cleanup_rate_ema = 0.0
     _CLEANUP_STATE["running"] = True
     _CLEANUP_STATE["dry_run"] = dry_run
+    _CLEANUP_STATE["speed"] = speed
     _CLEANUP_STATE["started_at"] = time.time()
     _CLEANUP_TASK = asyncio.create_task(_cleanup_worker(site_id, dry_run))
-    logger.info("cleanup_expired_started site_id=%s dry_run=%s", site_id, dry_run)
+    logger.info(
+        "cleanup_expired_started site_id=%s dry_run=%s speed=%s",
+        site_id,
+        dry_run,
+        speed,
+    )
     return {"started": True, **_cleanup_status()}
 
 
@@ -1683,6 +1698,7 @@ async def cleanup_expired_cancel():
 _CLEANUP_STATE: dict = {
     "running": False,
     "dry_run": False,
+    "speed": "eco",
     "cancel_requested": False,
     "started_at": None,
     "finished_at": None,
@@ -1702,8 +1718,14 @@ _cleanup_rate_ema = 0.0
 # 超过这个数会把「没返回」误判成失效，所以必须保持 20
 CLEANUP_BATCH = 20
 CLEANUP_IDS_CAP = 20
-# 同时发几批：靠并发提吞吐，不靠加大批量
-CLEANUP_BATCH_CONCURRENCY = 16
+# 速度档位：(并发批数, 每秒请求数上限)。一次请求约 23KB，16 并发约 12 请求/秒
+# （≈250KB/s）会把带宽占满，所以默认省流；0 表示不限速。
+CLEANUP_SPEEDS: dict[str, tuple[int, float]] = {
+    "eco": (2, 2.0),
+    "normal": (6, 6.0),
+    "fast": (16, 0.0),
+}
+CLEANUP_BATCH_CONCURRENCY = CLEANUP_SPEEDS["eco"][0]
 # 每页从库里取多少行
 CLEANUP_PAGE_SIZE = 2000
 # 连续缺失几轮才删
@@ -1712,11 +1734,31 @@ CLEANUP_CONFIRM_ROUNDS = 2
 CLEANUP_MAX_SECONDS = 6 * 3600
 
 
+class _RateLimiter:
+    """跨站点的全局请求限速：保证任意 1 秒内发出的请求数不超过 qps。"""
+
+    def __init__(self, qps: float) -> None:
+        self._interval = 1.0 / qps if qps > 0 else 0.0
+        self._next_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        if self._interval <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._next_at - now
+            self._next_at = max(now, self._next_at) + self._interval
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+
 def _reset_cleanup_state() -> None:
     _CLEANUP_STATE.update(
         {
             "running": False,
             "dry_run": False,
+            "speed": "eco",
             "cancel_requested": False,
             "started_at": None,
             "finished_at": None,
@@ -1868,7 +1910,7 @@ async def _apply_missing(
 
 
 async def _cleanup_one_site(
-    site: tuple[int, str, str], deadline: float
+    site: tuple[int, str, str], deadline: float, limiter: "_RateLimiter"
 ) -> tuple[dict, set[str]]:
     """分页扫完一个站点，返回 (统计, 受影响的归一化标题)。
 
@@ -1880,7 +1922,10 @@ async def _cleanup_one_site(
     deleted_total = 0
     pending_total = 0
     affected: set[str] = set()
-    sem = asyncio.Semaphore(CLEANUP_BATCH_CONCURRENCY)
+    concurrency, _qps = CLEANUP_SPEEDS.get(
+        _CLEANUP_STATE.get("speed", "eco"), CLEANUP_SPEEDS["eco"]
+    )
+    sem = asyncio.Semaphore(concurrency)
     dry_run = bool(_CLEANUP_STATE["dry_run"])
 
     async with async_session_factory() as db:
@@ -1894,6 +1939,8 @@ async def _cleanup_one_site(
                 if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
                     return []
                 async with sem:
+                    # 全局限速：并发再高，实际请求速率也不超过档位上限
+                    await limiter.acquire()
                     try:
                         items = await client.videolist(ids=batch, op="cleanup_expired")
                     except Exception:
@@ -1980,6 +2027,10 @@ async def _cleanup_one_site(
 
 async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
     deadline = time.monotonic() + CLEANUP_MAX_SECONDS
+    _concurrency, qps = CLEANUP_SPEEDS.get(
+        _CLEANUP_STATE.get("speed", "eco"), CLEANUP_SPEEDS["eco"]
+    )
+    limiter = _RateLimiter(qps)
     try:
         async with async_session_factory() as db:
             if site_id:
@@ -2025,7 +2076,9 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
             if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
                 break
             _CLEANUP_STATE["current_site"] = {"id": sid, "name": name}
-            _stat, site_affected = await _cleanup_one_site((sid, name, url), deadline)
+            _stat, site_affected = await _cleanup_one_site(
+                (sid, name, url), deadline, limiter
+            )
             affected.update(site_affected)
             _CLEANUP_STATE["sites_done"] += 1
 
