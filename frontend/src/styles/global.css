@@ -1924,3 +1924,19 @@ main {
   color: var(--danger);
   border-color: var(--danger);
 }
+
+.cleanup-speed {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cleanup-speed:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

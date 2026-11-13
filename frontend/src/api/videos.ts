@@ -128,10 +128,14 @@ export function getDetail(req: DetailRequest): Promise<DetailResponse> {
 
 export const clearVideoCache = () => del<{ deleted: number }>("/api/videos/cache");
 
+export type CleanupSpeed = "eco" | "normal" | "fast";
+
 export interface CleanupStatus {
   running: boolean;
   /** 演练模式：只统计不删除（?cleanup_dry_run=1 或 ?dry_run=true） */
   dry_run?: boolean;
+  /** 速度档位：eco 省流 / normal 标准 / fast 快速 */
+  speed?: CleanupSpeed;
   cancel_requested?: boolean;
   phase?: "idle" | "scanning" | "done";
   started_at: number | null;
@@ -156,10 +160,15 @@ export interface CleanupStatus {
 }
 
 /** 启动后台清理任务（立即返回，进度用 getCleanupStatus 轮询） */
-export const startCleanupExpired = (siteId?: number, dryRun = false) => {
+export const startCleanupExpired = (
+  siteId?: number,
+  dryRun = false,
+  speed: CleanupSpeed = "eco"
+) => {
   const params = new URLSearchParams();
   if (siteId != null) params.set("site_id", String(siteId));
   if (dryRun) params.set("dry_run", "true");
+  params.set("speed", speed);
   const qs = params.toString();
   return post<{ started: boolean } & CleanupStatus>(
     `/api/videos/cleanup-expired${qs ? `?${qs}` : ""}`,

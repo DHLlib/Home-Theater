@@ -17,6 +17,7 @@ import {
   getCrawlerStats,
   triggerFullCrawl,
   triggerIncremental,
+  type CleanupSpeed,
   type CleanupStatus,
 } from "../api/videos";
 import { onSseEvent } from "../api/sse";
@@ -241,6 +242,10 @@ export default function Settings() {
   const [triggeringFull, setTriggeringFull] = useState(false);
   const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
   const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
+  const [cleanupSpeed, setCleanupSpeed] = useState<CleanupSpeed>(() => {
+    const saved = localStorage.getItem("ht-cleanup-speed");
+    return saved === "normal" || saved === "fast" ? saved : "eco";
+  });
   const [cleanupStarting, setCleanupStarting] = useState(false);
   const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cleanupWasRunning = useRef(false);
@@ -374,7 +379,7 @@ export default function Settings() {
     // ?cleanup_dry_run=1 时不真正删除，用于验证任务链路
     const dryRun =
       new URLSearchParams(window.location.search).get("cleanup_dry_run") === "1";
-    startCleanupExpired(undefined, dryRun)
+    startCleanupExpired(undefined, dryRun, cleanupSpeed)
       .then((status) => {
         cleanupWasRunning.current = true;
         applyCleanupStatus({ ...status, running: true });
@@ -1089,6 +1094,26 @@ export default function Settings() {
               <ActivityIcon size={14} />
               {triggeringFull ? "启动中..." : "重新全量刮削"}
             </button>
+            <select
+              className="cleanup-speed"
+              value={cleanupSpeed}
+              disabled={Boolean(cleanupStatus?.running)}
+              onChange={(event) => {
+                const next = event.target.value as CleanupSpeed;
+                setCleanupSpeed(next);
+                try {
+                  localStorage.setItem("ht-cleanup-speed", next);
+                } catch {
+                  // 隐私模式下写入失败可忽略
+                }
+              }}
+              title="速度越慢，对资源站和自家带宽的压力越小"
+              aria-label="清理速度"
+            >
+              <option value="eco">省流</option>
+              <option value="normal">标准</option>
+              <option value="fast">快速</option>
+            </select>
             {cleanupStatus?.running ? (
               <div className="cleanup-progress">
                 <div className="cleanup-progress-track">
@@ -1106,6 +1131,16 @@ export default function Settings() {
                       ? `${cleanupStatus.checked.toLocaleString()} / ${(cleanupStatus.total ?? 0).toLocaleString()}`
                       : "正在统计总量…"}
                   </span>
+                  {cleanupStatus.speed && (
+                    <span>
+                      {cleanupStatus.speed === "eco"
+                        ? "省流"
+                        : cleanupStatus.speed === "normal"
+                        ? "标准"
+                        : "快速"}
+                      模式
+                    </span>
+                  )}
                   {cleanupStatus.current_site && (
                     <span className="cleanup-progress-site">
                       正在检查 {cleanupStatus.current_site.name}
