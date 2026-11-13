@@ -294,6 +294,14 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON aggregated_sources (site_id, aggregated_video_id)"
                 )
             )
+            # 清除失效资源：按站点+游标统计剩余行数 / 分页取待检查项。
+            # 没有它时每站 count 都要全表扫描，21 站算总量要 8.5 秒。
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_video_cache_site_id_id "
+                    "ON video_cache (site_id, id)"
+                )
+            )
             # 按年份排序（sort=year）：必须与 ORDER BY year DESC NULLS LAST, id DESC
             # 完全一致，才能走 index-only scan（18 万行整表排序 136ms → 0.5ms）
             await conn.execute(
