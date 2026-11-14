@@ -302,6 +302,15 @@ async def _ensure_pg_trgm_indexes() -> None:
                     "ON video_cache (site_id, id)"
                 )
             )
+            # 聚合行唯一性兜底：同一 (norm_title, year) 只应有一行。
+            # 历史事故：两个后端进程同时重建聚合表，插入 11.7 万组重复，
+            # 首页 key 冲突导致卡片重复 + 空位。有唯一索引会直接报错而不是静默重复。
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uix_aggregated_videos_norm_year "
+                    "ON aggregated_videos (norm_title, (coalesce(year, -1)))"
+                )
+            )
             # 按年份排序（sort=year）：必须与 ORDER BY year DESC NULLS LAST, id DESC
             # 完全一致，才能走 index-only scan（18 万行整表排序 136ms → 0.5ms）
             await conn.execute(

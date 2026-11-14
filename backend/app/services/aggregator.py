@@ -8,17 +8,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
+from contextlib import asynccontextmanager
 from typing import Any, Iterable
 
 from sqlalchemy import bindparam, delete, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.db import engine
 from app.services.category_alias import (
     backfill_video_categories,
     load_category_decision_maps,
     pick_system_category,
 )
+from app.db import engine
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
@@ -223,6 +226,37 @@ _INCREMENTAL_FALLBACK_THRESHOLD = 10000
 
 _aggregated_refresh_lock = asyncio.Lock()
 
+# 跨进程互斥：asyncio.Lock 只在单进程内有效，两个后端进程同时重建聚合表时会
+# 互相覆盖 DELETE/INSERT，产生大量重复聚合行（历史事故：117k 组重复）。
+# 用 PostgreSQL advisory lock 做进程间串行，锁挂在独立连接上，避免 commit
+# 之后 session 换连接导致锁泄漏。
+_AGGREGATED_ADVISORY_LOCK = 911_010
+
+
+@asynccontextmanager
+async def _aggregated_advisory_guard():
+    async with engine.connect() as lock_conn:
+        acquired = (
+            await lock_conn.execute(
+                text("select pg_try_advisory_lock(:k)"),
+                {"k": _AGGREGATED_ADVISORY_LOCK},
+            )
+        ).scalar()
+        if not acquired:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            try:
+                await lock_conn.execute(
+                    text("select pg_advisory_unlock(:k)"),
+                    {"k": _AGGREGATED_ADVISORY_LOCK},
+                )
+                await lock_conn.commit()
+            except Exception:  # noqa: BLE001
+                logger.warning("释放聚合 advisory lock 失败", exc_info=True)
+
 # 全局操作锁：防止删除站点、全量刮削、补全 videolist 同时进行
 _global_operation_lock = asyncio.Lock()
 _operation_in_progress: str | None = None
@@ -376,92 +410,58 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
         WITH
         norm AS (
             SELECT
-                title,
-                year,
-                poster_url,
-                site_id,
-                original_id,
-                type_name,
-                type_id,
-                remarks,
-                source_updated_at,
-                LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')) AS norm_title
-            FROM video_cache
-        ),
-        norm_grouped AS (
-            SELECT
-                norm_title,
-                year,
-                MAX(title) AS title,
-                MAX(poster_url) AS poster_url,
-                jsonb_agg(
-                    jsonb_build_object(
-                        'site_id', site_id,
-                        'original_id', original_id,
-                        'type', type_name,
-                        'type_id', type_id,
-                        'remarks', remarks,
-                        'updated_at', source_updated_at
-                    )
-                ) AS sources,
-                MAX(source_updated_at) AS latest_updated_at,
-                COUNT(*) AS source_count
-            FROM norm
-            GROUP BY norm_title, year
-        ),
-        raw_agg AS (
-            SELECT
-                title,
-                year,
-                poster_url,
-                sources,
-                latest_updated_at,
-                source_count,
-                norm_title
-            FROM norm_grouped
+                vc.title,
+                vc.year,
+                vc.poster_url,
+                vc.site_id,
+                vc.original_id,
+                vc.type_name,
+                vc.type_id,
+                vc.remarks,
+                vc.source_updated_at,
+                LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g')) AS norm_title
+            FROM video_cache vc
         ),
         year_freq AS (
             SELECT
-                LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')) AS norm_title,
+                norm_title,
                 year,
                 COUNT(*) AS freq,
                 ROW_NUMBER() OVER (
-                    PARTITION BY LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g'))
+                    PARTITION BY norm_title
                     ORDER BY COUNT(*) DESC, year DESC
                 ) AS rn
-            FROM video_cache
+            FROM norm
             WHERE year IS NOT NULL
-            GROUP BY LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')), year
+            GROUP BY norm_title, year
         ),
         best_year AS (
             SELECT norm_title, year AS best_year
             FROM year_freq
             WHERE rn = 1
         ),
+        merged AS (
+            -- 先回填 year，再按 (norm_title, year) 聚合：否则「有年份」与
+            -- 「无年份」两批记录会各自成桶，回填后撞成同一个 key 产生重复行。
+            SELECT
+                n.title,
+                COALESCE(n.year, byw.best_year) AS year,
+                n.poster_url,
+                n.norm_title,
+                n.source_updated_at
+            FROM norm n
+            LEFT JOIN best_year byw ON byw.norm_title = n.norm_title
+        ),
         combined AS (
             SELECT
-                a.title,
-                COALESCE(a.year, byw.best_year) AS year,
-                a.poster_url,
-                a.norm_title,
-                a.latest_updated_at,
-                a.source_count
-            FROM raw_agg a
-            LEFT JOIN best_year byw ON a.norm_title = byw.norm_title
-            WHERE a.year IS NOT NULL OR byw.best_year IS NOT NULL
-
-            UNION ALL
-
-            SELECT
-                a.title,
-                NULL AS year,
-                a.poster_url,
-                a.norm_title,
-                a.latest_updated_at,
-                a.source_count
-            FROM raw_agg a
-            LEFT JOIN best_year byw ON a.norm_title = byw.norm_title
-            WHERE a.year IS NULL AND byw.best_year IS NULL
+                MAX(title) AS title,
+                year,
+                MAX(poster_url) AS poster_url,
+                norm_title,
+                MAX(source_updated_at) AS latest_updated_at,
+                COUNT(*) AS source_count
+            FROM merged
+            GROUP BY norm_title, year
         )
         SELECT
             title,
@@ -476,6 +476,7 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
     
     # 2. 重建 aggregated_sources：通过 (norm_title, year) 回关联 video_cache
     sql_sources = text("""
+
         INSERT INTO aggregated_sources
             (aggregated_video_id, site_id, original_id, site_name, type_name, type_id, remarks, updated_at)
         WITH
@@ -497,42 +498,37 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
             FROM year_freq
             WHERE rn = 1
         ),
-        matched AS (
+        source_rows AS (
+            -- 先按与 aggregated_videos 完全相同的口径回填年份，再等值 join。
+            -- 之前把「年份判断」写在 JOIN 的 OR 条件里，规划器只能走嵌套循环，
+            -- 1M 行要跑半小时以上。
             SELECT
-                av.id AS aggregated_video_id,
                 vc.site_id,
                 vc.original_id,
-                s.name AS site_name,
                 vc.type_name,
                 vc.type_id,
                 vc.remarks,
-                vc.source_updated_at AS updated_at,
-                ROW_NUMBER() OVER (
-                    PARTITION BY av.id, vc.site_id, vc.original_id
-                    ORDER BY vc.source_updated_at DESC NULLS LAST
-                ) AS rn
+                vc.source_updated_at,
+                LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g')) AS norm_title,
+                COALESCE(vc.year, byw.best_year) AS year
             FROM video_cache vc
-            JOIN aggregated_videos av
-                ON LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g')) = av.norm_title
-            JOIN sites s ON s.id = vc.site_id
             LEFT JOIN best_year byw
-                ON byw.norm_title = av.norm_title
-            WHERE
-                (vc.year IS NOT NULL AND av.year = vc.year)
-                OR (vc.year IS NULL AND av.year = byw.best_year)
-                OR (vc.year IS NULL AND av.year IS NULL AND byw.best_year IS NULL)
+                ON byw.norm_title = LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g'))
         )
         SELECT
-            aggregated_video_id,
-            site_id,
-            original_id,
-            site_name,
-            type_name,
-            type_id,
-            remarks,
-            updated_at
-        FROM matched
-        WHERE rn = 1
+            av.id,
+            sr.site_id,
+            sr.original_id,
+            s.name,
+            sr.type_name,
+            sr.type_id,
+            sr.remarks,
+            sr.source_updated_at
+        FROM source_rows sr
+        JOIN aggregated_videos av
+            ON av.norm_title = sr.norm_title
+           AND av.year IS NOT DISTINCT FROM sr.year
+        JOIN sites s ON s.id = sr.site_id
     """)
 
     # 使用事务确保两个表同时成功或失败
@@ -540,7 +536,11 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
         # 先重建 aggregated_videos 并提交（让后续查询可见）
         await db.execute(sql_videos, {"cached_at": now})
         await db.commit()
-        
+
+        # SET LOCAL 只作用于当前事务，上面的 commit 之后已失效；sources 语句是
+        # 新的 JOIN，必须重新关闭 mergejoin，否则会踩 PostgreSQL 的
+        # "mergejoin input data is out of order" 报错。
+        await db.execute(text("SET LOCAL enable_mergejoin = off"))
         # 再重建 aggregated_sources（依赖 aggregated_videos 的数据）
         await db.execute(sql_sources)
         await db.commit()
@@ -821,28 +821,32 @@ async def refresh_aggregated_view(
         )
         return False
 
-    async with _aggregated_refresh_lock:
-        try:
-            if affected_norm_titles:
-                if len(affected_norm_titles) >= _INCREMENTAL_FALLBACK_THRESHOLD:
-                    logger.info(
-                        "受影响 norm_title 数量 %d 超过阈值 %d，降级为全量重建",
-                        len(affected_norm_titles),
-                        _INCREMENTAL_FALLBACK_THRESHOLD,
-                    )
-                    ok1 = await rebuild_aggregated_tables(db)
-                else:
-                    ok1 = await incrementally_update_aggregated_tables(db, affected_norm_titles)
-            else:
-                ok1 = await rebuild_aggregated_tables(db)
-
-            if not ok1:
-                return False
-            ok2 = await rebuild_recommended_videos(db)
-            return ok2
-        except Exception as exc:
-            logger.exception("刷新聚合缓存失败: %s", exc)
+    async with _aggregated_advisory_guard() as acquired:
+        if not acquired:
+            logger.warning("另一个进程正在重建聚合表，跳过本次刷新")
             return False
+        async with _aggregated_refresh_lock:
+            try:
+                if affected_norm_titles:
+                    if len(affected_norm_titles) >= _INCREMENTAL_FALLBACK_THRESHOLD:
+                        logger.info(
+                            "受影响 norm_title 数量 %d 超过阈值 %d，降级为全量重建",
+                            len(affected_norm_titles),
+                            _INCREMENTAL_FALLBACK_THRESHOLD,
+                        )
+                        ok1 = await rebuild_aggregated_tables(db)
+                    else:
+                        ok1 = await incrementally_update_aggregated_tables(db, affected_norm_titles)
+                else:
+                    ok1 = await rebuild_aggregated_tables(db)
+
+                if not ok1:
+                    return False
+                ok2 = await rebuild_recommended_videos(db)
+                return ok2
+            except Exception as exc:
+                logger.exception("刷新聚合缓存失败: %s", exc)
+                return False
 
 
 # ------------------------------------------------------------------
