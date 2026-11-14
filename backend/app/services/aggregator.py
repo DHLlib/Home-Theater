@@ -615,13 +615,44 @@ async def incrementally_update_aggregated_tables(
                     "cached_at": now,
                 })
 
-            stmt = agg_table.insert().returning(
-                agg_table.c.id, agg_table.c.norm_title, agg_table.c.year
+            # 用 upsert 兜底：清理/爬虫可能并发写同一 (norm_title, year)，
+            # 单纯 INSERT 会撞唯一索引导致整次增量失败（线上已多次出现）。
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO aggregated_videos
+                        (title, year, poster_url, norm_title, latest_updated_at,
+                         source_count, system_category, cached_at)
+                    VALUES (:title, :year, :poster_url, :norm_title,
+                            :latest_updated_at, :source_count, :system_category,
+                            :cached_at)
+                    ON CONFLICT (norm_title, (COALESCE(year, -1)))
+                    DO UPDATE SET
+                        title = EXCLUDED.title,
+                        year = EXCLUDED.year,
+                        poster_url = EXCLUDED.poster_url,
+                        latest_updated_at = EXCLUDED.latest_updated_at,
+                        source_count = EXCLUDED.source_count,
+                        system_category = EXCLUDED.system_category,
+                        cached_at = EXCLUDED.cached_at
+                    """
+                ),
+                video_rows,
             )
-            rows_result = await db.execute(stmt, video_rows)
             await db.commit()
-            for row in rows_result.all():
-                id_map[(row.norm_title, row.year)] = row.id
+
+            batch_norms = {row["norm_title"] for row in video_rows}
+            id_rows = (
+                await db.execute(
+                    select(
+                        AggregatedVideoV3.id,
+                        AggregatedVideoV3.norm_title,
+                        AggregatedVideoV3.year,
+                    ).where(AggregatedVideoV3.norm_title.in_(batch_norms))
+                )
+            ).all()
+            for row in id_rows:
+                id_map[(row[1], row[2])] = row[0]
 
         # 5. 插入 aggregated_sources
         source_rows = []
