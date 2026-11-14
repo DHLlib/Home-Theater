@@ -3,6 +3,7 @@ import { lazyWithRetry } from "../utils/chunkReload";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Drawer } from "vaul";
 import { getEpisodes, getSources } from "../api/play";
+import { getStreamAccel } from "../api/settings";
 import { getProgress, upsertProgress } from "../api/progress";
 import type { VideoPlayerHandle } from "../components/VideoPlayer";
 import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
@@ -140,6 +141,22 @@ export default function Player() {
   }, [title, year]);
 
   const current = episodes[currentIndex];
+
+  // 播放加速：开启后 m3u8 走后端多连接代理，绕过资源站的单连接限速
+  const [accelEnabled, setAccelEnabled] = useState(false);
+  useEffect(() => {
+    getStreamAccel()
+      .then((s) => setAccelEnabled(s.enabled))
+      .catch(() => {});
+  }, []);
+
+  const playSrc = useMemo(() => {
+    const url = current?.url || "";
+    if (!accelEnabled || !url) return url;
+    const isM3u8 = /\.m3u8(\?|$)/i.test(url) || /m3u8/i.test(current?.suffix || "");
+    if (!isM3u8) return url;
+    return `/api/play/accel/m3u8?site_id=${site_id}&url=${encodeURIComponent(url)}`;
+  }, [accelEnabled, current?.url, current?.suffix, site_id]);
 
   // 切换视频/来源时重置进度恢复标记，避免跨视频保留 true
   useEffect(() => {
@@ -566,7 +583,7 @@ export default function Player() {
           <Suspense fallback={<div className="spinner" style={{ margin: "auto" }} />}>
             <VideoPlayer
               ref={playerRef}
-              src={current?.url || ""}
+              src={playSrc}
               suffix={current?.suffix || ""}
               autoplay
               onError={() => {}}

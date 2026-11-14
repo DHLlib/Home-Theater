@@ -38,3 +38,25 @@ export const getAdFilterEnabled = async (): Promise<boolean> => {
 
 export const setAdFilterEnabled = (value: boolean) =>
   put<{ value: boolean }>("/api/settings/ad-filter-enabled", { value });
+
+export interface StreamAccelLevel {
+  key: string;
+  label: string;
+  concurrency: number;
+}
+
+export interface StreamAccelSettings {
+  enabled: boolean;
+  level: string;
+  default_level: string;
+  levels: StreamAccelLevel[];
+}
+
+export const getStreamAccel = () =>
+  get<StreamAccelSettings>("/api/settings/stream-accel");
+
+export const setStreamAccel = (enabled: boolean, level?: string) =>
+  put<{ enabled: boolean; level: string }>("/api/settings/stream-accel", {
+    enabled,
+    ...(level ? { level } : {}),
+  });

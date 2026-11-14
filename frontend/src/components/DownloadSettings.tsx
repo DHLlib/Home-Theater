@@ -6,6 +6,9 @@ import {
   setMaxConcurrentDownloads,
   getAdFilterEnabled,
   setAdFilterEnabled,
+  getStreamAccel,
+  setStreamAccel,
+  type StreamAccelLevel,
 } from "../api/settings";
 import { toastSuccess, toastError } from "../utils/toast";
 
@@ -153,6 +156,11 @@ export default function DownloadSettings() {
   const [savedMaxConcurrent, setSavedMaxConcurrent] = useState(10);
   const [adFilter, setAdFilter] = useState(false);
   const [savedAdFilter, setSavedAdFilter] = useState(false);
+  const [accelEnabled, setAccelEnabled] = useState(false);
+  const [savedAccelEnabled, setSavedAccelEnabled] = useState(false);
+  const [accelLevel, setAccelLevel] = useState("2");
+  const [savedAccelLevel, setSavedAccelLevel] = useState("2");
+  const [accelLevels, setAccelLevels] = useState<StreamAccelLevel[]>([]);
 
   useEffect(() => {
     getDownloadRoot()
@@ -175,6 +183,16 @@ export default function DownloadSettings() {
         setAdFilter(v);
       })
       .catch(() => toastError("读取去广告设置失败"));
+
+    getStreamAccel()
+      .then((s) => {
+        setAccelEnabled(s.enabled);
+        setSavedAccelEnabled(s.enabled);
+        setAccelLevel(s.level);
+        setSavedAccelLevel(s.level);
+        setAccelLevels(s.levels);
+      })
+      .catch(() => toastError("读取播放加速设置失败"));
   }, []);
 
   const saveRoot = () => {
@@ -208,6 +226,19 @@ export default function DownloadSettings() {
       .catch(() => toastError("保存去广告设置失败"));
   };
 
+  const saveStreamAccel = () => {
+    setStreamAccel(accelEnabled, accelLevel)
+      .then((r) => {
+        setSavedAccelEnabled(r.enabled);
+        setSavedAccelLevel(r.level);
+        setAccelEnabled(r.enabled);
+        setAccelLevel(r.level);
+        const label = accelLevels.find((l) => l.key === r.level)?.label ?? r.level;
+        toastSuccess(r.enabled ? `播放加速已开启（${label}）` : "播放加速已关闭");
+      })
+      .catch(() => toastError("保存播放加速设置失败"));
+  };
+
   const adjustConcurrent = (delta: number) => {
     setMaxConcurrent((prev) => Math.max(1, Math.min(50, prev + delta)));
   };
@@ -215,6 +246,8 @@ export default function DownloadSettings() {
   const rootDirty = root.trim() !== (savedRoot ?? "");
   const concurrentDirty = maxConcurrent !== savedMaxConcurrent;
   const adFilterDirty = adFilter !== savedAdFilter;
+  const accelDirty =
+    accelEnabled !== savedAccelEnabled || accelLevel !== savedAccelLevel;
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -560,6 +593,130 @@ export default function DownloadSettings() {
             <div style={chipStyle}>
               <CheckIcon size={12} />
               <span>当前配置：{savedAdFilter ? "已开启" : "已关闭"}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 播放加速 */}
+        <div className="panel" style={{ padding: 24, marginTop: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ color: "var(--primary)", marginTop: 2 }}>
+                <SparkleIcon size={18} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={labelStyle}>STREAM ACCELERATOR</div>
+                <h3 style={{ ...titleStyle, marginTop: 4 }}>播放加速</h3>
+                <p style={descStyle}>
+                  开启后，m3u8 分片经本机后端多连接拉取并缓存，绕过资源站的单连接限速。
+                  档位越高越快，但占用带宽也越多。
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <label
+                style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={accelEnabled}
+                  onChange={(e) => setAccelEnabled(e.target.checked)}
+                  style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+                  aria-label="启用播放加速"
+                />
+                <span
+                  style={{
+                    position: "relative",
+                    width: 48,
+                    height: 26,
+                    borderRadius: 13,
+                    background: accelEnabled ? "var(--primary)" : "var(--tint-line)",
+                    border: `1px solid ${
+                      accelEnabled ? "var(--primary)" : "var(--glass-border-bright)"
+                    }`,
+                    transition: "background 150ms ease, border-color 150ms ease",
+                    boxShadow: accelEnabled ? "0 0 12px var(--primary-glow)" : "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      left: accelEnabled ? 24 : 2,
+                      width: 20,
+                      height: 20,
+                      borderRadius: "50%",
+                      background: "#000",
+                      transition: "left 150ms ease",
+                    }}
+                  />
+                </span>
+                <span
+                  style={{
+                    fontSize: 14,
+                    color: accelEnabled ? "var(--primary)" : "var(--text-secondary)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {accelEnabled ? "已开启" : "已关闭"}
+                </span>
+              </label>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {accelLevels.map((item) => {
+                  const active = accelLevel === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className="btn"
+                      disabled={!accelEnabled}
+                      onClick={() => setAccelLevel(item.key)}
+                      style={{
+                        minHeight: 36,
+                        padding: "0 14px",
+                        borderRadius: 8,
+                        borderColor: active ? "var(--primary)" : undefined,
+                        color: active ? "var(--primary)" : undefined,
+                        opacity: accelEnabled ? 1 : 0.5,
+                      }}
+                    >
+                      {item.label}
+                      <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 6 }}>
+                        {item.concurrency} 并发
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                className="btn btn-primary"
+                onClick={saveStreamAccel}
+                disabled={!accelDirty}
+                style={{
+                  minHeight: 40,
+                  padding: "0 18px",
+                  borderRadius: 10,
+                  opacity: accelDirty ? 1 : 0.5,
+                }}
+              >
+                保存
+              </button>
+            </div>
+
+            <div style={chipStyle}>
+              <CheckIcon size={12} />
+              <span>
+                当前配置：
+                {savedAccelEnabled
+                  ? `已开启（${
+                      accelLevels.find((l) => l.key === savedAccelLevel)?.label ??
+                      savedAccelLevel
+                    }）`
+                  : "已关闭"}
+              </span>
             </div>
           </div>
         </div>
