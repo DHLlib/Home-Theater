@@ -10,6 +10,8 @@ from app.db import get_db
 from app.models import AppConfig
 from app.services import downloader
 from app.services.ad_filter import is_ad_filter_enabled, set_ad_filter_enabled
+from app.services.stream_accel import ACCEL_LEVELS, ACCEL_LEVEL_LABELS, DEFAULT_LEVEL
+from app.services.stream_settings import get_stream_accel, set_stream_accel
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -110,3 +112,32 @@ async def set_ad_filter_enabled_api(body: dict = Body(...)):
         raise validation_error("value must be a boolean")
     await set_ad_filter_enabled(raw)
     return {"value": raw}
+
+
+@router.get("/stream-accel")
+async def get_stream_accel_api():
+    enabled, level = await get_stream_accel()
+    return {
+        "enabled": enabled,
+        "level": level,
+        "default_level": DEFAULT_LEVEL,
+        "levels": [
+            {"key": key, "label": ACCEL_LEVEL_LABELS[key], "concurrency": conc}
+            for key, conc in ACCEL_LEVELS.items()
+        ],
+    }
+
+
+@router.put("/stream-accel")
+async def set_stream_accel_api(body: dict = Body(...)):
+    enabled = body.get("enabled")
+    level = body.get("level")
+    if not isinstance(enabled, bool):
+        raise validation_error("enabled must be a boolean")
+    if level is not None and level not in ACCEL_LEVELS:
+        raise validation_error("level must be one of 1/2/3/4")
+    try:
+        new_enabled, new_level = await set_stream_accel(enabled, level)
+    except ValueError as exc:
+        raise validation_error(str(exc))
+    return {"enabled": new_enabled, "level": new_level}

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from app.services.tls import get_ssl_context
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app.errors import site_not_found, video_not_found, external_error
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -22,6 +22,21 @@ from app.models import Site, VideoCache
 from app.schemas import Episode
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.m3u8_sanitizer import sanitize_m3u8
+from app.services.stream_accel import (
+    browser_headers,
+    cache_playlist_text,
+    fetch_text,
+    get_cached_playlist_text,
+    get_playlist,
+    get_segment,
+    level_concurrency,
+    prefetch_first_segments,
+    prefetch_segments,
+    prime_stream,
+    register_playlist,
+    rewrite_playlist,
+)
+from app.services.stream_settings import get_stream_accel
 from app.services.parser import parse_episodes
 from app.services.resolver import resolve_share_page
 from app.services.source_client import SourceClient, _safe_year
@@ -346,6 +361,21 @@ async def get_episodes(
                 )
                 episodes[i] = replace(e, url=proxy)
 
+    # 播放加速：在返回剧集的同时后台预热 playlist 与首片，
+    # 和前端初始化播放器并行，冷启动能省 1–2 秒。
+    accel_enabled, accel_level = await get_stream_accel()
+    if accel_enabled and episodes:
+        first_url = episodes[0].url
+        if first_url.startswith("http") and ".m3u8" in first_url.lower():
+            asyncio.create_task(
+                prime_stream(
+                    first_url,
+                    site.id,
+                    browser_headers(site.base_url),
+                    level_concurrency(accel_level),
+                )
+            )
+
     elapsed = time.monotonic() - start
     logger.info("play_return site=%s episodes=%d elapsed=%.2fs", site.name, len(episodes), elapsed)
     return [
@@ -358,3 +388,98 @@ async def get_episodes(
         )
         for i, e in enumerate(episodes)
     ]
+
+
+@router.get("/accel/m3u8")
+async def accel_m3u8(
+    site_id: int,
+    url: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """播放加速：拉取 playlist 并把分片地址改写成后端代理。"""
+    site = await db.get(Site, site_id)
+    if not site:
+        raise site_not_found(site_id)
+
+    enabled, level = await get_stream_accel()
+    if not enabled:
+        raise external_error("播放加速未开启")
+
+    headers = browser_headers(site.base_url)
+    text = get_cached_playlist_text(url)
+    if text is None:
+        try:
+            text = await fetch_text(url, headers)
+        except Exception as exc:  # noqa: BLE001
+            raise external_error("m3u8 拉取失败", {"reason": str(exc)})
+        cache_playlist_text(url, text)
+
+    key = register_playlist(url, site_id, [])
+    rewritten, segments = rewrite_playlist(text, url, site_id, key)
+    register_playlist(url, site_id, segments)
+
+    playlist = get_playlist(key)
+    if playlist is not None:
+        prefetch_first_segments(
+            playlist, headers, level_concurrency(level), count=2
+        )
+
+    return Response(
+        content=rewritten,
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/accel/segment")
+async def accel_segment(
+    pl: str,
+    i: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """播放加速：代拉分片（带缓存 + 后续分片预取）。"""
+    playlist = get_playlist(pl)
+    if playlist is None or i < 0 or i >= len(playlist.segments):
+        raise HTTPException(status_code=404, detail="分片索引不存在或已过期")
+
+    site = await db.get(Site, playlist.site_id)
+    headers = browser_headers(site.base_url if site else None)
+    enabled, level = await get_stream_accel()
+    concurrency = level_concurrency(level)
+    url = playlist.segments[i]
+    byte_range = request.headers.get("range")
+
+    try:
+        if byte_range:
+            # 拖动进度条会带 Range：直接透传，不进缓存
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                resp = await client.get(
+                    url, headers={**headers, "Range": byte_range}
+                )
+            if resp.status_code not in (200, 206):
+                raise RuntimeError(f"upstream {resp.status_code}")
+            passthrough = {
+                name: resp.headers[name]
+                for name in ("content-range", "accept-ranges", "content-length")
+                if name in resp.headers
+            }
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "video/mp2t"),
+                headers=passthrough,
+            )
+
+        content, content_type = await get_segment(url, headers, concurrency)
+    except Exception as exc:  # noqa: BLE001
+        raise external_error("分片拉取失败", {"reason": str(exc)})
+
+    if enabled:
+        prefetch_segments(playlist, i, headers, concurrency)
+
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
