@@ -595,6 +595,133 @@ endpoints:
     response_schema: FavoriteStatusOut
     consumers: [AC-010]
 
+  # ═══════════════════════════════════════════════════════════════
+  # 分类映射工作台 / 清除失效资源 / 播放加速（2026-11）
+  # ═══════════════════════════════════════════════════════════════
+  - id: API-SITE-CATEGORY-MAP-SUMMARY
+    path: /api/sites/category-map/summary
+    method: GET
+    summary: 各站点类名覆盖概况（用于默认选中问题最多的站点）
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 60 秒内存缓存
+
+  - id: API-SITE-CATEGORY-MAP-GET
+    path: /api/sites/{site_id}/category-map
+    method: GET
+    summary: 映射工作台数据（聚类、建议、样例标题、覆盖统计）
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 按站点缓存 2 分钟；写入/撤销后失效
+
+  - id: API-SITE-CATEGORY-MAP-SAVE
+    path: /api/sites/{site_id}/category-map
+    method: POST
+    summary: 批量写入别名 / 站点例外，可选 fill_rest
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 写入后重算受影响视频分类
+
+  - id: API-SITE-CATEGORY-MAP-UNDO
+    path: /api/sites/{site_id}/category-map/undo
+    method: POST
+    summary: 撤销最近一次映射写入
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 快照存进程内，重启后失效
+
+  - id: API-VIDEOS-CLEANUP-START
+    path: /api/videos/cleanup-expired
+    method: POST
+    summary: 启动全站失效资源清理后台任务
+    query_params:
+      - name: site_id
+        type: int
+        required: false
+      - name: speed
+        type: string
+        required: false
+        description: eco / normal / fast，默认 eco
+      - name: dry_run
+        type: bool
+        required: false
+    response_schema: null
+    consumers: []
+    notes: 立即返回；连续两轮缺失才删除；游标存 app_config 断点续跑
+
+  - id: API-VIDEOS-CLEANUP-STATUS
+    path: /api/videos/cleanup-expired/status
+    method: GET
+    summary: 清理进度（站点数、已检查、已删除、待确认、ETA）
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 前端每 2 秒轮询
+
+  - id: API-VIDEOS-CLEANUP-CANCEL
+    path: /api/videos/cleanup-expired/cancel
+    method: POST
+    summary: 停止清理任务并保留游标
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 在批次之间检查取消标记
+
+  - id: API-PLAY-ACCEL-M3U8
+    path: /api/play/accel/m3u8
+    method: GET
+    summary: 播放加速：改写 playlist 分片地址为后端代理
+    query_params:
+      - name: site_id
+        type: int
+        required: true
+      - name: url
+        type: string
+        required: true
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 仅在播放加速开启时可用；master playlist 递归改写变体
+
+  - id: API-PLAY-ACCEL-SEGMENT
+    path: /api/play/accel/segment
+    method: GET
+    summary: 播放加速：分片代理（并发预取 + LRU 缓存 + Range 透传）
+    query_params:
+      - name: pl
+        type: string
+        required: true
+      - name: i
+        type: int
+        required: true
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 缓存 300MB / 10 分钟；同一分片在途去重
+
+  - id: API-SETTINGS-STREAM-ACCEL-GET
+    path: /api/settings/stream-accel
+    method: GET
+    summary: 读取播放加速开关与档位
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 默认关闭、二档
+
+  - id: API-SETTINGS-STREAM-ACCEL-SET
+    path: /api/settings/stream-accel
+    method: PUT
+    summary: 保存播放加速开关与档位
+    request_schema: null
+    response_schema: null
+    consumers: []
+    notes: 档位 1/2/3/4 → 2/4/8/16 并发
+
+
 schema_references:
   - Site
   - SiteCreate

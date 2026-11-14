@@ -44,7 +44,11 @@
 | 禁用站点隐藏内容 | `videos._hidden_video_filter` | 禁用站点从列表/搜索/分类计数中隐藏 |
 | 浅色主题 | `styles/theme.css`, `lib/theme.ts` | 深色 `cinema` / 浅色 `light`，偏好持久化 |
 | 启动自愈 | `main.CacheControlStaticFiles` + `lazyWithRetry` | 旧 HTML 引用失效 chunk 时自动重载，不再白屏 |
-| 播放兜底 | `VideoPlayer` 12s 看门狗 + `play.py` 线路探测 | 无首帧给「重试/换源」；不可达线路置灰并缓存 3 分钟 |
+| 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；不可达线路置灰并缓存 3 分钟 |
+| 分类映射工作台 | `services/category_map.py`, `api/category_map.py` | 按站点聚类（≥0.75）+ 建议 + 批量 upsert + 撤销；分类页实测 258ms |
+| 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |
+| 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
+| 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
 | 性能与可观测 | `services/tls.py`、共享客户端池、`event_loop_lag`、`slow_request` | 见 §15 性能检查清单 |
 
 ---
@@ -64,6 +68,10 @@
 - `POST   /api/sites/{site_id}/smart-match` → smart_match
 - `GET    /api/sites/export` / `POST /api/sites/import` → 站点配置导入导出
 - `GET    /api/sites/templates` / `POST /api/sites/{site_id}/apply-template` → 分类模板
+- `GET    /api/sites/category-map/summary` → 各站类名覆盖概况（默认选问题最多的站点）
+- `GET    /api/sites/{site_id}/category-map` → 映射工作台数据（聚类/建议/样例）
+- `POST   /api/sites/{site_id}/category-map` → 批量写入别名/站点例外（支持 fill_rest）
+- `POST   /api/sites/{site_id}/category-map/undo` → 撤销最近一次写入
 
 ### Videos (`/api/videos`)
 - `GET    /api/videos` → list_videos（聚合表，`category=`/`sort=`/`mode=`）
@@ -77,6 +85,9 @@
 - `GET    /api/videos/crawler/stats` → crawler_stats
 - `GET    /api/videos/crawler/logs` → crawler_logs
 - `DELETE /api/videos/cache` → clear_video_cache
+- `POST   /api/videos/cleanup-expired` → 启动全站失效清理后台任务（`speed=eco|normal|fast`，`dry_run`）
+- `GET    /api/videos/cleanup-expired/status` → 清理进度（站点数/已检查/已删除/待确认/ETA）
+- `POST   /api/videos/cleanup-expired/cancel` → 停止清理并保留游标
 
 ### Category Aliases (`/api/category-aliases`)
 - `GET    /api/category-aliases` → 别名列表（含来源条数/站点数）
@@ -96,6 +107,8 @@
 - `GET    /api/play/sources` → 播放源列表
 - `GET    /api/play/episodes` → 集列表（含 `reachable` 探测结果，缓存 3 分钟）
 - `GET    /api/play/proxy-m3u8` → m3u8 去广告代理
+- `GET    /api/play/accel/m3u8` → 播放加速：改写 playlist 分片地址（需开启加速）
+- `GET    /api/play/accel/segment` → 播放加速：分片代理（并发预取 + LRU 缓存 + Range 透传）
 
 ### Downloads (`/api/downloads`)
 - `GET/POST /api/downloads`，`POST /{task_id}/pause|resume`，`DELETE /{task_id}`
@@ -108,7 +121,9 @@
 
 ### Settings (`/api/settings`)
 - `GET/PUT /api/settings/download-root`
-- `GET/PUT /api/settings/other`（同类配置项）
+- `GET/PUT /api/settings/ad-filter-enabled` → m3u8 去广告开关
+- `GET/PUT /api/settings/stream-accel` → 播放加速开关与档位（1/2/3/4 → 2/4/8/16 并发）
+- `GET/PUT /api/settings/max-concurrent-downloads`
 
 ### SSE / Health
 - `GET /api/sse`，`GET /api/health`
@@ -138,7 +153,7 @@
 |------|------|---------|
 | Site | `sites` | `name` UNIQUE，`enabled+sort` 索引 |
 | VideoCache | `video_cache` | `(site_id, original_id)` UNIQUE，`norm_title+year` 索引，`title` trgm GIN |
-| AggregatedVideoV3 | `aggregated_videos` | `(norm_title, year)` UNIQUE，`system_category`，`latest_updated_at` 索引 |
+| AggregatedVideoV3 | `aggregated_videos` | `(norm_title, COALESCE(year,-1))` UNIQUE（`uix_aggregated_videos_norm_year`），`system_category`，`latest_updated_at` 索引 |
 | AggregatedSource | `aggregated_sources` | `(aggregated_video_id, site_id)` UNIQUE，`type_name` 索引 |
 | RecommendedVideo | `recommended_videos` | 首页推荐，定期重建 |
 | SystemCategory | `system_categories` | 名称 UNIQUE，父子层级 |
@@ -149,7 +164,8 @@
 | PlayProgress | `play_progress` | `(title, year)` UNIQUE（NULLS NOT DISTINCT），`updated_at` 索引 |
 | DownloadTask | `download_tasks` | `status`/`created_at` 索引 |
 | SiteProbeLog | `site_probe_logs` | 探测记录 |
-| AppConfig | `app_config` | `key` PK |
+| CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |
+| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled` |
 
 ---
 

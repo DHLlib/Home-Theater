@@ -658,6 +658,28 @@ db_models:
 # ═══════════════════════════════════════════════════════════════
 # Pydantic Schema（Backend 请求/响应）
 # ═══════════════════════════════════════════════════════════════
+  - name: CleanupCandidate
+    table: cleanup_candidates
+    owner: backend
+    description: 清除失效资源的两轮确认记录
+    fields:
+      - name: site_id
+        type: Integer
+        pk: true
+      - name: original_id
+        type: String
+        pk: true
+      - name: miss_count
+        type: Integer
+        default: 1
+        nullable: false
+      - name: first_seen_at
+        type: DateTime
+      - name: last_seen_at
+        type: DateTime
+    notes: 连续两轮未被资源站返回才删除对应 video_cache 行
+
+
 pydantic_schemas:
   - name: Episode
     fields:
