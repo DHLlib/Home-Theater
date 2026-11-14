@@ -24,6 +24,7 @@ class SourceRef(BaseModel):
 
 
 class AggregatedVideo(BaseModel):
+    id: int | None = None
     title: str
     year: int | None = None
     poster_url: str | None = None

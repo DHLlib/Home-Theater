@@ -236,7 +236,7 @@ def _video_has_enabled_source(
 # 字段过滤 + 移动端检测 + 分页（AC-023）
 # ------------------------------------------------------------------
 
-ALLOWED_FIELDS = {"title", "year", "poster_url", "sources"}
+ALLOWED_FIELDS = {"id", "title", "year", "poster_url", "sources"}
 MAX_PAGE_SIZE = 100
 DEFAULT_DESKTOP_PAGE_SIZE = 20
 DEFAULT_MOBILE_PAGE_SIZE = 12
@@ -756,6 +756,7 @@ async def _query_aggregated_cache(
 
             items.append(
                 AggregatedVideo(
+                    id=r.id,
                     title=r.title,
                     year=r.year,
                     poster_url=r.poster_url,
