@@ -17,7 +17,9 @@ import type { AggregatedVideo } from "../types";
 import "./Home.css";
 
 function videoKey(item: AggregatedVideo): string {
-  return `${item.title}-${item.year ?? "null"}`;
+  // 优先用聚合行 id：标题+年份在重复行存在时会让虚拟列表 key 冲突，
+  // 表现为同一张卡片重复出现、并留下空位
+  return item.id != null ? `v-${item.id}` : `${item.title}-${item.year ?? "null"}`;
 }
 
 function getLatestUpdatedAt(item: AggregatedVideo): string | null {

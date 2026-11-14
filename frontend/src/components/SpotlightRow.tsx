@@ -59,7 +59,7 @@ export default function SpotlightRow({ videos, loading = false }: SpotlightRowPr
                 </div>
               ))
             : videos.map((v) => (
-                <div className="spot-item" key={`${v.title}-${v.year ?? "null"}`}>
+                <div className="spot-item" key={v.id != null ? `v-${v.id}` : `${v.title}-${v.year ?? "null"}`}>
                   <VideoCard item={v} sharedLayout={false} />
                 </div>
               ))}

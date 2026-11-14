@@ -11,8 +11,8 @@ import {
 import { listSystemCategories } from "../../api/system-categories";
 import { useQuery } from "@tanstack/react-query";
 
-function videoKey(item: { title: string; year?: number | null }): string {
-  return `${item.title}-${item.year ?? "null"}`;
+function videoKey(item: { id?: number | null; title: string; year?: number | null }): string {
+  return item.id != null ? `v-${item.id}` : `${item.title}-${item.year ?? "null"}`;
 }
 
 function getLatestUpdatedAt(item: { sources: { updated_at?: string }[] }): string | null {

@@ -30,6 +30,7 @@ export interface SourceRef {
 }
 
 export interface AggregatedVideo {
+  id?: number | null;
   title: string;
   year?: number | null;
   poster_url?: string | null;

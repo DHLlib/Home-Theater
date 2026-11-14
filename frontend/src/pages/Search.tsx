@@ -98,7 +98,7 @@ export default function Search() {
 
       <div className="grid">
         {videos.map((v) => (
-          <VideoCard key={`${v.title}-${v.year}`} item={v} />
+          <VideoCard key={v.id != null ? `v-${v.id}` : `${v.title}-${v.year}`} item={v} />
         ))}
       </div>
 

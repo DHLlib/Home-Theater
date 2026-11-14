@@ -3,8 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import MobileVideoCard from "../components/MobileVideoCard";
 import { useVideosInfinite } from "../../hooks/useVideos";
 
-function videoKey(item: { title: string; year?: number | null }): string {
-  return `${item.title}-${item.year ?? "null"}`;
+function videoKey(item: { id?: number | null; title: string; year?: number | null }): string {
+  return item.id != null ? `v-${item.id}` : `${item.title}-${item.year ?? "null"}`;
 }
 
 export default function MobileSearch() {
