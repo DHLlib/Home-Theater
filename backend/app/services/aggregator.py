@@ -827,6 +827,7 @@ async def refresh_aggregated_view(
             return False
         async with _aggregated_refresh_lock:
             try:
+                full_rebuild = False
                 if affected_norm_titles:
                     if len(affected_norm_titles) >= _INCREMENTAL_FALLBACK_THRESHOLD:
                         logger.info(
@@ -835,13 +836,19 @@ async def refresh_aggregated_view(
                             _INCREMENTAL_FALLBACK_THRESHOLD,
                         )
                         ok1 = await rebuild_aggregated_tables(db)
+                        full_rebuild = True
                     else:
                         ok1 = await incrementally_update_aggregated_tables(db, affected_norm_titles)
                 else:
                     ok1 = await rebuild_aggregated_tables(db)
+                    full_rebuild = True
 
                 if not ok1:
                     return False
+                if full_rebuild:
+                    # 重建 SQL 不计算视频级分类；不在这里补，下次启动就要把
+                    # 二十多万行逐个 UPDATE，启动阶段会卡住（端口都不监听）。
+                    await backfill_video_categories(db)
                 ok2 = await rebuild_recommended_videos(db)
                 return ok2
             except Exception as exc:

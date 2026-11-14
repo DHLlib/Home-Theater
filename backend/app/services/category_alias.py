@@ -668,9 +668,6 @@ async def backfill_video_categories(
     if not null_ids:
         return 0
 
-    stmt = text(
-        "UPDATE aggregated_videos SET system_category = :b_cat WHERE id = :b_id"
-    )
     filled = 0
     for start in range(0, len(null_ids), chunk_size):
         chunk = null_ids[start : start + chunk_size]
@@ -699,7 +696,23 @@ async def backfill_video_categories(
                 computed.append({"b_id": video_id, "b_cat": category})
 
         if computed:
-            await db.execute(stmt, computed)
+            # 一条 UPDATE 更新整批：逐行 UPDATE 在 25 万行时要跑十几分钟，
+            # 启动阶段会卡在这里（实测卡住 8000 端口不监听）。
+            await db.execute(
+                text(
+                    """
+                    UPDATE aggregated_videos v
+                    SET system_category = data.cat
+                    FROM unnest(cast(:ids as integer[]), cast(:cats as text[]))
+                         AS data(id, cat)
+                    WHERE v.id = data.id
+                    """
+                ),
+                {
+                    "ids": [row["b_id"] for row in computed],
+                    "cats": [row["b_cat"] for row in computed],
+                },
+            )
             await db.commit()
             filled += len(computed)
 
