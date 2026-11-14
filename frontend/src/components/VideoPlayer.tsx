@@ -124,7 +124,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const qualityTimerRef = useRef<number | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [retryKey, setRetryKey] = useState(0);
-    const watchdogRef = useRef<number | null>(null);
+    // 12 秒还没首帧先提示「慢」，一直等到 30 秒才判失败：CDN 慢的时候
+    // 首片要十几秒，原来 12 秒直接报错会误伤可用线路。
+    const waitTickerRef = useRef<number | null>(null);
+    const waitedRef = useRef(0);
+    const [waited, setWaited] = useState(0);
+    const [slowHint, setSlowHint] = useState(false);
 
     const onErrorRef = useRef(onError);
     const onSwitchSourceRef = useRef(onSwitchSource);
@@ -139,23 +144,34 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const prevSuffixRef = useRef(suffix);
     const prevAutoplayRef = useRef(autoplay);
 
-    // 12 秒没有首帧就提示：网络层超时不会触发 xgplayer 的 error 事件，
-    // 不加看门狗会表现为黑屏 + 播放按钮静默卡住。
+    // 12 秒没有首帧先提示「慢」并继续等，30 秒才判失败：网络层超时不会触发
+    // xgplayer 的 error 事件，没有看门狗会表现为黑屏 + 播放按钮静默卡住。
     const clearWatchdog = useCallback(() => {
-      if (watchdogRef.current !== null) {
-        clearTimeout(watchdogRef.current);
-        watchdogRef.current = null;
+      if (waitTickerRef.current !== null) {
+        clearInterval(waitTickerRef.current);
+        waitTickerRef.current = null;
       }
+      waitedRef.current = 0;
+      setWaited(0);
+      setSlowHint(false);
     }, []);
 
     const armWatchdog = useCallback(() => {
       clearWatchdog();
-      watchdogRef.current = window.setTimeout(() => {
-        watchdogRef.current = null;
-        const msg = "片源服务器连接失败，可能被屏蔽或已失效";
-        setError(msg);
-        onErrorRef.current?.(msg);
-      }, 12000);
+      waitTickerRef.current = window.setInterval(() => {
+        waitedRef.current += 1;
+        setWaited(waitedRef.current);
+        if (waitedRef.current === 12) {
+          // 先给非阻塞提示，不打断加载
+          setSlowHint(true);
+        }
+        if (waitedRef.current >= 30) {
+          clearWatchdog();
+          const msg = "片源服务器连接失败，可能被屏蔽或已失效";
+          setError(msg);
+          onErrorRef.current?.(msg);
+        }
+      }, 1000);
     }, [clearWatchdog]);
 
     const handleRetry = useCallback(() => {
@@ -376,6 +392,42 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           >
             <span style={{ maxWidth: 420, lineHeight: 1.6 }}>{error}</span>
             <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn" onClick={handleRetry}>
+                重试
+              </button>
+              {onSwitchSourceRef.current && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onSwitchSourceRef.current?.()}
+                >
+                  换源
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {!error && slowHint && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 9,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+              background: "rgba(0,0,0,0.45)",
+              color: "var(--text-secondary)",
+              fontSize: 13,
+              padding: 24,
+              textAlign: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <span>线路较慢，正在缓冲…已等待 {waited} 秒</span>
+            <div style={{ display: "flex", gap: 8, pointerEvents: "auto" }}>
               <button type="button" className="btn" onClick={handleRetry}>
                 重试
               </button>
