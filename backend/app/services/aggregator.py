@@ -1,6 +1,6 @@
 """按 (归一title, year) 聚合多源列表（硬契约）。
 
-归一规则：去 《 》 / 首尾空白 / casefold()。
+归一规则见 normalize_title()：去 《》 等括号备注 / 繁转简 / 统一标点 / casefold。
 不接 DB；调用方喂数据进来。
 """
 from __future__ import annotations
@@ -77,8 +77,13 @@ def normalize_title(title: str) -> str:
     
     # 去多余空格
     s = " ".join(s.split())
-    
-    return s.strip().casefold()
+
+    result = s.strip().casefold()
+    if not result:
+        # 整个标题都被当成括号备注剥掉了（如「（情歌）」）：退回原文，否则
+        # 不同片子会塌成同一个空 key。
+        result = title.strip().casefold()
+    return result
 
 
 def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -293,6 +298,57 @@ def release_operation_lock(operation: str) -> None:
         logger.info("全局操作锁已释放: %s", operation)
 
 
+async def sync_video_cache_norm_titles(
+    db: AsyncSession, batch_size: int = 50_000
+) -> int:
+    """用当前 normalize_title 重算 video_cache.norm_title（只改不一致的行）。
+
+    历史行的 norm_title 可能是旧版归一化写的（例如全角冒号还没统一成空格），
+    而增量聚合拿 normalize_title(title) 当 key；两边不一致时重建和增量会聚出
+    不同结果。全量重建前先对齐，重建 SQL 才能直接用 vc.norm_title 分组。
+    """
+    fixed = 0
+    last_id = 0
+    while True:
+        rows = (
+            await db.execute(
+                select(VideoCache.id, VideoCache.title, VideoCache.norm_title)
+                .where(VideoCache.id > last_id)
+                .order_by(VideoCache.id)
+                .limit(batch_size)
+            )
+        ).all()
+        if not rows:
+            break
+        last_id = rows[-1][0]
+
+        changes: list[tuple[int, str]] = []
+        for row_id, title, old_norm in rows:
+            new_norm = normalize_title(title or "")
+            if new_norm != (old_norm or ""):
+                changes.append((row_id, new_norm))
+        if not changes:
+            continue
+
+        await db.execute(
+            text(
+                "UPDATE video_cache vc SET norm_title = data.norm "
+                "FROM unnest(cast(:ids as integer[]), cast(:norms as text[])) "
+                "AS data(id, norm) WHERE vc.id = data.id"
+            ),
+            {
+                "ids": [row_id for row_id, _ in changes],
+                "norms": [norm for _, norm in changes],
+            },
+        )
+        await db.commit()
+        fixed += len(changes)
+
+    if fixed:
+        logger.info("video_cache.norm_title 同步完成: %d 条", fixed)
+    return fixed
+
+
 async def migrate_video_cache_norm_title(db: AsyncSession) -> None:
     """为 video_cache 添加 norm_title 列并回填（增量聚合前置迁移）。"""
     try:
@@ -419,7 +475,7 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
                 vc.type_id,
                 vc.remarks,
                 vc.source_updated_at,
-                LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g')) AS norm_title
+                COALESCE(vc.norm_title, '') AS norm_title
             FROM video_cache vc
         ),
         year_freq AS (
@@ -482,16 +538,16 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
         WITH
         year_freq AS (
             SELECT
-                LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')) AS norm_title,
+                COALESCE(norm_title, '') AS norm_title,
                 year,
                 COUNT(*) AS freq,
                 ROW_NUMBER() OVER (
-                    PARTITION BY LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g'))
+                    PARTITION BY COALESCE(norm_title, '')
                     ORDER BY COUNT(*) DESC, year DESC
                 ) AS rn
             FROM video_cache
             WHERE year IS NOT NULL
-            GROUP BY LOWER(REGEXP_REPLACE(TRIM(title), '[《》<>]', '', 'g')), year
+            GROUP BY COALESCE(norm_title, ''), year
         ),
         best_year AS (
             SELECT norm_title, year AS best_year
@@ -509,11 +565,11 @@ async def _rebuild_aggregated_tables_pg(db: AsyncSession) -> bool:
                 vc.type_id,
                 vc.remarks,
                 vc.source_updated_at,
-                LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g')) AS norm_title,
+                COALESCE(vc.norm_title, '') AS norm_title,
                 COALESCE(vc.year, byw.best_year) AS year
             FROM video_cache vc
             LEFT JOIN best_year byw
-                ON byw.norm_title = LOWER(REGEXP_REPLACE(TRIM(vc.title), '[《》<>]', '', 'g'))
+                ON byw.norm_title = COALESCE(vc.norm_title, '')
         )
         SELECT
             av.id,
@@ -692,6 +748,12 @@ async def rebuild_aggregated_tables(db: AsyncSession) -> bool:
     try:
         logger.info("开始重建聚合中间表...")
 
+        # 重建 SQL 直接按 video_cache.norm_title 分组（与增量路径同一个 key）。
+        # 存量行可能是旧版归一化写的，先按当前 normalize_title 对齐。
+        synced = await sync_video_cache_norm_titles(db)
+        if synced:
+            logger.info("重建前同步 norm_title: %d 条", synced)
+
         ok = await _rebuild_aggregated_tables_pg(db)
 
         if ok:
@@ -860,7 +922,6 @@ async def refresh_aggregated_view(
             return False
         async with _aggregated_refresh_lock:
             try:
-                full_rebuild = False
                 if affected_norm_titles:
                     if len(affected_norm_titles) >= _INCREMENTAL_FALLBACK_THRESHOLD:
                         logger.info(
@@ -869,19 +930,15 @@ async def refresh_aggregated_view(
                             _INCREMENTAL_FALLBACK_THRESHOLD,
                         )
                         ok1 = await rebuild_aggregated_tables(db)
-                        full_rebuild = True
                     else:
                         ok1 = await incrementally_update_aggregated_tables(db, affected_norm_titles)
                 else:
                     ok1 = await rebuild_aggregated_tables(db)
-                    full_rebuild = True
 
                 if not ok1:
                     return False
-                if full_rebuild:
-                    # 重建 SQL 不计算视频级分类；不在这里补，下次启动就要把
-                    # 二十多万行逐个 UPDATE，启动阶段会卡住（端口都不监听）。
-                    await backfill_video_categories(db)
+                # 全量重建已在 rebuild_aggregated_tables 里回填过视频级分类，
+                # 这里不要再补一遍（21 万行 ×2 会把重建时间拖长一倍）。
                 ok2 = await rebuild_recommended_videos(db)
                 return ok2
             except Exception as exc:
