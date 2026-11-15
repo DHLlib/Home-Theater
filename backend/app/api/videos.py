@@ -613,6 +613,18 @@ async def _query_aggregated_cache(
 
         base_query = select(AggregatedVideoV3)
 
+        # 孤儿聚合行（aggregated_sources 里一条来源都没有）不进入列表：
+        # 这种卡片打不开也播不了；更关键的是 Python 侧再丢弃它们会让分页窗口
+        # 错位——窗口扫 100 行只输出 20 条，相邻页大面积返回重复视频，
+        # 前端按 id 做 key 时冲突，表现为同一张卡重复、网格留空位。
+        base_query = base_query.where(
+            exists(
+                select(AggregatedSource.id).where(
+                    AggregatedSource.aggregated_video_id == AggregatedVideoV3.id
+                )
+            )
+        )
+
         # 禁用站点即隐藏：排除只由禁用站点提供的视频
         hidden = await _hidden_video_filter(db)
         if hidden is not None:
@@ -688,11 +700,12 @@ async def _query_aggregated_cache(
             return None
 
         page = pg or 1
-        # 扫描窗口放大 5 倍用于分类禁用过滤的缓冲；offset 必须按同一窗口步进，
-        # 否则相邻页 [offset, offset+window) 大面积重叠 → 跨页返回重复视频。
+        # 扫描窗口放大 5 倍：Python 侧还要按来源类名/禁用分类二次过滤，多取一些
+        # 行避免单页输出不足 per_page。offset 按「输出条数」步进：按窗口步进会让
+        # 相邻页之间整段跳空（第 2 页从第 121 行开始，中间 96 条永远翻不到）。
+        # 注意：任何「丢弃整条视频」的过滤都会让相邻页重叠，所以孤儿聚合行
+        # （aggregated_sources 为空）必须在 SQL 层就排除掉，见上面的 base_query。
         scan_window = per_page * 5
-        # offset 必须按「输出条数」步进：按扫描窗口步进会让相邻页之间整段跳空
-        # （per_page=24 时第 2 页实际从第 121 行开始，中间 96 条永远翻不到）。
         offset = (page - 1) * per_page
 
         if sort == "year":
