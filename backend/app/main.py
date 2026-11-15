@@ -411,6 +411,41 @@ async def _ensure_aggregate_category_column() -> None:
         log.warning(f"初始化视频级分类失败: {exc}")
 
 
+async def _ensure_recommended_video_id_column() -> None:
+    """给 recommended_videos 增加 aggregated_video_id 列并回填（幂等）。
+
+    前端把聚合行 id 当卡片 key；推荐表原先没有这列，只能回退到「标题-年份」，
+    数据出现重复行时会重新撞 key。回填按 (title, year) 对上聚合行。
+    """
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    log = logging.getLogger(__name__)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE recommended_videos "
+                    "ADD COLUMN IF NOT EXISTS aggregated_video_id INTEGER"
+                )
+            )
+            result = await conn.execute(
+                text(
+                    "UPDATE recommended_videos r "
+                    "SET aggregated_video_id = av.id "
+                    "FROM aggregated_videos av "
+                    "WHERE r.aggregated_video_id IS NULL "
+                    "AND av.title = r.title "
+                    "AND av.year IS NOT DISTINCT FROM r.year"
+                )
+            )
+        if result.rowcount:
+            log.info("推荐表回填 aggregated_video_id %d 条", result.rowcount)
+    except Exception as exc:
+        log.warning(f"初始化推荐表 aggregated_video_id 失败: {exc}")
+
+
 async def _ensure_category_aliases(force: bool = False) -> None:
     """首次启动时把现有「站点 × 远程分类」映射聚合成全局别名（幂等）。
 
@@ -479,6 +514,7 @@ async def lifespan(app: FastAPI):
     await _ensure_progress_unique_index()
     await _ensure_category_aliases()
     await _ensure_aggregate_category_column()
+    await _ensure_recommended_video_id_column()
     await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
         await migrate_categories_to_mapping_table(db)

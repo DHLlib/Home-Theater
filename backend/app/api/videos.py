@@ -897,6 +897,7 @@ async def recommended_videos(db: AsyncSession = Depends(get_db)) -> AggregatedLi
         sources = [SourceRef(**s) for s in (r.sources or [])]
         items.append(
             AggregatedVideo(
+                id=r.aggregated_video_id,
                 title=r.title,
                 year=r.year,
                 poster_url=r.poster_url,

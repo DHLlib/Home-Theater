@@ -784,6 +784,7 @@ async def rebuild_recommended_videos(db: AsyncSession) -> bool:
                     continue
                 seen.add(key)
                 items.append({
+                    "aggregated_video_id": v.id,
                     "title": v.title,
                     "year": v.year,
                     "poster_url": v.poster_url,
@@ -808,6 +809,7 @@ async def rebuild_recommended_videos(db: AsyncSession) -> bool:
 
             for rn, item in enumerate(items, start=1):
                 insert_rows.append({
+                    "aggregated_video_id": item["aggregated_video_id"],
                     "title": item["title"],
                     "year": item["year"],
                     "poster_url": item["poster_url"],

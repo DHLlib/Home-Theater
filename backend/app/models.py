@@ -326,12 +326,18 @@ class AggregatedSource(Base):
 
 
 class RecommendedVideo(Base):
-    """预计算推荐视频中间表（替代 mv_recommended_videos 物化视图）。"""
+    """预计算推荐视频中间表（替代 mv_recommended_videos 物化视图）。
+
+    aggregated_video_id 指回 aggregated_videos.id，给前端提供稳定的卡片 key
+    （标题+年份在数据重复时会让 React key 冲突）。不建外键：聚合行被清理后
+    只留下悬空 id 不影响展示，下次重建会整体刷新。
+    """
 
     __tablename__ = "recommended_videos"
     __table_args__ = (Index("ix_recommended_parent", "parent_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    aggregated_video_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
