@@ -75,7 +75,7 @@ export default function Home() {
     return data?.pages.flat() ?? [];
   }, [data]);
 
-  const mobileGridMinWidth = isMobile ? 130 : 160;
+  const mobileGridMinWidth = isMobile ? 130 : 190;
 
   const allSection = useMemo(() => {
     const list = [...videos];
@@ -226,6 +226,8 @@ export default function Home() {
 
   return (
     <div>
+      <h1 className="visually-hidden">HOME THEATER 片库</h1>
+
       {/* ===== 移动端顶部搜索栏 + 分类 ===== */}
       {isMobile && <MobileSearchBar />}
 
