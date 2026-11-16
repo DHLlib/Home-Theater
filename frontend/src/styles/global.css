@@ -593,6 +593,29 @@ nav.top-nav.hidden {
   border-color: var(--border-hover);
 }
 
+/* 平板宽度：品牌 + 六个链接 + 搜索 + 主题必须放得下一行，否则搜索框会压住链接 */
+@media (max-width: 1100px) {
+  nav.top-nav {
+    gap: 14px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .top-nav-left {
+    gap: 14px;
+  }
+  .nav-brand {
+    font-size: 14px;
+    letter-spacing: 0.12em;
+  }
+  .nav-link {
+    padding: 6px 9px;
+    font-size: 13px;
+  }
+  .nav-search {
+    width: clamp(150px, 22vw, 220px);
+  }
+}
+
 /* 顶部内嵌分类导航（保留兼容） */
 .category-bar--inline .category-bar-parents {
   gap: 4px;
