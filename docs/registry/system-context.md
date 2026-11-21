@@ -1,6 +1,7 @@
 # System Context — Home Theater v0.1.1
 
-**最后更新**: 2026-11-08  
+**最后更新**: 2026-11-21
+
 **环境**: Python 3.13, FastAPI, React 18, Vite 5, PostgreSQL 16, xgplayer v3
 
 ---
@@ -44,7 +45,9 @@
 | 禁用站点隐藏内容 | `videos._hidden_video_filter` | 禁用站点从列表/搜索/分类计数中隐藏 |
 | 浅色主题 | `styles/theme.css`, `lib/theme.ts` | 深色 `cinema` / 浅色 `light`，偏好持久化 |
 | 启动自愈 | `main.CacheControlStaticFiles` + `lazyWithRetry` | 旧 HTML 引用失效 chunk 时自动重载，不再白屏 |
-| 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；不可达线路置灰并缓存 3 分钟 |
+| 默认分类首页 | `api/videos.py`、`components/HomeCategorySections.tsx`、`hooks/useHomeSections.ts` | 七个父类固定顺序，每类最多 8 条最新视频且仅返回非空分区；默认不再展示推荐或混合视频墙 |
+| 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；校验 HTTP 状态，HEAD 受限时 Range GET 复核 |
+| 来源质量推荐 | `playback_events`、`source_quality.py`、`usePlaySources.ts` | 近 30 天真实播放统计驱动排序；样本 ≥3 且平滑成功率达标才标记推荐，不自动选源 |
 | 分类映射工作台 | `services/category_map.py`, `api/category_map.py` | 按站点聚类（≥0.75）+ 建议 + 批量 upsert + 撤销；分类页实测 258ms |
 | 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
@@ -76,7 +79,8 @@
 ### Videos (`/api/videos`)
 - `GET    /api/videos` → list_videos（聚合表，`category=`/`sort=`/`mode=`）
 - `GET    /api/videos/search` → search_videos（短词前缀索引 + 回退）
-- `GET    /api/videos/recommended` → recommended_videos（60s 缓存）
+- `GET    /api/videos/recommended` → recommended_videos（60s 缓存；默认首页不展示）
+- `GET    /api/videos/home-sections` → 默认首页分区，返回 `{sections: [{category, items}]}`（七父类固定顺序，每类最多 8 条最新聚合视频，仅非空分类）
 - `GET    /api/videos/categories/stats` → category_stats（仅非空分类，60s 缓存）
 - `POST   /api/videos/detail` → video_detail（缓存优先，过期 stale-while-revalidate）
 - `GET    /api/videos/crawler/status` → crawler_status
@@ -104,7 +108,8 @@
 - `POST   /api/system-categories` / `PATCH` / `DELETE` → 维护（受保护分类不可删）
 
 ### Play (`/api/play`)
-- `GET    /api/play/sources` → 播放源列表
+- `GET    /api/play/sources` → 播放源列表（真实质量排序 + 推荐理由）
+- `POST   /api/play/events` → 批量上报播放事件（event_id 幂等，原始事件保留 90 天）
 - `GET    /api/play/episodes` → 集列表（含 `reachable` 探测结果，缓存 3 分钟）
 - `GET    /api/play/proxy-m3u8` → m3u8 去广告代理
 - `GET    /api/play/accel/m3u8` → 播放加速：改写 playlist 分片地址（需开启加速）
@@ -134,7 +139,7 @@
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
-| `/` | Home | 聚合列表 + 分类栏 + 推荐 + 详情弹窗 |
+| `/` | Home | 默认七父类分区 + 吸顶分类锚点；搜索/分类筛选复用完整聚合列表，详情弹窗 |
 | `/search` | Search | 搜索结果 |
 | `/dashboard` | Dashboard | 统计看板 |
 | `/favorites` | Favorites | 收藏 |
@@ -155,13 +160,14 @@
 | VideoCache | `video_cache` | `(site_id, original_id)` UNIQUE，`norm_title+year` 索引，`title` trgm GIN |
 | AggregatedVideoV3 | `aggregated_videos` | `(norm_title, COALESCE(year,-1))` UNIQUE（`uix_aggregated_videos_norm_year`），`system_category`，`latest_updated_at` 索引 |
 | AggregatedSource | `aggregated_sources` | `(aggregated_video_id, site_id)` UNIQUE，`type_name` 索引 |
-| RecommendedVideo | `recommended_videos` | 首页推荐，定期重建 |
+| RecommendedVideo | `recommended_videos` | 推荐数据，定期重建；默认首页不再展示 |
 | SystemCategory | `system_categories` | 名称 UNIQUE，父子层级 |
 | CategoryAlias | `category_aliases` | `name_key` PK，`raw_names` 数组 |
 | SiteCategoryOverride | `site_category_overrides` | `(site_id, name_key)` UNIQUE |
 | SiteCategoryMapping | `site_category_mappings` | 旧映射，仅实时回退路径使用 |
 | Favorite | `favorites` | `(title, year)` UNIQUE |
 | PlayProgress | `play_progress` | `(title, year)` UNIQUE（NULLS NOT DISTINCT），`updated_at` 索引 |
+| PlaybackEvent | `playback_events` | `event_id` UNIQUE；`(site_id, original_id, created_at)` 索引；90 天保留 |
 | DownloadTask | `download_tasks` | `status`/`created_at` 索引 |
 | SiteProbeLog | `site_probe_logs` | 探测记录 |
 | CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |
@@ -180,6 +186,8 @@
 7. **播放探测**：交互请求超时 4s、不重试；每来源 6s 硬超时；探测结果缓存 3 分钟。
 8. **健康监控**：每 10 分钟探测，连续 3 次失败禁用、连续 2 次成功恢复。
 9. **进度上报**：每 15 秒，`beforeunload` 用 `sendBeacon` 兜底。
+10. **来源推荐**：播放事件按 `event_id` 幂等写入；质量按来源聚合近 30 天数据，推荐只影响排序与标识，不自动选中。
+11. **默认首页**：按电影 → 连续剧 → 综艺 → 动漫 → 短剧 → 体育 → 其他展示非空父类，每类最多 8 条最新聚合视频；不展示推荐或混合视频墙。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
 
 ---
 
