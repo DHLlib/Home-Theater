@@ -11,7 +11,8 @@
   --bp-tablet-max: 1023px;
   --bp-desktop-min: 1024px;
 
-  /* === 底部导航高度 === */
+  /* === 顶部 / 底部导航高度 === */
+  --top-nav-height: 62px;
   --bottom-nav-height: 56px;
 
   /* === 基底（暗室，但不死黑：纯黑会让层级塌陷） === */
@@ -468,7 +469,7 @@ nav.top-nav {
   display: flex;
   align-items: center;
   gap: 24px;
-  min-height: 62px;
+  min-height: var(--top-nav-height);
   padding: env(safe-area-inset-top) 24px 0;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
@@ -477,6 +478,14 @@ nav.top-nav {
 
 nav.top-nav.hidden {
   transform: translateY(-100%);
+}
+
+nav.top-nav + main {
+  --home-category-nav-offset: var(--top-nav-height);
+}
+
+nav.top-nav.hidden + main {
+  --home-category-nav-offset: 0px;
 }
 
 .nav-brand {
