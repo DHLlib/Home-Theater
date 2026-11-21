@@ -16,6 +16,12 @@ class Episode:
     index: int
 
 
+def is_hls_suffix(suffix: str) -> bool:
+    """播放、下载与文件命名共用的 HLS 后缀判定。"""
+    normalized = suffix.strip().lower()
+    return normalized.endswith(("m3u8", "yun")) or normalized in {"360zy", "ckplayer"}
+
+
 def parse_episodes(raw: str) -> list[Episode]:
     """把 '集数$地址$后缀\\n...' 多行字符串解析为 Episode 列表。
 

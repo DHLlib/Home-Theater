@@ -9,6 +9,7 @@ import {
 import Player from "xgplayer";
 import "xgplayer/dist/index.min.css";
 import HlsJsPlugin from "xgplayer-hls.js";
+import { analyzeFormat } from "../utils/mediaFormat";
 
 export interface VideoPlayerHandle {
   seekTo: (seconds: number) => void;
@@ -31,41 +32,6 @@ interface VideoPlayerProps {
   onSwitchSource?: () => void;
   onReady?: () => void;
   onEnded?: () => void;
-}
-
-interface FormatInfo {
-  isM3u8: boolean;
-  isDirectVideo: boolean;
-}
-
-const _UNSUPPORTED_SUFFIXES = new Set([
-  "flv",
-  "rmvb",
-  "rm",
-  "avi",
-  "wmv",
-  "mpeg",
-  "mpg",
-  "dat",
-  "vob",
-  "swf",
-]);
-
-function analyzeFormat(src: string, suffix: string): FormatInfo {
-  const suffixLower = suffix.toLowerCase();
-  const urlLower = src.toLowerCase();
-  const isM3u8 =
-    suffixLower === "m3u8" ||
-    suffixLower === "ckplayer" ||
-    suffixLower === "ffm3u8" ||
-    suffixLower.endsWith("m3u8") ||
-    suffixLower.endsWith("yun") ||
-    urlLower.endsWith(".m3u8") ||
-    urlLower.includes(".m3u8?");
-  const isDirectVideo =
-    suffixLower === "" ||
-    (!isM3u8 && !_UNSUPPORTED_SUFFIXES.has(suffixLower));
-  return { isM3u8, isDirectVideo };
 }
 
 function lockMaxQuality(player: Player, timerRef: React.MutableRefObject<number | null>) {

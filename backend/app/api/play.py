@@ -34,7 +34,7 @@ from app.schemas import Episode, PlaybackEventBatch
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.aggregator import normalize_title
 from app.services.m3u8_sanitizer import sanitize_m3u8
-from app.services.parser import parse_episodes
+from app.services.parser import is_hls_suffix, parse_episodes
 from app.services.resolver import resolve_share_page
 from app.services.source_client import SourceClient, _safe_year
 from app.services.source_quality import (
@@ -463,13 +463,9 @@ async def get_episodes(
             elif isinstance(real_url, Exception):
                 logger.warning("play_share_failed site=%s ep=%s error=%s", site.name, episodes[idx].ep_name, real_url)
 
-    # 后缀归一化：所有 M3U8/Yun 类统一为 ffm3u8
-    # 已知模式：xxxm3u8 / xxxyun / 360zy / ckplayer / mp4 / webm
+    # 播放、下载与文件命名共用同一套 HLS 后缀判定。
     for i, e in enumerate(episodes):
-        suffix_lower = e.suffix.lower()
-        if suffix_lower.endswith("m3u8") or suffix_lower.endswith("yun"):
-            episodes[i] = replace(e, suffix="ffm3u8")
-        elif suffix_lower == "360zy":
+        if is_hls_suffix(e.suffix):
             episodes[i] = replace(e, suffix="ffm3u8")
 
     # 播放前探测线路是否可达（必须在改写成后端代理之前探测真实地址）
@@ -487,7 +483,7 @@ async def get_episodes(
     # 若开启全局去广告，HLS 地址走后端代理清洗 playlist
     if await is_ad_filter_enabled():
         for i, e in enumerate(episodes):
-            if e.suffix.lower().endswith(("m3u8", "yun")):
+            if is_hls_suffix(e.suffix):
                 proxy = (
                     f"/api/play/proxy-m3u8?site_id={site.id}"
                     f"&url={quote(e.url, safe='')}"

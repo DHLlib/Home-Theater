@@ -14,6 +14,7 @@ from app.models import AppConfig, DownloadTask, Site
 from app.schemas import DownloadBatchCreate, DownloadBatchResult, DownloadTaskCreate
 from app.services.downloader import pause as dl_pause, request_stop, resume as dl_resume
 from app.services.notify_sender import Event, notify_sender
+from app.services.parser import is_hls_suffix
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def _build_download_file_path(
     safe_title = _sanitize_filename(title)
     safe_episode = _sanitize_filename(episode_name)
     suffix_lower = suffix.lower()
-    if suffix_lower.endswith(("m3u8", "yun")):
+    if is_hls_suffix(suffix):
         ext = "m3u8"
     elif suffix_lower in ("mp4", "webm"):
         ext = suffix_lower

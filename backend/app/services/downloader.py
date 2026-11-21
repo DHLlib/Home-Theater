@@ -12,12 +12,11 @@ from urllib.parse import urljoin, urlparse
 import aiofiles
 import httpx
 
-from app.services.tls import get_ssl_context
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.constants import DEFAULT_USER_AGENT
-
 from app.constants import (
     DOWNLOAD_BATCH_COMMIT_CHUNKS,
     DOWNLOAD_BATCH_COMMIT_SEGMENTS,
@@ -34,20 +33,15 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
 )
 from app.db import async_session_factory
-from app.config import settings
 from app.models import AppConfig, DownloadTask, Site
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.m3u8_sanitizer import sanitize_m3u8_text
 from app.services.notify_sender import Event, notify_sender
+from app.services.parser import is_hls_suffix
 from app.services.resolver import resolve_share_page
+from app.services.tls import get_ssl_context
 
 logger = logging.getLogger(__name__)
-
-def _is_m3u8_suffix(suffix: str) -> bool:
-    """与前端播放器保持一致：后缀以 m3u8 或 yun 结尾视为 HLS 流。"""
-    if not suffix:
-        return False
-    return suffix.lower().endswith(("m3u8", "yun"))
 
 
 class TaskDeletedError(Exception):
@@ -347,7 +341,7 @@ async def _run_download(task_id: int) -> None:
         # 创建目录
         Path(task.file_path).parent.mkdir(parents=True, exist_ok=True)
 
-        if _is_m3u8_suffix(task.suffix):
+        if is_hls_suffix(task.suffix):
             await _run_m3u8_download(task_id, task, site_id, base_url, site_name, stop_event)
         else:
             await _run_direct_download(task_id, task, site_id, base_url, site_name, stop_event)
