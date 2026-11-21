@@ -41,10 +41,18 @@ export default function SourcePicker(props: SourcePickerProps) {
               className="sp-item"
             >
               <span className="sp-item-name">
-                {s.site_name || `站点 #${s.site_id}`}
+                <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                {s.recommended && (
+                  <span className="source-recommended">推荐</span>
+                )}
               </span>
               {subtitle && (
                 <span className="sp-item-meta tnum">{subtitle}</span>
+              )}
+              {s.recommendation_reason && (
+                <span className="sp-item-meta tnum">
+                  {s.recommendation_reason}
+                </span>
               )}
             </button>
           </li>

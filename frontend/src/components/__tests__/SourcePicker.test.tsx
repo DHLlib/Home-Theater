@@ -29,6 +29,30 @@ describe("SourcePicker (AC-007)", () => {
     );
   });
 
+  it("展示真实推荐理由但不自动选择来源", () => {
+    const onConfirm = vi.fn();
+    const recommended = [
+      {
+        ...sources[0],
+        recommended: true,
+        recommendation_reason: "近 30 天 10 次播放 · 起播成功率 90%",
+      },
+      sources[1],
+    ];
+    render(
+      <SourcePicker
+        sources={recommended}
+        open={true}
+        onCancel={() => {}}
+        onConfirm={onConfirm}
+      />
+    );
+
+    expect(screen.getByText("推荐")).toBeInTheDocument();
+    expect(screen.getByText(/起播成功率 90%/)).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it("无可用源时显示提示", () => {
     render(
       <SourcePicker

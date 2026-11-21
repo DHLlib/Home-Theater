@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from "rea
 import { lazyWithRetry } from "../utils/chunkReload";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Drawer } from "vaul";
-import { getEpisodes, getSources } from "../api/play";
+import { getEpisodes } from "../api/play";
 import { getStreamAccel } from "../api/settings";
+import { usePlaySources } from "../hooks/usePlaySources";
 import { getProgress, upsertProgress } from "../api/progress";
 import type { VideoPlayerHandle } from "../components/VideoPlayer";
 import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
@@ -20,7 +21,17 @@ import {
   SkipForwardIcon,
   ListIcon,
 } from "../components/icons";
-import type { Episode, PlayProgress, PlaySource } from "../types";
+import {
+  createPlaybackId,
+  flushPlaybackEvents,
+  queuePlaybackEvent,
+} from "../utils/playbackTelemetry";
+import type {
+  Episode,
+  PlaybackEventType,
+  PlayProgress,
+  PlaySource,
+} from "../types";
 
 // 按需加载播放器：xgplayer + xgplayer-hls.js 体积较大，仅进播放页时才加载
 const VideoPlayer = lazyWithRetry(() => import("../components/VideoPlayer"));
@@ -41,15 +52,21 @@ export default function Player() {
   const yearRaw = searchParams.get("year");
   const year = yearRaw ? Number(yearRaw) : null;
   const initialEp = Number(searchParams.get("ep") || "0");
+  const sourceRequestKey = `${site_id}:${original_id}`;
   const passedEpisodes = (location.state as { episodes?: Episode[] } | null)
     ?.episodes;
 
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodesOwner, setEpisodesOwner] = useState("");
   const [currentIndex, setCurrentIndex] = useState(initialEp);
   const [progressRestored, setProgressRestored] = useState(false);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sources, setSources] = useState<PlaySource[]>([]);
+  const { data: playSourceData } = usePlaySources(title, year);
+  const sources = useMemo(
+    () => playSourceData?.sources ?? [],
+    [playSourceData]
+  );
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -104,43 +121,134 @@ export default function Player() {
 
   useEffect(() => {
     if (!site_id || !original_id) return;
+    let cancelled = false;
 
     // 优先使用 Detail 页传递过来的 episodes（避免重复请求）
     // 用 ref 保证只消费一次，换源后不再复用旧源的 passedEpisodes
     if (passedEpisodes && passedEpisodes.length > 0 && !passedConsumedRef.current) {
       passedConsumedRef.current = true;
       setEpisodes(passedEpisodes);
+      setEpisodesOwner(sourceRequestKey);
       setCachedEpisodes(site_id, original_id, passedEpisodes);
       return;
     }
 
+    setEpisodes([]);
+    setEpisodesOwner("");
+
     // 先读缓存立即渲染
     getCachedEpisodes<Episode[]>(site_id, original_id).then((cached) => {
-      if (cached) {
+      if (cached && !cancelled) {
         setEpisodes(cached);
+        setEpisodesOwner(sourceRequestKey);
       }
     });
 
     // 再调 API 刷新并写入缓存
     getEpisodes(site_id, original_id)
       .then((eps) => {
+        if (cancelled) return;
         setEpisodes(eps);
+        setEpisodesOwner(sourceRequestKey);
         setCachedEpisodes(site_id, original_id, eps);
       })
       .catch(() => {
         // API 失败时保持已有缓存/传入数据，不阻断播放
       });
+    return () => {
+      cancelled = true;
+    };
   }, [site_id, original_id, passedEpisodes]);
 
-  // 加载该视频的所有可用源
-  useEffect(() => {
-    if (!title) return;
-    getSources(title, year)
-      .then((res) => setSources(res.sources))
-      .catch(() => {});
-  }, [title, year]);
+  const current =
+    episodesOwner === sourceRequestKey ? episodes[currentIndex] : undefined;
+  const hasCurrent = Boolean(current);
+  const playbackKey =
+    site_id && original_id
+      ? `${site_id}:${original_id}:${currentIndex}`
+      : "";
+  const playbackSessionRef = useRef<{
+    key: string;
+    id: string;
+    siteId: number;
+    originalId: string;
+    episodeIndex: number;
+    startedAt: number;
+  } | null>(null);
 
-  const current = episodes[currentIndex];
+  const recordPlaybackEvent = useCallback(
+    (
+      eventType: PlaybackEventType,
+      firstFrameMs: number | null = null,
+      error: string | null = null
+    ) => {
+      const session = playbackSessionRef.current;
+      if (!session) return;
+      queuePlaybackEvent({
+        event_id: createPlaybackId(),
+        session_id: session.id,
+        site_id: session.siteId,
+        original_id: session.originalId,
+        episode_index: session.episodeIndex,
+        event_type: eventType,
+        first_frame_ms: firstFrameMs,
+        error,
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!playbackKey) {
+      playbackSessionRef.current = null;
+      return;
+    }
+    if (!hasCurrent) {
+      if (playbackSessionRef.current?.key !== playbackKey) {
+        playbackSessionRef.current = null;
+      }
+      return;
+    }
+    if (playbackSessionRef.current?.key === playbackKey) return;
+    playbackSessionRef.current = {
+      key: playbackKey,
+      id: createPlaybackId(),
+      siteId: site_id,
+      originalId: original_id,
+      episodeIndex: current?.index ?? currentIndex,
+      startedAt: performance.now(),
+    };
+    recordPlaybackEvent("attempt");
+  }, [site_id, original_id, playbackKey, hasCurrent, recordPlaybackEvent]);
+
+  useEffect(() => {
+    const flush = () => flushPlaybackEvents();
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
+
+  const handleFirstFrame = useCallback(() => {
+    const startedAt = playbackSessionRef.current?.startedAt;
+    if (startedAt == null) return;
+    recordPlaybackEvent(
+      "first_frame",
+      Math.max(0, Math.round(performance.now() - startedAt))
+    );
+  }, [recordPlaybackEvent]);
+
+  const handlePlaybackError = useCallback(
+    (message: string) => {
+      recordPlaybackEvent("fatal_error", null, message.slice(0, 500));
+    },
+    [recordPlaybackEvent]
+  );
+
+  const handleStall = useCallback(() => {
+    recordPlaybackEvent("stall");
+  }, [recordPlaybackEvent]);
 
   // 播放加速：开启后 m3u8 走后端多连接代理，绕过资源站的单连接限速
   const [accelEnabled, setAccelEnabled] = useState(false);
@@ -422,6 +530,7 @@ export default function Player() {
   }, [sidebarOpen, toggleFullscreen, resetControlsTimer]);
 
   const handleEnded = () => {
+    recordPlaybackEvent("ended");
     if (currentIndex < episodes.length - 1) {
       setCurrentIndex((i) => i + 1);
     }
@@ -585,8 +694,11 @@ export default function Player() {
               ref={playerRef}
               src={playSrc}
               suffix={current?.suffix || ""}
+              playbackKey={playbackKey}
               autoplay
-              onError={() => {}}
+              onError={handlePlaybackError}
+              onFirstFrame={handleFirstFrame}
+              onStall={handleStall}
               onSwitchSource={() => setSourcePanelOpen(true)}
               onEnded={handleEnded}
             />
@@ -790,10 +902,23 @@ export default function Player() {
                       onClick={() => handleSwitchSource(src)}
                     >
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                        <span>{src.site_name}</span>
+                        <span className="row" style={{ gap: 8 }}>
+                          <span>{src.site_name}</span>
+                          {src.recommended && (
+                            <span className="source-recommended">推荐</span>
+                          )}
+                        </span>
                         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                           {src.episode_count}集 · {src.suffix}
                         </span>
+                        {src.recommendation_reason && (
+                          <span
+                            className="source-quality tnum"
+                            style={{ fontSize: 11 }}
+                          >
+                            {src.recommendation_reason}
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -983,12 +1108,25 @@ export default function Player() {
                               gap: 2,
                             }}
                           >
-                            <span>{src.site_name}</span>
+                            <span className="row" style={{ gap: 8 }}>
+                              <span>{src.site_name}</span>
+                              {src.recommended && (
+                                <span className="source-recommended">推荐</span>
+                              )}
+                            </span>
                             <span
                               style={{ fontSize: 11, color: "var(--text-muted)" }}
                             >
                               {src.episode_count}集 · {src.suffix}
                             </span>
+                            {src.recommendation_reason && (
+                              <span
+                                className="source-quality tnum"
+                                style={{ fontSize: 11 }}
+                              >
+                                {src.recommendation_reason}
+                              </span>
+                            )}
                           </div>
                         </button>
                       );

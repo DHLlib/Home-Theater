@@ -6,6 +6,12 @@ import { createDownloadBatch } from "../api/downloads";
 import { getFavoriteStatus, toggleFavorite } from "../api/favorites";
 import { getEpisodes } from "../api/play";
 import { useDetailQuery } from "../hooks/useVideos";
+import {
+  mergeSourceQuality,
+  orderSourcesByQuality,
+  playSourceKey,
+  usePlaySources,
+} from "../hooks/usePlaySources";
 import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "./EpisodeList";
 import PosterImage from "./PosterImage";
@@ -80,6 +86,23 @@ export default function DetailContent({
   );
   const detail = detailResp?.sources ?? [];
   const systemCategory = detailResp?.system_category ?? null;
+  const { data: playSourceResponse } = usePlaySources(item.title, item.year);
+  const playSources = useMemo(
+    () => playSourceResponse?.sources ?? [],
+    [playSourceResponse]
+  );
+  const sortedDetail = useMemo(
+    () => orderSourcesByQuality(detail, playSources),
+    [detail, playSources]
+  );
+  const playSourceByKey = useMemo(
+    () => new Map(playSources.map((source) => [playSourceKey(source), source])),
+    [playSources]
+  );
+  const pickerSources = useMemo(
+    () => mergeSourceQuality(item.sources, playSources),
+    [item.sources, playSources]
+  );
 
   const detailReady = !isLoading && detail.length > 0;
 
@@ -127,7 +150,8 @@ export default function DetailContent({
 
   const handlePlay = () => {
     if (!detailReady) return;
-    const target = detail.find((s) => s.episodes.length > 0) ?? detail[0];
+    const target =
+      sortedDetail.find((s) => s.episodes.length > 0) ?? sortedDetail[0];
     if (target) {
       setExpandedSources((prev) => new Set(prev).add(sourceKey(target)));
     }
@@ -497,8 +521,9 @@ export default function DetailContent({
             </span>
           </div>
           <div className="source-list">
-            {detail.map((s) => {
+            {sortedDetail.map((s) => {
             const key = sourceKey(s);
+            const quality = playSourceByKey.get(playSourceKey(s));
             const expanded = expandedSources.has(key);
             return (
               <div
@@ -511,20 +536,30 @@ export default function DetailContent({
                   onClick={() => toggleSource(key)}
                   aria-expanded={expanded}
                 >
-                  <span className="row" style={{ alignItems: "center", gap: 8 }}>
-                    <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                    {s.type_name && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: "var(--text-muted)",
-                          padding: "1px 6px",
-                          background: "var(--bg-surface)",
-                          borderRadius: 4,
-                          border: "1px solid var(--border)",
-                        }}
-                      >
-                        {s.type_name}
+                  <span className="source-name-block">
+                    <span className="row" style={{ alignItems: "center", gap: 8 }}>
+                      <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                      {quality?.recommended && (
+                        <span className="source-recommended">推荐</span>
+                      )}
+                      {s.type_name && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-muted)",
+                            padding: "1px 6px",
+                            background: "var(--bg-surface)",
+                            borderRadius: 4,
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          {s.type_name}
+                        </span>
+                      )}
+                    </span>
+                    {quality?.recommendation_reason && (
+                      <span className="source-quality tnum">
+                        {quality.recommendation_reason}
                       </span>
                     )}
                   </span>
@@ -564,7 +599,7 @@ export default function DetailContent({
 
       <SourcePicker
         open={pickerOpen}
-        sources={item.sources}
+        sources={pickerSources}
         title="选择下载源"
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmSource}

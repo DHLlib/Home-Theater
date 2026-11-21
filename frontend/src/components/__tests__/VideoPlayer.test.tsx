@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import VideoPlayer from "../VideoPlayer";
 import type { VideoPlayerHandle } from "../VideoPlayer";
@@ -11,6 +11,7 @@ const mockDestroy = vi.fn();
 const mockSwitchURL = vi.fn();
 const mockPlayNext = vi.fn();
 const mockOnce = vi.fn();
+let mockHandlers: Record<string, (...args: any[]) => void> = {};
 
 function createMockPlayer() {
   return {
@@ -23,7 +24,9 @@ function createMockPlayer() {
     destroy: mockDestroy,
     switchURL: mockSwitchURL,
     playNext: mockPlayNext,
-    on: vi.fn(),
+    on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+      mockHandlers[event] = handler;
+    }),
     once: mockOnce,
     off: vi.fn(),
   };
@@ -41,6 +44,7 @@ vi.mock("xgplayer-hls.js", () => ({
 
 describe("VideoPlayer (xgplayer)", () => {
   beforeEach(() => {
+    mockHandlers = {};
     mockSeek.mockClear();
     mockPlay.mockClear();
     mockPause.mockClear();
@@ -87,6 +91,51 @@ describe("VideoPlayer (xgplayer)", () => {
       <VideoPlayer src="http://example.com/video.flv" suffix="flv" />
     );
     expect(screen.getByText(/暂不支持/)).toBeInTheDocument();
+  });
+
+  it("每个播放键只上报一次首帧并去重连续卡顿", () => {
+    const onFirstFrame = vi.fn();
+    const onStall = vi.fn();
+    const { rerender } = render(
+      <VideoPlayer
+        src="http://example.com/a.mp4"
+        suffix="mp4"
+        playbackKey="episode-1"
+        onFirstFrame={onFirstFrame}
+        onStall={onStall}
+      />
+    );
+
+    act(() => {
+      mockHandlers.loadeddata();
+      mockHandlers.loadeddata();
+      mockHandlers.waiting();
+    });
+    expect(onFirstFrame).toHaveBeenCalledOnce();
+    expect(onStall).not.toHaveBeenCalled();
+
+    act(() => {
+      mockHandlers.playing();
+      mockHandlers.waiting();
+      mockHandlers.waiting();
+      mockHandlers.playing();
+    });
+    expect(onStall).toHaveBeenCalledOnce();
+    expect(onFirstFrame).toHaveBeenCalledOnce();
+
+    rerender(
+      <VideoPlayer
+        src="http://example.com/a.mp4"
+        suffix="mp4"
+        playbackKey="episode-2"
+        onFirstFrame={onFirstFrame}
+        onStall={onStall}
+      />
+    );
+    act(() => {
+      mockHandlers.loadeddata();
+    });
+    expect(onFirstFrame).toHaveBeenCalledTimes(2);
   });
 
   it("切换 src 时重置播放进度到 0", () => {

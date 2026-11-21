@@ -4,24 +4,45 @@ import time
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
-
-import httpx
-
-from app.services.tls import get_ssl_context
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from app.errors import site_not_found, video_not_found, external_error
-from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from urllib.parse import quote
 
-from app.constants import DEFAULT_USER_AGENT, HTTP_TIMEOUT_RESOLVE
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import settings
+from app.constants import (
+    DEFAULT_USER_AGENT,
+    HTTP_TIMEOUT_RESOLVE,
+    PLAYBACK_EVENT_RETENTION_DAYS,
+    PLAYBACK_QUALITY_COLD_SCORE,
+)
 from app.db import get_db
-from app.models import Site, VideoCache
-from app.schemas import Episode
+from app.errors import external_error, site_not_found, video_not_found
+from app.models import (
+    AggregatedSource,
+    AggregatedVideoV3,
+    PlaybackEvent,
+    Site,
+    VideoCache,
+    _utcnow,
+)
+from app.schemas import Episode, PlaybackEventBatch
 from app.services.ad_filter import is_ad_filter_enabled
+from app.services.aggregator import normalize_title
 from app.services.m3u8_sanitizer import sanitize_m3u8
+from app.services.parser import parse_episodes
+from app.services.resolver import resolve_share_page
+from app.services.source_client import SourceClient, _safe_year
+from app.services.source_quality import (
+    is_recommendable,
+    load_source_quality,
+    quality_reason,
+    quality_score,
+)
 from app.services.stream_accel import (
     browser_headers,
     cache_playlist_text,
@@ -37,16 +58,14 @@ from app.services.stream_accel import (
     rewrite_playlist,
 )
 from app.services.stream_settings import get_stream_accel
-from app.services.parser import parse_episodes
-from app.services.resolver import resolve_share_page
-from app.services.source_client import SourceClient, _safe_year
+from app.services.tls import get_ssl_context
 
 router = APIRouter(prefix="/play", tags=["play"])
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = settings.play_cache_ttl_seconds
 
-# 播放前线路探测：任何 HTTP 响应都算可达，网络错误/超时算不可达
+# 播放前线路探测：2xx/3xx 算可达；HEAD 受限时用 Range GET 复核
 _PROBE_TIMEOUT = 1.5
 _PROBE_CONCURRENCY = 16
 _PROBE_BUDGET = 4.0
@@ -61,25 +80,32 @@ async def _probe_url(client, url: str) -> bool:
     if cached is not None and now - cached[0] < _PROBE_TTL:
         return cached[1]
 
-    ok = False
-    try:
-        await client.head(url, timeout=_PROBE_TIMEOUT, follow_redirects=True)
-        ok = True
-    except (httpx.TimeoutException, httpx.ConnectError):
-        # 连接/读取超时说明主机不可达，不再用 GET 重试一遍白等
-        ok = False
-    except Exception:
-        # 部分 CDN 不支持 HEAD，回退到 Range GET 只取 1 字节
+    async def range_get_ok() -> bool:
         try:
-            await client.get(
+            response = await client.get(
                 url,
                 timeout=_PROBE_TIMEOUT,
                 headers={"Range": "bytes=0-0"},
                 follow_redirects=True,
             )
-            ok = True
+            return 200 <= response.status_code < 400
         except Exception:
+            return False
+
+    try:
+        response = await client.head(
+            url, timeout=_PROBE_TIMEOUT, follow_redirects=True
+        )
+        if 200 <= response.status_code < 400:
+            ok = True
+        elif response.status_code in (400, 401, 403, 405, 501):
+            ok = await range_get_ok()
+        else:
             ok = False
+    except (httpx.TimeoutException, httpx.ConnectError):
+        ok = False
+    except Exception:
+        ok = await range_get_ok()
 
     _probe_cache[url] = (now, ok)
     return ok
@@ -112,12 +138,23 @@ async def _probe_episodes(urls: list[str]) -> dict[str, bool]:
     return results
 
 
+class PlaySourceQualityOut(BaseModel):
+    attempts: int
+    success_rate: float
+    avg_first_frame_ms: int | None
+    stall_count: int
+    last_success_at: datetime | None
+
+
 class PlaySourceOut(BaseModel):
     site_id: int
     site_name: str
     original_id: str
     episode_count: int
     suffix: str
+    recommended: bool = False
+    recommendation_reason: str | None = None
+    quality: PlaySourceQualityOut | None = None
 
 
 class PlaySourcesResponse(BaseModel):
@@ -169,34 +206,98 @@ async def proxy_m3u8(url: str, site_id: int, db: AsyncSession = Depends(get_db))
     )
 
 
+@router.post("/events", status_code=202)
+async def record_playback_events(
+    req: PlaybackEventBatch,
+    db: AsyncSession = Depends(get_db),
+):
+    site_ids = {event.site_id for event in req.events}
+    result = await db.execute(select(Site.id).where(Site.id.in_(site_ids)))
+    existing_ids = set(result.scalars().all())
+    missing_ids = site_ids - existing_ids
+    if missing_ids:
+        raise site_not_found(min(missing_ids))
+
+    values = [
+        {
+            "event_id": event.event_id,
+            "session_id": event.session_id,
+            "site_id": event.site_id,
+            "original_id": event.original_id,
+            "episode_index": event.episode_index,
+            "event_type": event.event_type,
+            "first_frame_ms": event.first_frame_ms,
+            "error": event.error,
+        }
+        for event in req.events
+    ]
+    stmt = pg_insert(PlaybackEvent).values(values).on_conflict_do_nothing(
+        index_elements=["event_id"]
+    )
+    result = await db.execute(stmt)
+    await db.execute(
+        delete(PlaybackEvent).where(
+            PlaybackEvent.created_at
+            < _utcnow() - timedelta(days=PLAYBACK_EVENT_RETENTION_DAYS)
+        )
+    )
+    await db.commit()
+    return {"accepted": max(result.rowcount or 0, 0)}
+
+
 @router.get("/sources", response_model=PlaySourcesResponse)
 async def get_sources(
     title: str,
     year: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """查询指定视频（title + year）的所有可用播放源。"""
+    """查询指定视频的可用播放源，并按真实播放质量排序。"""
     stmt = (
         select(VideoCache, Site.name.label("site_name"))
         .join(Site, VideoCache.site_id == Site.id)
+        .join(
+            AggregatedSource,
+            (AggregatedSource.site_id == VideoCache.site_id)
+            & (AggregatedSource.original_id == VideoCache.original_id),
+        )
+        .join(
+            AggregatedVideoV3,
+            AggregatedVideoV3.id == AggregatedSource.aggregated_video_id,
+        )
         .where(
-            VideoCache.title == title,
+            AggregatedVideoV3.norm_title == normalize_title(title),
+            Site.enabled.is_(True),
             VideoCache.play_url_raw.isnot(None),
             VideoCache.play_url_raw != "",
         )
+        .order_by(Site.sort, Site.id, VideoCache.id)
     )
     if year is not None:
-        stmt = stmt.where(VideoCache.year == year)
+        stmt = stmt.where(AggregatedVideoV3.year == year)
     else:
-        stmt = stmt.where(VideoCache.year.is_(None))
+        stmt = stmt.where(AggregatedVideoV3.year.is_(None))
 
-    result = await db.execute(stmt)
-    rows = result.all()
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        fallback = (
+            select(VideoCache, Site.name.label("site_name"))
+            .join(Site, VideoCache.site_id == Site.id)
+            .where(
+                VideoCache.title == title,
+                Site.enabled.is_(True),
+                VideoCache.play_url_raw.isnot(None),
+                VideoCache.play_url_raw != "",
+            )
+            .order_by(Site.sort, Site.id, VideoCache.id)
+        )
+        if year is not None:
+            fallback = fallback.where(VideoCache.year == year)
+        else:
+            fallback = fallback.where(VideoCache.year.is_(None))
+        rows = (await db.execute(fallback)).all()
 
     sources: list[PlaySourceOut] = []
-    for row in rows:
-        video_cache = row[0]
-        site_name = row[1]
+    for video_cache, site_name in rows:
         episode_count, suffix = _parse_source_info(video_cache.play_url_raw)
         sources.append(
             PlaySourceOut(
@@ -207,6 +308,38 @@ async def get_sources(
                 suffix=suffix,
             )
         )
+
+    pairs = [(source.site_id, source.original_id) for source in sources]
+    quality_map = await load_source_quality(db, pairs)
+
+    def sort_score(source: PlaySourceOut) -> float:
+        score = quality_score(
+            quality_map.get((source.site_id, source.original_id))
+        )
+        return score if score is not None else PLAYBACK_QUALITY_COLD_SCORE
+
+    sources.sort(key=sort_score, reverse=True)
+    for source in sources:
+        stats = quality_map.get((source.site_id, source.original_id))
+        if stats is None:
+            continue
+        source.quality = PlaySourceQualityOut(
+            attempts=stats.attempts,
+            success_rate=round(stats.success_rate, 4),
+            avg_first_frame_ms=(
+                round(stats.avg_first_frame_ms)
+                if stats.avg_first_frame_ms is not None
+                else None
+            ),
+            stall_count=stats.stall_count,
+            last_success_at=stats.last_success_at,
+        )
+        source.recommendation_reason = quality_reason(stats)
+
+    if sources:
+        top = sources[0]
+        if is_recommendable(quality_map.get((top.site_id, top.original_id))):
+            top.recommended = True
 
     logger.info("play_sources title=%s year=%s count=%d", title, year, len(sources))
     return PlaySourcesResponse(sources=sources)

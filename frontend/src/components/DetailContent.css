@@ -241,6 +241,19 @@
   color: var(--text-primary);
 }
 
+.source-name-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.source-header > span:last-child {
+  flex: none;
+  white-space: nowrap;
+}
+
 .source-body {
   padding: 2px 16px 16px;
 }

@@ -7,16 +7,12 @@ export interface Episode {
   reachable?: boolean | null;
 }
 
-export interface PlaySource {
-  site_id: number;
-  site_name: string;
-  original_id: string;
-  episode_count: number;
-  suffix: string;
-}
-
-export interface PlaySourcesResponse {
-  sources: PlaySource[];
+export interface PlaySourceQuality {
+  attempts: number;
+  success_rate: number;
+  avg_first_frame_ms?: number | null;
+  stall_count: number;
+  last_success_at?: string | null;
 }
 
 export interface SourceRef {
@@ -27,6 +23,37 @@ export interface SourceRef {
   category?: string;
   remarks?: string;
   updated_at?: string;
+  recommended?: boolean;
+  recommendation_reason?: string | null;
+  quality?: PlaySourceQuality | null;
+}
+
+export interface PlaySource extends SourceRef {
+  site_name: string;
+  episode_count: number;
+  suffix: string;
+}
+
+export interface PlaySourcesResponse {
+  sources: PlaySource[];
+}
+
+export type PlaybackEventType =
+  | "attempt"
+  | "first_frame"
+  | "stall"
+  | "fatal_error"
+  | "ended";
+
+export interface PlaybackEventInput {
+  event_id: string;
+  session_id: string;
+  site_id: number;
+  original_id: string;
+  episode_index: number;
+  event_type: PlaybackEventType;
+  first_frame_ms?: number | null;
+  error?: string | null;
 }
 
 export interface AggregatedVideo {

@@ -168,6 +168,27 @@ class PlayProgress(Base):
     )
 
 
+class PlaybackEvent(Base):
+    __tablename__ = "playback_events"
+    __table_args__ = (
+        Index("ix_playback_events_source_created", "site_id", "original_id", "created_at"),
+        Index("ix_playback_events_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(String, nullable=False)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    original_id: Mapped[str] = mapped_column(String, nullable=False)
+    episode_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    first_frame_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
 class DownloadTask(Base):
     __tablename__ = "download_tasks"
     __table_args__ = (Index("ix_download_created_at", "created_at"),)

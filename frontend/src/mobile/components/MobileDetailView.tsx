@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useDetailQuery } from "../../hooks/useVideos";
 import {
+  mergeSourceQuality,
+  orderSourcesByQuality,
+  playSourceKey,
+  usePlaySources,
+} from "../../hooks/usePlaySources";
+import {
   toggleFavorite,
   getFavoriteStatus,
 } from "../../api/favorites";
@@ -94,6 +100,23 @@ export default function MobileDetailView() {
     item.sources
   );
   const detail = detailResp?.sources ?? [];
+  const { data: playSourceResponse } = usePlaySources(item.title, item.year);
+  const playSources = useMemo(
+    () => playSourceResponse?.sources ?? [],
+    [playSourceResponse]
+  );
+  const sortedDetail = useMemo(
+    () => orderSourcesByQuality(detail, playSources),
+    [detail, playSources]
+  );
+  const playSourceByKey = useMemo(
+    () => new Map(playSources.map((source) => [playSourceKey(source), source])),
+    [playSources]
+  );
+  const pickerSources = useMemo(
+    () => mergeSourceQuality(item.sources, playSources),
+    [item.sources, playSources]
+  );
 
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [isFavorited, setIsFavorited] = useState(false);
@@ -111,9 +134,9 @@ export default function MobileDetailView() {
   }, []);
 
   useEffect(() => {
-    if (detail.length === 0) return;
-    setExpandedSources(new Set([sourceKey(detail[0])]));
-  }, [detail]);
+    if (sortedDetail.length === 0) return;
+    setExpandedSources(new Set([sourceKey(sortedDetail[0])]));
+  }, [sortedDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +262,7 @@ export default function MobileDetailView() {
   };
 
   const poster = pickPoster(item, detail[0]);
-  const firstSource = detail.find((d) => d.episodes.length > 0);
+  const firstSource = sortedDetail.find((d) => d.episodes.length > 0);
 
   const sourceSubtitle = (s: SourceRef): string | undefined => {
     const d = detail.find(
@@ -389,8 +412,9 @@ export default function MobileDetailView() {
               <span className="dc-sources-hint">选一个来源，展开选集</span>
             </div>
             <div className="source-list">
-              {detail.map((s) => {
+              {sortedDetail.map((s) => {
                 const key = sourceKey(s);
+                const quality = playSourceByKey.get(playSourceKey(s));
                 const expanded = expandedSources.has(key);
                 return (
                   <div
@@ -403,10 +427,20 @@ export default function MobileDetailView() {
                       onClick={() => toggleSource(key)}
                       aria-expanded={expanded}
                     >
-                      <span className="row" style={{ alignItems: "center", gap: 8 }}>
-                        <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                        {s.type_name && (
-                          <span className="source-type">{s.type_name}</span>
+                      <span className="source-name-block">
+                        <span className="row" style={{ alignItems: "center", gap: 8 }}>
+                          <span>{s.site_name || `站点 #${s.site_id}`}</span>
+                          {quality?.recommended && (
+                            <span className="source-recommended">推荐</span>
+                          )}
+                          {s.type_name && (
+                            <span className="source-type">{s.type_name}</span>
+                          )}
+                        </span>
+                        {quality?.recommendation_reason && (
+                          <span className="source-quality tnum">
+                            {quality.recommendation_reason}
+                          </span>
                         )}
                       </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -446,7 +480,7 @@ export default function MobileDetailView() {
 
       <SourcePicker
         open={pickerOpen}
-        sources={item.sources}
+        sources={pickerSources}
         title="选择播放源"
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmSource}

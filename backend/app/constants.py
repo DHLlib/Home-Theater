@@ -69,6 +69,22 @@ BATCH_PROBE_LIMIT = 20               # 单次批量探测最多站点数
 BATCH_PROBE_CONCURRENCY = 5          # 批量探测并发请求数
 
 # ------------------------------------------------------------------
+# 播放质量反馈与来源推荐
+# ------------------------------------------------------------------
+
+PLAYBACK_EVENT_BATCH_LIMIT = 50
+PLAYBACK_EVENT_RETENTION_DAYS = 90
+PLAYBACK_QUALITY_WINDOW_DAYS = 30
+PLAYBACK_QUALITY_MIN_ATTEMPTS = 3
+PLAYBACK_QUALITY_MIN_SUCCESS_RATE = 0.65
+PLAYBACK_QUALITY_COLD_SCORE = 50.0
+PLAYBACK_QUALITY_SUCCESS_WEIGHT = 0.60
+PLAYBACK_QUALITY_STARTUP_WEIGHT = 0.25
+PLAYBACK_QUALITY_SMOOTHNESS_WEIGHT = 0.15
+PLAYBACK_STARTUP_BEST_MS = 1500
+PLAYBACK_STARTUP_WORST_MS = 30000
+
+# ------------------------------------------------------------------
 # 视频列表 / 聚合查询
 # ------------------------------------------------------------------
 

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+from app.constants import PLAYBACK_EVENT_BATCH_LIMIT
 
 
 class Episode(BaseModel):
@@ -10,6 +14,23 @@ class Episode(BaseModel):
     index: int
     # 播放前探测结果：True=可达，False=线路不通，None=未探测（本地代理/超出探测预算）
     reachable: bool | None = None
+
+
+class PlaybackEventIn(BaseModel):
+    event_id: str = Field(..., min_length=1, max_length=64)
+    session_id: str = Field(..., min_length=1, max_length=64)
+    site_id: int
+    original_id: str = Field(..., min_length=1, max_length=255)
+    episode_index: int = Field(..., ge=0)
+    event_type: Literal["attempt", "first_frame", "stall", "fatal_error", "ended"]
+    first_frame_ms: int | None = Field(default=None, ge=0, le=300000)
+    error: str | None = Field(default=None, max_length=500)
+
+
+class PlaybackEventBatch(BaseModel):
+    events: list[PlaybackEventIn] = Field(
+        ..., min_length=1, max_length=PLAYBACK_EVENT_BATCH_LIMIT
+    )
 
 
 class SourceRef(BaseModel):

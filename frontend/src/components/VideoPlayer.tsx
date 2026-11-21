@@ -23,8 +23,11 @@ export interface VideoPlayerHandle {
 interface VideoPlayerProps {
   src: string;
   suffix?: string;
+  playbackKey?: string;
   autoplay?: boolean;
   onError?: (message: string) => void;
+  onFirstFrame?: () => void;
+  onStall?: () => void;
   onSwitchSource?: () => void;
   onReady?: () => void;
   onEnded?: () => void;
@@ -116,7 +119,18 @@ function seekToStart(player: Player) {
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   (
-    { src, suffix = "", autoplay = true, onError, onReady, onEnded, onSwitchSource },
+    {
+      src,
+      suffix = "",
+      playbackKey,
+      autoplay = true,
+      onError,
+      onFirstFrame,
+      onStall,
+      onReady,
+      onEnded,
+      onSwitchSource,
+    },
     ref
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -132,14 +146,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [slowHint, setSlowHint] = useState(false);
 
     const onErrorRef = useRef(onError);
+    const onFirstFrameRef = useRef(onFirstFrame);
+    const onStallRef = useRef(onStall);
     const onSwitchSourceRef = useRef(onSwitchSource);
     const onReadyRef = useRef(onReady);
     const onEndedRef = useRef(onEnded);
     onErrorRef.current = onError;
+    onFirstFrameRef.current = onFirstFrame;
+    onStallRef.current = onStall;
     onSwitchSourceRef.current = onSwitchSource;
     onReadyRef.current = onReady;
     onEndedRef.current = onEnded;
 
+    const playbackKeyRef = useRef(playbackKey || src);
+    const firstFrameKeyRef = useRef<string | null>(null);
+    const hasPlayingKeyRef = useRef<string | null>(null);
+    const stallActiveRef = useRef(false);
     const prevSrcRef = useRef(src);
     const prevSuffixRef = useRef(suffix);
     const prevAutoplayRef = useRef(autoplay);
@@ -220,6 +242,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, [clearWatchdog]);
 
+    useEffect(() => {
+      playbackKeyRef.current = playbackKey || src;
+      stallActiveRef.current = false;
+    }, [playbackKey, src]);
+
     // 首次有有效 src 时创建播放器
     // 之前如果 src 为空（加载中），这里会在拿到真实地址后补上初始化
     useEffect(() => {
@@ -279,7 +306,27 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         player.on("ready", () => {
           onReadyRef.current?.();
         });
-        player.on("playing", clearWatchdog);
+        const markFirstFrame = () => {
+          if (firstFrameKeyRef.current !== playbackKeyRef.current) {
+            firstFrameKeyRef.current = playbackKeyRef.current;
+            onFirstFrameRef.current?.();
+          }
+        };
+        player.on("loadeddata", markFirstFrame);
+        player.on("playing", () => {
+          clearWatchdog();
+          stallActiveRef.current = false;
+          hasPlayingKeyRef.current = playbackKeyRef.current;
+          markFirstFrame();
+        });
+        player.on("waiting", () => {
+          if (hasPlayingKeyRef.current !== playbackKeyRef.current || player.paused) {
+            return;
+          }
+          if (stallActiveRef.current) return;
+          stallActiveRef.current = true;
+          onStallRef.current?.();
+        });
         player.on("timeupdate", clearWatchdog);
         player.on("canplay", clearWatchdog);
 
@@ -303,7 +350,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // 播放器已存在时，src/suffix/autoplay 变化直接复用实例切换
     useEffect(() => {
       const player = playerRef.current;
-      if (!player || !src) return;
+      if (!player) return;
+      if (!src) {
+        player.pause?.();
+        prevSrcRef.current = "";
+        clearWatchdog();
+        return;
+      }
 
       const isSameSource =
         src === prevSrcRef.current && suffix === prevSuffixRef.current;
@@ -360,7 +413,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setError(msg);
         onErrorRef.current?.(msg);
       }
-    }, [src, suffix, autoplay, armWatchdog]);
+    }, [src, suffix, autoplay, armWatchdog, clearWatchdog]);
 
     return (
       <div

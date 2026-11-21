@@ -76,9 +76,16 @@
 }
 
 .sp-item-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.sp-item-name > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sp-item-meta {
