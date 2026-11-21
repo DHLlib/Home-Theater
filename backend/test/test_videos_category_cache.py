@@ -154,6 +154,42 @@ async def test_list_videos_category_no_cross_page_duplicates(db_session):
 
 
 @pytest.mark.asyncio
+async def test_list_videos_pages_exclude_orphans_without_duplicates(db_session):
+    """孤儿行超过一个扫描窗口时，跨页仍不重复且不遗漏有效视频。"""
+    await _make_site(db_session, 1)
+    db_session.add(SystemCategory(id=11, parent_id=None, name="动作片", enabled=True))
+    _add_alias(db_session, "动作片", "动作片")
+
+    for i in range(12):
+        await _add_video(
+            db_session,
+            f"有效视频-{i:02d}",
+            2024,
+            [(1, f"valid-{i:02d}", 6, "动作片")],
+            "动作片",
+        )
+        for j in range(3):
+            await _add_video(
+                db_session, f"孤儿-{i:02d}-{j}", 2024, [], "动作片"
+            )
+    await db_session.commit()
+
+    sites = [await db_session.get(Site, 1)]
+    pages = [
+        await _query_aggregated_cache(
+            db_session, pg=page, per_page=5, category="动作片", sites=sites
+        )
+        for page in (1, 2, 3)
+    ]
+    title_pages = [{item.title for item in page.items} for page in pages]
+
+    assert title_pages[0].isdisjoint(title_pages[1])
+    assert title_pages[0].isdisjoint(title_pages[2])
+    assert title_pages[1].isdisjoint(title_pages[2])
+    assert set.union(*title_pages) == {f"有效视频-{i:02d}" for i in range(12)}
+
+
+@pytest.mark.asyncio
 async def test_list_videos_category_fallback(db_session):
     """子分类无别名时回退父分类，仍能命中。"""
     await _make_site(db_session, 1)

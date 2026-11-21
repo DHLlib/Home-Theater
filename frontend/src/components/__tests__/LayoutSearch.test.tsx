@@ -64,7 +64,9 @@ function mockFetch() {
       );
     }
     if (url.includes("/api/videos/search")) {
-      return new Response(JSON.stringify({ items: searchItems.slice(0, 4) }), {
+      const page = new URL(url, "http://localhost").searchParams.get("pg");
+      const items = page === "1" ? searchItems.slice(0, 4) : [];
+      return new Response(JSON.stringify({ items }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -92,6 +94,7 @@ describe("Layout + Home search", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   function renderWithRouter(initialEntries: string[]) {
@@ -126,11 +129,20 @@ describe("Layout + Home search", () => {
     });
   });
 
-  it("搜索时不崩溃且渲染结果", async () => {
+  it("搜索时不崩溃、渲染结果且不产生重复 key 警告", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     renderWithRouter(["/?wd=%E7%91%9E%E5%85%8B%E5%92%8C"]);
     await waitFor(() => {
       const cards = document.querySelectorAll(".video-card");
       expect(cards.length).toBeGreaterThan(0);
     });
+    const duplicateKeyWarnings = consoleError.mock.calls.filter((args) =>
+      args.some(
+        (value) =>
+          typeof value === "string" &&
+          value.includes("Encountered two children with the same key")
+      )
+    );
+    expect(duplicateKeyWarnings).toEqual([]);
   });
 });

@@ -21,7 +21,6 @@ from app.services.category_alias import (
     load_category_decision_maps,
     pick_system_category,
 )
-from app.db import engine
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
@@ -620,7 +619,6 @@ async def incrementally_update_aggregated_tables(
         site_result = await db.execute(select(Site.id, Site.name))
         site_name_map: dict[int, str | None] = {r.id: r.name for r in site_result.all()}
         now = _utcnow()
-        agg_table = AggregatedVideoV3.__table__
         src_table = AggregatedSource.__table__
 
         # 1. 删除已有聚合行（级联删 sources）
@@ -975,3 +973,49 @@ async def refresh_materialized_views(db) -> bool:
         except Exception as exc2:
             logger.error("物化视图刷新彻底失败: %s", exc2)
             return False
+
+
+async def audit_aggregation_integrity(db: AsyncSession) -> dict[str, int]:
+    """只读检查聚合表之间必须成立的数据不变量，不修改或提交事务。"""
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                (SELECT count(*) FROM (
+                    SELECT norm_title, COALESCE(year, -1) AS normalized_year
+                    FROM aggregated_videos
+                    GROUP BY norm_title, COALESCE(year, -1)
+                    HAVING count(*) > 1
+                ) AS duplicates) AS duplicate_keys,
+                (SELECT count(*)
+                 FROM aggregated_videos av
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM aggregated_sources s
+                     WHERE s.aggregated_video_id = av.id
+                 )) AS orphan_videos,
+                (SELECT count(*)
+                 FROM aggregated_sources s
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM aggregated_videos av
+                     WHERE av.id = s.aggregated_video_id
+                 )) AS dangling_sources,
+                (SELECT count(*)
+                 FROM aggregated_videos av
+                 WHERE av.source_count <> (
+                     SELECT count(*) FROM aggregated_sources s
+                     WHERE s.aggregated_video_id = av.id
+                 )) AS source_count_mismatch,
+                (SELECT count(*) FROM (
+                    SELECT aggregated_video_id, site_id, original_id
+                    FROM aggregated_sources
+                    GROUP BY aggregated_video_id, site_id, original_id
+                    HAVING count(*) > 1
+                ) AS duplicates) AS duplicate_sources,
+                (SELECT count(*)
+                 FROM aggregated_videos
+                 WHERE btrim(norm_title) = '') AS empty_norm_titles
+            """
+        )
+    )
+    row = result.mappings().one()
+    return {key: int(value) for key, value in row.items()}
