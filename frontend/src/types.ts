@@ -15,6 +15,17 @@ export interface PlaySourceQuality {
   last_success_at?: string | null;
 }
 
+export interface SourceMediaInfo {
+  width?: number | null;
+  height?: number | null;
+  video_bitrate?: number | null;
+  codec?: string | null;
+  evidence: "declared" | "probed" | "actual" | "unknown";
+  method: string;
+  checked_at: string;
+  description?: string | null;
+}
+
 export interface SourceRef {
   site_id: number;
   site_name?: string | null;
@@ -24,8 +35,12 @@ export interface SourceRef {
   remarks?: string;
   updated_at?: string;
   recommended?: boolean;
+  hd_recommended?: boolean;
+  stable_recommended?: boolean;
   recommendation_reason?: string | null;
+  hd_reason?: string | null;
   quality?: PlaySourceQuality | null;
+  media?: SourceMediaInfo | null;
 }
 
 export interface PlaySource extends SourceRef {
@@ -36,6 +51,9 @@ export interface PlaySource extends SourceRef {
 
 export interface PlaySourcesResponse {
   sources: PlaySource[];
+  analyzed?: number;
+  remaining?: number;
+  analysis_running?: boolean;
 }
 
 export type PlaybackEventType =
@@ -44,6 +62,14 @@ export type PlaybackEventType =
   | "stall"
   | "fatal_error"
   | "ended";
+
+export interface PlaybackMediaInfo {
+  url: string;
+  width: number;
+  height: number;
+  video_bitrate?: number | null;
+  codec?: string | null;
+}
 
 export interface PlaybackEventInput {
   event_id: string;
@@ -54,6 +80,7 @@ export interface PlaybackEventInput {
   event_type: PlaybackEventType;
   first_frame_ms?: number | null;
   error?: string | null;
+  media?: PlaybackMediaInfo;
 }
 
 export interface AggregatedVideo {

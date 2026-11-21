@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import BottomSheet from "./BottomSheet";
 import { useIsMobile } from "../hooks/useViewport";
 import type { SourceRef } from "../types";
+import SourceBadges from "./SourceBadges";
 import "./SourcePicker.css";
 
 type SourcePickerProps = {
@@ -42,12 +43,13 @@ export default function SourcePicker(props: SourcePickerProps) {
             >
               <span className="sp-item-name">
                 <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                {s.recommended && (
-                  <span className="source-recommended">推荐</span>
-                )}
+                <SourceBadges source={s} />
               </span>
               {subtitle && (
                 <span className="sp-item-meta tnum">{subtitle}</span>
+              )}
+              {s.media?.description && (
+                <span className="sp-item-meta tnum">{s.media.description}</span>
               )}
               {s.recommendation_reason && (
                 <span className="sp-item-meta tnum">

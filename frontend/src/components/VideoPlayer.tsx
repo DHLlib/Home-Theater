@@ -10,6 +10,8 @@ import Player from "xgplayer";
 import "xgplayer/dist/index.min.css";
 import HlsJsPlugin from "xgplayer-hls.js";
 import { analyzeFormat } from "../utils/mediaFormat";
+import { readPlaybackMedia } from "../utils/mediaTelemetry";
+import type { PlaybackMediaInfo } from "../types";
 
 export interface VideoPlayerHandle {
   seekTo: (seconds: number) => void;
@@ -25,11 +27,14 @@ interface VideoPlayerProps {
   src: string;
   suffix?: string;
   playbackKey?: string;
+  mediaUrl?: string;
   autoplay?: boolean;
   onError?: (message: string) => void;
-  onFirstFrame?: () => void;
+  onFirstFrame?: (media?: PlaybackMediaInfo) => void;
   onStall?: () => void;
   onSwitchSource?: () => void;
+  onPlay?: () => void;
+  onPause?: () => void;
   onReady?: () => void;
   onEnded?: () => void;
 }
@@ -68,12 +73,12 @@ function lockMaxQuality(player: Player, timerRef: React.MutableRefObject<number 
   }, 100);
 }
 
-function seekToStart(player: Player) {
+function seekToPosition(player: Player, seconds: number) {
   // 切换源后立即重置一次，若此时新源尚未可播放，
   // 则在 canplay 事件后再重置一次，确保不继承上一集的进度。
-  player.seek(0);
+  player.seek(seconds);
   const handleCanPlay = () => {
-    player.seek(0);
+    player.seek(seconds);
     (player as any).off?.("canplay", handleCanPlay);
   };
   if (typeof (player as any).once === "function") {
@@ -83,16 +88,23 @@ function seekToStart(player: Player) {
   }
 }
 
+function seekToStart(player: Player) {
+  seekToPosition(player, 0);
+}
+
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   (
     {
       src,
       suffix = "",
       playbackKey,
+      mediaUrl,
       autoplay = true,
       onError,
       onFirstFrame,
       onStall,
+      onPlay,
+      onPause,
       onReady,
       onEnded,
       onSwitchSource,
@@ -115,12 +127,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const onFirstFrameRef = useRef(onFirstFrame);
     const onStallRef = useRef(onStall);
     const onSwitchSourceRef = useRef(onSwitchSource);
+    const onPlayRef = useRef(onPlay);
+    const onPauseRef = useRef(onPause);
     const onReadyRef = useRef(onReady);
     const onEndedRef = useRef(onEnded);
     onErrorRef.current = onError;
     onFirstFrameRef.current = onFirstFrame;
     onStallRef.current = onStall;
     onSwitchSourceRef.current = onSwitchSource;
+    onPlayRef.current = onPlay;
+    onPauseRef.current = onPause;
     onReadyRef.current = onReady;
     onEndedRef.current = onEnded;
 
@@ -131,6 +147,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const prevSrcRef = useRef(src);
     const prevSuffixRef = useRef(suffix);
     const prevAutoplayRef = useRef(autoplay);
+    const prevPlaybackKeyRef = useRef(playbackKey || src);
 
     // 12 秒没有首帧先提示「慢」并继续等，30 秒才判失败：网络层超时不会触发
     // xgplayer 的 error 事件，没有看门狗会表现为黑屏 + 播放按钮静默卡住。
@@ -272,10 +289,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         player.on("ready", () => {
           onReadyRef.current?.();
         });
+        player.on("play", () => onPlayRef.current?.());
+        player.on("pause", () => onPauseRef.current?.());
         const markFirstFrame = () => {
+          const media = readPlaybackMedia(player, mediaUrl || src);
+          if (media === null) return;
           if (firstFrameKeyRef.current !== playbackKeyRef.current) {
             firstFrameKeyRef.current = playbackKeyRef.current;
-            onFirstFrameRef.current?.();
+            onFirstFrameRef.current?.(media);
           }
         };
         player.on("loadeddata", markFirstFrame);
@@ -311,7 +332,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setError(msg);
         onErrorRef.current?.(msg);
       }
-    }, [src, suffix, autoplay, retryKey, armWatchdog, clearWatchdog]);
+    }, [src, suffix, mediaUrl, autoplay, retryKey, armWatchdog, clearWatchdog]);
 
     // 播放器已存在时，src/suffix/autoplay 变化直接复用实例切换
     useEffect(() => {
@@ -351,6 +372,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         prevSrcRef.current,
         prevSuffixRef.current
       ).isM3u8;
+      const nextPlaybackKey = playbackKey || src;
+      const preservePosition = nextPlaybackKey === prevPlaybackKeyRef.current;
+      const resumePosition = Number(player.currentTime) || 0;
 
       try {
         setError(null);
@@ -364,7 +388,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           });
         }
 
-        seekToStart(player);
+        if (preservePosition) {
+          seekToPosition(player, resumePosition);
+        } else {
+          seekToStart(player);
+        }
 
         if (isM3u8) {
           lockMaxQuality(player, qualityTimerRef);
@@ -373,13 +401,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         prevSrcRef.current = src;
         prevSuffixRef.current = suffix;
         prevAutoplayRef.current = autoplay;
+        prevPlaybackKeyRef.current = nextPlaybackKey;
         armWatchdog();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "播放器切换源失败";
         setError(msg);
         onErrorRef.current?.(msg);
       }
-    }, [src, suffix, autoplay, armWatchdog, clearWatchdog]);
+    }, [src, suffix, playbackKey, autoplay, armWatchdog, clearWatchdog]);
 
     return (
       <div

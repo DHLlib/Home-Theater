@@ -60,3 +60,25 @@ export const setStreamAccel = (enabled: boolean, level?: string) =>
     enabled,
     ...(level ? { level } : {}),
   });
+
+export interface PlaybackFeatureSettings {
+  media_analysis: boolean;
+  playback_guard: boolean;
+  enhancement: boolean;
+  enhancement_available: boolean;
+  algorithm: string;
+  target_height: number;
+}
+
+export type PlaybackFeatureChanges = Partial<
+  Pick<
+    PlaybackFeatureSettings,
+    "media_analysis" | "playback_guard" | "enhancement"
+  >
+>;
+
+export const getPlaybackFeatures = () =>
+  get<PlaybackFeatureSettings>("/api/settings/playback-features");
+
+export const updatePlaybackFeatures = (changes: PlaybackFeatureChanges) =>
+  put<PlaybackFeatureSettings>("/api/settings/playback-features", changes);

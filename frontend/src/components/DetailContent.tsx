@@ -10,13 +10,16 @@ import {
   mergeSourceQuality,
   orderSourcesByQuality,
   playSourceKey,
+  useAnalyzePlaySources,
   usePlaySources,
 } from "../hooks/usePlaySources";
+import { usePlaybackFeatures } from "../hooks/usePlaybackFeatures";
 import { toastError, toastSuccess } from "../utils/toast";
 import EpisodeList from "./EpisodeList";
 import PosterImage from "./PosterImage";
 import PosterEmpty from "./PosterEmpty";
 import SourcePicker from "./SourcePicker";
+import SourceBadges from "./SourceBadges";
 import {
   ChevronDownIcon,
   HeartIcon,
@@ -87,6 +90,9 @@ export default function DetailContent({
   const detail = detailResp?.sources ?? [];
   const systemCategory = detailResp?.system_category ?? null;
   const { data: playSourceResponse } = usePlaySources(item.title, item.year);
+  const analysis = useAnalyzePlaySources(item.title, item.year);
+  const { data: playbackFeatures } = usePlaybackFeatures();
+  const analysisAllowed = playbackFeatures?.media_analysis ?? true;
   const playSources = useMemo(
     () => playSourceResponse?.sources ?? [],
     [playSourceResponse]
@@ -150,6 +156,7 @@ export default function DetailContent({
 
   const handlePlay = () => {
     if (!detailReady) return;
+    if (analysisAllowed && !analysis.isPending) analysis.mutate();
     const target =
       sortedDetail.find((s) => s.episodes.length > 0) ?? sortedDetail[0];
     if (target) {
@@ -519,6 +526,21 @@ export default function DetailContent({
                 ? `已展开 ${expandedCount} 个来源，点集数开始播放`
                 : "点一个来源，展开选集"}
             </span>
+            <button
+              type="button"
+              className="dc-btn dc-source-analysis"
+              disabled={!analysisAllowed || analysis.isPending || playSourceResponse?.analysis_running}
+              onClick={() => analysis.mutate()}
+              title={analysisAllowed ? "仅分析当前视频，每次最多 2 个来源；不下载视频分片" : "可在设置 → 播放与画质中开启"}
+            >
+              {!analysisAllowed
+                ? "分析已关闭"
+                : analysis.isPending
+                  ? "分析中…"
+                : playSourceResponse?.remaining
+                  ? `继续分析（剩余 ${playSourceResponse.remaining}）`
+                  : "分析画质"}
+            </button>
           </div>
           <div className="source-list">
             {sortedDetail.map((s) => {
@@ -539,9 +561,7 @@ export default function DetailContent({
                   <span className="source-name-block">
                     <span className="row" style={{ alignItems: "center", gap: 8 }}>
                       <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                      {quality?.recommended && (
-                        <span className="source-recommended">推荐</span>
-                      )}
+                      <SourceBadges source={quality ?? s} />
                       {s.type_name && (
                         <span
                           style={{
@@ -557,6 +577,11 @@ export default function DetailContent({
                         </span>
                       )}
                     </span>
+                    {quality?.media?.description && (
+                      <span className="source-quality tnum">
+                        {quality.media.description}
+                      </span>
+                    )}
                     {quality?.recommendation_reason && (
                       <span className="source-quality tnum">
                         {quality.recommendation_reason}

@@ -16,6 +16,10 @@ const episodes = vi.hoisted(() => [
 
 vi.mock("../../api/play", () => ({
   getEpisodes: vi.fn().mockResolvedValue(episodes),
+  getEnhancementCapability: vi.fn().mockResolvedValue({ available: false }),
+  sendPlaybackHeartbeat: vi.fn().mockResolvedValue(undefined),
+  startEnhancement: vi.fn(),
+  stopEnhancement: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../api/settings", () => ({
@@ -34,6 +38,23 @@ vi.mock("../../utils/cache", () => ({
 
 vi.mock("../../hooks/usePlaySources", () => ({
   usePlaySources: () => ({ data: { sources: [] } }),
+}));
+
+vi.mock("../../hooks/usePlaybackFeatures", () => ({
+  usePlaybackFeatures: () => ({
+    data: {
+      media_analysis: true,
+      playback_guard: true,
+      enhancement: false,
+      enhancement_available: false,
+      algorithm: "Lanczos + Unsharp",
+      target_height: 1080,
+    },
+  }),
+  useUpdatePlaybackFeatures: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 vi.mock("../../hooks/useFullscreen", () => ({

@@ -18,7 +18,16 @@ const ranked: PlaySource[] = [
     episode_count: 12,
     suffix: "ffm3u8",
     recommended: true,
+    stable_recommended: true,
     recommendation_reason: "成功率 95%",
+    media: {
+      width: 1920,
+      height: 1080,
+      evidence: "actual",
+      method: "playing",
+      checked_at: "2026-11-21T00:00:00",
+      description: "实测 1920×1080",
+    },
   },
   {
     site_id: 1,
@@ -40,6 +49,8 @@ describe("play source quality helpers", () => {
     const merged = mergeSourceQuality(original, ranked);
     expect(merged[0].recommended).toBe(true);
     expect(merged[0].recommendation_reason).toBe("成功率 95%");
+    expect(merged[0].stable_recommended).toBe(true);
+    expect(merged[0].media?.height).toBe(1080);
     expect(merged[1].recommended).toBeUndefined();
   });
 });

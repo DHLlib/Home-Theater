@@ -31,10 +31,20 @@ describe("SourcePicker (AC-007)", () => {
 
   it("展示真实推荐理由但不自动选择来源", () => {
     const onConfirm = vi.fn();
-    const recommended = [
+    const recommended: SourceRef[] = [
       {
         ...sources[0],
         recommended: true,
+        hd_recommended: true,
+        stable_recommended: true,
+        media: {
+          width: 1920,
+          height: 1080,
+          evidence: "actual",
+          method: "playing",
+          checked_at: "2026-11-21T00:00:00",
+          description: "实测 1920×1080 · 6.0 Mbps",
+        },
         recommendation_reason: "近 30 天 10 次播放 · 起播成功率 90%",
       },
       sources[1],
@@ -48,7 +58,9 @@ describe("SourcePicker (AC-007)", () => {
       />
     );
 
-    expect(screen.getByText("推荐")).toBeInTheDocument();
+    expect(screen.getByText("高清推荐")).toBeInTheDocument();
+    expect(screen.getByText("网络稳定推荐")).toBeInTheDocument();
+    expect(screen.getByText(/实测 1920×1080/)).toBeInTheDocument();
     expect(screen.getByText(/起播成功率 90%/)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });

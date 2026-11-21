@@ -1,4 +1,4 @@
-import { get } from "./client";
+import { get, post } from "./client";
 import type {
   Episode,
   PlaybackEventInput,
@@ -18,6 +18,59 @@ export const getSources = (title: string, year?: number | null) => {
   if (year != null) qs.set("year", String(year));
   return get<PlaySourcesResponse>(`/api/play/sources?${qs}`);
 };
+
+export const analyzeSources = (title: string, year?: number | null) =>
+  post<PlaySourcesResponse>("/api/play/sources/analyze", { title, year });
+
+export interface EnhancementCapability {
+  available: boolean;
+  algorithm: string;
+  target_height: number;
+}
+
+export interface EnhancementStartResponse {
+  session_id: string;
+  url: string;
+  algorithm: string;
+  target_height: number;
+}
+
+export const getEnhancementCapability = () =>
+  get<EnhancementCapability>("/api/play/enhance/capability");
+
+export const startEnhancement = (input: {
+  site_id: number;
+  url: string;
+  suffix: string;
+  session_id?: string;
+}) => post<EnhancementStartResponse>("/api/play/enhance", input);
+
+export async function stopEnhancement(sessionId: string): Promise<void> {
+  try {
+    await fetch(`/api/play/enhance/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+      keepalive: true,
+    });
+  } catch {
+    // 后端空闲看门狗是停止请求失败时的兜底。
+  }
+}
+
+export async function sendPlaybackHeartbeat(
+  sessionId: string,
+  active: boolean
+): Promise<void> {
+  try {
+    await fetch("/api/play/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, active }),
+      keepalive: true,
+    });
+  } catch {
+    // 播放保护失败时不打断播放；会话会在后端自动过期。
+  }
+}
 
 export async function reportPlaybackEvents(
   events: PlaybackEventInput[]

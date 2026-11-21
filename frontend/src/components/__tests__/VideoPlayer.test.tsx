@@ -16,6 +16,7 @@ let mockHandlers: Record<string, (...args: any[]) => void> = {};
 function createMockPlayer() {
   return {
     seek: mockSeek,
+    media: { videoWidth: 1920, videoHeight: 1080 },
     currentTime: 42,
     duration: 120,
     paused: false,
@@ -136,6 +137,26 @@ describe("VideoPlayer (xgplayer)", () => {
       mockHandlers.loadeddata();
     });
     expect(onFirstFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("同一集增强切换保留当前播放位置", () => {
+    const { rerender } = render(
+      <VideoPlayer
+        src="http://example.com/a.mp4"
+        suffix="mp4"
+        playbackKey="same-episode"
+      />
+    );
+    rerender(
+      <VideoPlayer
+        src="http://example.com/enhanced.m3u8"
+        suffix="m3u8"
+        playbackKey="same-episode"
+      />
+    );
+
+    expect(mockSeek).toHaveBeenLastCalledWith(42);
+    expect(mockSeek).not.toHaveBeenCalledWith(0);
   });
 
   it("切换 src 时重置播放进度到 0", () => {

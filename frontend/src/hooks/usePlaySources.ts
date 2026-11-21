@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { getSources } from "../api/play";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { analyzeSources, getSources } from "../api/play";
+import { toastError } from "../utils/toast";
 import type { PlaySource, SourceRef } from "../types";
 
 export function playSourceKey(source: SourceRef): string {
@@ -33,19 +34,47 @@ export function mergeSourceQuality(
     return {
       ...source,
       recommended: quality.recommended,
+      hd_recommended: quality.hd_recommended,
+      stable_recommended: quality.stable_recommended,
       recommendation_reason: quality.recommendation_reason,
+      hd_reason: quality.hd_reason,
       quality: quality.quality,
+      media: quality.media,
     };
   });
   return orderSourcesByQuality(merged, playSources);
 }
 
+function playSourcesQueryKey(title: string, year?: number | null) {
+  return ["playSources", title, year ?? null] as const;
+}
+
 export function usePlaySources(title: string, year?: number | null) {
   return useQuery({
-    queryKey: ["playSources", title, year ?? null],
+    queryKey: playSourcesQueryKey(title, year),
     queryFn: () => getSources(title, year),
     enabled: title.length > 0,
     retry: false,
     staleTime: 15000,
+  });
+}
+
+export function useAnalyzePlaySources(title: string, year?: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => analyzeSources(title, year),
+    onSuccess: (data) => {
+      queryClient.setQueryData(playSourcesQueryKey(title, year), data);
+      if (data.analysis_running) {
+        window.setTimeout(() => {
+          void queryClient.invalidateQueries({
+            queryKey: playSourcesQueryKey(title, year),
+          });
+        }, 2000);
+      }
+    },
+    onError: () => {
+      toastError("画质分析未完成，不影响正常播放");
+    },
   });
 }

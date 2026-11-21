@@ -2,15 +2,27 @@ import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from "rea
 import { lazyWithRetry } from "../utils/chunkReload";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Drawer } from "vaul";
-import { getEpisodes } from "../api/play";
+import {
+  getEpisodes,
+  sendPlaybackHeartbeat,
+  startEnhancement,
+  stopEnhancement,
+} from "../api/play";
+import type { EnhancementStartResponse } from "../api/play";
 import { getStreamAccel } from "../api/settings";
 import { usePlaySources } from "../hooks/usePlaySources";
+import {
+  usePlaybackFeatures,
+  useUpdatePlaybackFeatures,
+} from "../hooks/usePlaybackFeatures";
 import { getProgress, upsertProgress } from "../api/progress";
+import { toastError } from "../utils/toast";
 import type { VideoPlayerHandle } from "../components/VideoPlayer";
 import { getCachedEpisodes, setCachedEpisodes } from "../utils/cache";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useIsMobile } from "../hooks/useViewport";
 import OnboardingHint from "../components/OnboardingHint";
+import SourceBadges from "../components/SourceBadges";
 import {
   ArrowLeftIcon,
   MaximizeIcon,
@@ -29,6 +41,7 @@ import {
 import type {
   Episode,
   PlaybackEventType,
+  PlaybackMediaInfo,
   PlayProgress,
   PlaySource,
 } from "../types";
@@ -41,6 +54,8 @@ const SWIPE_UP_THRESHOLD = 60;
 const TAP_MAX_MOVE = 10;
 const SEEK_SECONDS = 10;
 const CONTROLS_HIDE_DELAY = 3000;
+const PLAYBACK_HEARTBEAT_MS = 10_000;
+type EnhancedStream = EnhancementStartResponse & { key: string };
 
 export default function Player() {
   const location = useLocation();
@@ -63,11 +78,21 @@ export default function Player() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { data: playSourceData } = usePlaySources(title, year);
+  const { data: playbackFeatures } = usePlaybackFeatures();
+  const featureUpdate = useUpdatePlaybackFeatures();
   const sources = useMemo(
     () => playSourceData?.sources ?? [],
     [playSourceData]
   );
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
+  const [actualMedia, setActualMedia] = useState<PlaybackMediaInfo | null>(null);
+  const [enhanceAvailable, setEnhanceAvailable] = useState(false);
+  const [enhanceEnabled, setEnhanceEnabled] = useState(false);
+  const [enhancedStream, setEnhancedStream] = useState<EnhancedStream | null>(null);
+  const enhancedStreamRef = useRef<EnhancedStream | null>(null);
+  const enhancementRequestedRef = useRef<string | null>(null);
+  const enhancementFailedRef = useRef(new Set<string>());
+  enhancedStreamRef.current = enhancedStream;
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -180,7 +205,8 @@ export default function Player() {
     (
       eventType: PlaybackEventType,
       firstFrameMs: number | null = null,
-      error: string | null = null
+      error: string | null = null,
+      media?: PlaybackMediaInfo
     ) => {
       const session = playbackSessionRef.current;
       if (!session) return;
@@ -193,6 +219,7 @@ export default function Player() {
         event_type: eventType,
         first_frame_ms: firstFrameMs,
         error,
+        media,
       });
     },
     []
@@ -222,6 +249,18 @@ export default function Player() {
   }, [site_id, original_id, playbackKey, hasCurrent, recordPlaybackEvent]);
 
   useEffect(() => {
+    const sessionId = playbackSessionRef.current?.id;
+    if (!isPlaying || !sessionId) return;
+    const send = () => void sendPlaybackHeartbeat(sessionId, true);
+    send();
+    const timer = window.setInterval(send, PLAYBACK_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(timer);
+      void sendPlaybackHeartbeat(sessionId, false);
+    };
+  }, [isPlaying, playbackKey]);
+
+  useEffect(() => {
     const flush = () => flushPlaybackEvents();
     window.addEventListener("pagehide", flush);
     return () => {
@@ -230,17 +269,29 @@ export default function Player() {
     };
   }, []);
 
-  const handleFirstFrame = useCallback(() => {
+  const handleFirstFrame = useCallback((media?: PlaybackMediaInfo) => {
+    if (media) setActualMedia(media);
     const startedAt = playbackSessionRef.current?.startedAt;
     if (startedAt == null) return;
     recordPlaybackEvent(
       "first_frame",
-      Math.max(0, Math.round(performance.now() - startedAt))
+      Math.max(0, Math.round(performance.now() - startedAt)),
+      null,
+      media
     );
   }, [recordPlaybackEvent]);
 
   const handlePlaybackError = useCallback(
     (message: string) => {
+      const active = enhancedStreamRef.current;
+      if (active) {
+        enhancementFailedRef.current.add(active.key);
+        enhancedStreamRef.current = null;
+        setEnhancedStream(null);
+        void stopEnhancement(active.session_id);
+        toastError("增强失败，已回到原始来源播放");
+        return;
+      }
       recordPlaybackEvent("fatal_error", null, message.slice(0, 500));
     },
     [recordPlaybackEvent]
@@ -249,6 +300,21 @@ export default function Player() {
   const handleStall = useCallback(() => {
     recordPlaybackEvent("stall");
   }, [recordPlaybackEvent]);
+
+  useEffect(() => {
+    if (!playbackFeatures) return;
+    setEnhanceAvailable(playbackFeatures.enhancement_available);
+    setEnhanceEnabled(playbackFeatures.enhancement);
+  }, [playbackFeatures]);
+
+  useEffect(() => {
+    if (enhanceEnabled) return;
+    const active = enhancedStreamRef.current;
+    if (active) void stopEnhancement(active.session_id);
+    enhancedStreamRef.current = null;
+    enhancementRequestedRef.current = null;
+    setEnhancedStream(null);
+  }, [enhanceEnabled]);
 
   // 播放加速：开启后 m3u8 走后端多连接代理，绕过资源站的单连接限速
   const [accelEnabled, setAccelEnabled] = useState(false);
@@ -259,12 +325,76 @@ export default function Player() {
   }, []);
 
   const playSrc = useMemo(() => {
+    if (enhancedStream?.key === playbackKey) return enhancedStream.url;
     const url = current?.url || "";
     if (!accelEnabled || !url) return url;
     const isM3u8 = /\.m3u8(\?|$)/i.test(url) || /m3u8/i.test(current?.suffix || "");
     if (!isM3u8) return url;
     return `/api/play/accel/m3u8?site_id=${site_id}&url=${encodeURIComponent(url)}`;
-  }, [accelEnabled, current?.url, current?.suffix, site_id]);
+  }, [enhancedStream, playbackKey, accelEnabled, current?.url, current?.suffix, site_id]);
+  const playSuffix =
+    enhancedStream?.key === playbackKey ? "m3u8" : current?.suffix || "";
+
+  useEffect(() => {
+    setActualMedia(null);
+    enhancementRequestedRef.current = null;
+    const active = enhancedStreamRef.current;
+    if (active) void stopEnhancement(active.session_id);
+    enhancedStreamRef.current = null;
+    setEnhancedStream(null);
+  }, [playbackKey]);
+
+  useEffect(() => {
+    return () => {
+      const active = enhancedStreamRef.current;
+      if (active) void stopEnhancement(active.session_id);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !enhanceEnabled ||
+      !enhanceAvailable ||
+      !current?.url ||
+      !actualMedia ||
+      actualMedia.url !== current.url ||
+      actualMedia.height >= 1080 ||
+      enhancementRequestedRef.current === playbackKey ||
+      enhancementFailedRef.current.has(playbackKey)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    enhancementRequestedRef.current = playbackKey;
+    startEnhancement({
+      site_id,
+      url: current.url,
+      suffix: current.suffix,
+      session_id: playbackSessionRef.current?.id,
+    })
+      .then((result) => {
+        if (cancelled) {
+          void stopEnhancement(result.session_id);
+          return;
+        }
+        setEnhancedStream({ ...result, key: playbackKey });
+      })
+      .catch(() => {
+        enhancementFailedRef.current.add(playbackKey);
+        if (!cancelled) toastError("当前来源无法增强，将继续原始画质播放");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enhanceEnabled,
+    enhanceAvailable,
+    actualMedia,
+    current?.url,
+    current?.suffix,
+    playbackKey,
+    site_id,
+  ]);
 
   // 切换视频/来源时重置进度恢复标记，避免跨视频保留 true
   useEffect(() => {
@@ -530,6 +660,7 @@ export default function Player() {
   }, [sidebarOpen, toggleFullscreen, resetControlsTimer]);
 
   const handleEnded = () => {
+    setIsPlaying(false);
     recordPlaybackEvent("ended");
     if (currentIndex < episodes.length - 1) {
       setCurrentIndex((i) => i + 1);
@@ -693,13 +824,16 @@ export default function Player() {
             <VideoPlayer
               ref={playerRef}
               src={playSrc}
-              suffix={current?.suffix || ""}
+              suffix={playSuffix}
               playbackKey={playbackKey}
+              mediaUrl={current?.url}
               autoplay
               onError={handlePlaybackError}
               onFirstFrame={handleFirstFrame}
               onStall={handleStall}
               onSwitchSource={() => setSourcePanelOpen(true)}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
               onEnded={handleEnded}
             />
           </Suspense>
@@ -786,6 +920,10 @@ export default function Player() {
             {current
               ? `${current.ep_name} (${current.suffix})`
               : "加载中..."}
+            {actualMedia && actualMedia.url === current?.url
+              ? ` · ${actualMedia.width}×${actualMedia.height}`
+              : ""}
+            {enhancedStream?.key === playbackKey ? " · 增强至 1080p" : ""}
           </div>
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             {/* 移动端选集按钮 */}
@@ -799,6 +937,36 @@ export default function Player() {
                 选集
               </button>
             )}
+            <button
+              className="btn"
+              onClick={() => {
+                const next = !enhanceEnabled;
+                featureUpdate.mutate(
+                  { enhancement: next },
+                  { onSuccess: () => setEnhanceEnabled(next) }
+                );
+              }}
+              disabled={!enhanceAvailable || featureUpdate.isPending}
+              aria-pressed={enhanceEnabled && enhanceAvailable}
+              aria-label="轻量画质增强"
+              title={
+                enhanceAvailable
+                  ? "当前来源低于 1080p 时，使用本机 Lanczos 缩放与轻度锐化；单任务、单线程"
+                  : "需要在本机安装 ffmpeg 才能启用画质增强"
+              }
+              style={{
+                minHeight: 48,
+                minWidth: 48,
+                padding: "8px 12px",
+                fontSize: 13,
+                color:
+                  enhanceEnabled && enhanceAvailable
+                    ? "var(--primary)"
+                    : undefined,
+              }}
+            >
+              {enhancedStream?.key === playbackKey ? "增强中" : "画质增强"}
+            </button>
             <button
               className="btn"
               onClick={handleToggleFullscreen}
@@ -905,11 +1073,12 @@ export default function Player() {
                         <span className="row" style={{ gap: 8 }}>
                           <span>{src.site_name}</span>
                           {src.recommended && (
-                            <span className="source-recommended">推荐</span>
+                            <SourceBadges source={src} />
                           )}
                         </span>
                         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                           {src.episode_count}集 · {src.suffix}
+                          {src.media?.description ? ` · ${src.media.description}` : ""}
                         </span>
                         {src.recommendation_reason && (
                           <span
@@ -1111,13 +1280,14 @@ export default function Player() {
                             <span className="row" style={{ gap: 8 }}>
                               <span>{src.site_name}</span>
                               {src.recommended && (
-                                <span className="source-recommended">推荐</span>
+                                <SourceBadges source={src} />
                               )}
                             </span>
                             <span
                               style={{ fontSize: 11, color: "var(--text-muted)" }}
                             >
                               {src.episode_count}集 · {src.suffix}
+                          {src.media?.description ? ` · ${src.media.description}` : ""}
                             </span>
                             {src.recommendation_reason && (
                               <span

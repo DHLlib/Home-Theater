@@ -5,8 +5,10 @@ import {
   mergeSourceQuality,
   orderSourcesByQuality,
   playSourceKey,
+  useAnalyzePlaySources,
   usePlaySources,
 } from "../../hooks/usePlaySources";
+import { usePlaybackFeatures } from "../../hooks/usePlaybackFeatures";
 import {
   toggleFavorite,
   getFavoriteStatus,
@@ -17,6 +19,7 @@ import { toastError, toastSuccess } from "../../utils/toast";
 import { HeartIcon, PlayIcon } from "../../components/icons";
 import EpisodeList from "../../components/EpisodeList";
 import SourcePicker from "../../components/SourcePicker";
+import SourceBadges from "../../components/SourceBadges";
 import MobileEpisodeSheet from "./MobileEpisodeSheet";
 import PosterImage from "../../components/PosterImage";
 import PosterEmpty from "../../components/PosterEmpty";
@@ -101,6 +104,9 @@ export default function MobileDetailView() {
   );
   const detail = detailResp?.sources ?? [];
   const { data: playSourceResponse } = usePlaySources(item.title, item.year);
+  const analysis = useAnalyzePlaySources(item.title, item.year);
+  const { data: playbackFeatures } = usePlaybackFeatures();
+  const analysisAllowed = playbackFeatures?.media_analysis ?? true;
   const playSources = useMemo(
     () => playSourceResponse?.sources ?? [],
     [playSourceResponse]
@@ -135,7 +141,10 @@ export default function MobileDetailView() {
 
   useEffect(() => {
     if (sortedDetail.length === 0) return;
-    setExpandedSources(new Set([sourceKey(sortedDetail[0])]));
+    setExpandedSources((current) => {
+      if (current.size > 0) return current;
+      return new Set([sourceKey(sortedDetail[0])]);
+    });
   }, [sortedDetail]);
 
   useEffect(() => {
@@ -174,6 +183,7 @@ export default function MobileDetailView() {
       toastError("暂无可播放来源");
       return;
     }
+    if (analysisAllowed && !analysis.isPending) analysis.mutate();
     setPickerOpen(true);
   };
 
@@ -410,6 +420,21 @@ export default function MobileDetailView() {
               <h3>来源</h3>
               <span className="dc-sources-count tnum">{detail.length} 个</span>
               <span className="dc-sources-hint">选一个来源，展开选集</span>
+              <button
+                type="button"
+                className="dc-btn dc-source-analysis"
+                disabled={!analysisAllowed || analysis.isPending || playSourceResponse?.analysis_running}
+                onClick={() => analysis.mutate()}
+                title={analysisAllowed ? "仅分析当前视频，每次最多 2 个来源；不下载视频分片" : "可在设置 → 播放与画质中开启"}
+              >
+                {!analysisAllowed
+                  ? "分析已关闭"
+                  : analysis.isPending
+                    ? "分析中…"
+                  : playSourceResponse?.remaining
+                    ? `继续分析（${playSourceResponse.remaining}）`
+                    : "分析画质"}
+              </button>
             </div>
             <div className="source-list">
               {sortedDetail.map((s) => {
@@ -430,13 +455,16 @@ export default function MobileDetailView() {
                       <span className="source-name-block">
                         <span className="row" style={{ alignItems: "center", gap: 8 }}>
                           <span>{s.site_name || `站点 #${s.site_id}`}</span>
-                          {quality?.recommended && (
-                            <span className="source-recommended">推荐</span>
-                          )}
+                          <SourceBadges source={quality ?? s} />
                           {s.type_name && (
                             <span className="source-type">{s.type_name}</span>
                           )}
                         </span>
+                        {quality?.media?.description && (
+                          <span className="source-quality tnum">
+                            {quality.media.description}
+                          </span>
+                        )}
                         {quality?.recommendation_reason && (
                           <span className="source-quality tnum">
                             {quality.recommendation_reason}

@@ -11,6 +11,7 @@ import {
   type StreamAccelLevel,
 } from "../api/settings";
 import { toastSuccess, toastError } from "../utils/toast";
+import PlaybackFeatureSettings from "./PlaybackFeatureSettings";
 
 function FolderIcon({ size = 18 }: { size?: number }) {
   return (
@@ -721,6 +722,7 @@ export default function DownloadSettings() {
           </div>
         </div>
       </div>
+      <PlaybackFeatureSettings />
     </section>
   );
 }
