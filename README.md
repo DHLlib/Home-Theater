@@ -113,6 +113,10 @@ docker compose up --build -d
 
 | 命令 | 说明 |
 |------|------|
+| `python scripts/verify.py` | 提交前质量门：静态检查 + 前端测试 |
+| `python scripts/verify.py --full` | 完整验收：再加后端 PostgreSQL 测试与生产构建 |
+| `python scripts/verify.py --install-hook` | 安装本地 pre-commit 质量门 |
+| `backend/.venv/Scripts/python.exe backend/scripts/audit_aggregated.py` | 聚合表只读一致性审计 |
 | `cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` | 后端开发 |
 | `cd frontend && npm run dev` | 前端开发 |
 | `cd frontend && npm run build` | 构建前端 |
@@ -127,6 +131,7 @@ docker compose up --build -d
 Home Theater/
 ├── backend/         # FastAPI + 业务逻辑 + PostgreSQL 初始化脚本
 ├── frontend/        # React + Vite SPA
+├── scripts/         # 本地质量门与 pre-commit 钩子安装
 ├── docs/            # 部署、踩坑、设计规格；assets/screenshots 为界面截图
 ├── start.ps1        # Windows 一键启动（start.cmd 为绕过执行策略的包装器）
 ├── stop.ps1         # Windows 一键停止
@@ -136,6 +141,8 @@ Home Theater/
 ## 文档索引
 
 - [部署与数据库配置](docs/setup.md)
+- [开发与质量规则](CONTRIBUTING.md)
+- [缺陷、返工与重复修改复盘](docs/quality-retrospective.md)
 - [踩坑记录](docs/lessons-learned.md)
 - 项目规范（含性能检查清单）：本地 `AGENTS.md`（个人文件，不入库）
 - [设计系统](DESIGN.md)

@@ -1,4 +1,5 @@
 > ⚠️ 历史快照：本分支已全面 PostgreSQL 化，下文 SQLite 相关描述仅为当时记录。
+> 文中方案也可能被后续提交推翻；若与当前代码或 `CONTRIBUTING.md` 冲突，以当前实现和长期规则为准。特别是分页 offset、聚合唯一约束等历史结论，需结合 `docs/quality-retrospective.md` 阅读。
 >
 # 项目经验教训
 

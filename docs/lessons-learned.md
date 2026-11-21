@@ -923,18 +923,18 @@ query.limit(per_page * 5).offset(offset) # 窗口宽 per_page*5
 ```
 相邻页 `[offset, offset+5*per_page)` 重叠 `4*per_page` 条 → 第 2 页重发第 1 页大部分项 → 前端 `pages.flat()` 出现重复 key。重复数据导致 React 重挂节点 + 文档高度抖动 → 浏览器把 scrollY 钳回顶部 = 回弹。重复堆叠很快逼近内存封顶 `MAX_INFINITE_ITEMS` 或 offset 越界返回空页 → `getNextPageParam` 返回 undefined → 不再 fetch → 第 5 次不再回弹。
 
-**解决**：让 offset 与扫描窗口同步步进，并去掉把输出截断到 per_page 的 `break`（截断会丢弃窗口内剩余行却不前进 offset，正是错位之源），使页与页严格不重叠：
-```python
-scan_window = per_page * 5
-offset = (page - 1) * scan_window
-query.limit(scan_window).offset(offset)
-# 不再 if len(items) >= per_page: break
-```
+**第一次修复（后被证明不完整）**：`e37110a` 让 offset 与扫描窗口同步步进，并去掉输出截断。这消除了当时的页间重叠，却把只输出 `per_page` 条与跳过 `scan_window` 行组合在一起，造成翻页跳空。
+
+**后续纠正**：
+- `3ac8715`（2026-11-08）把 offset 改回按输出条数步进，并补三页互斥且并集完整的测试。
+- `e5462cd`（2026-11-16）发现无来源聚合行仍会在 Python 侧被整条丢弃，再次造成页间重叠；改为在 SQL 中用 `EXISTS` 排除孤儿行。
+
+**当前规则**：不要再单独套用某个 offset 公式。分页必须同时验证「跨页不重复、联合不遗漏、顺序稳定、末页可终止」，并覆盖二次过滤与超过一个扫描窗口的数据。孤儿行等数据问题另用 `backend/scripts/audit_aggregated.py` 检查。
 
 **教训**：
-- 分页放大窗口（为过滤/去重预留缓冲）时，**offset 必须按放大后的窗口步长前进**，不能按"输出条数"前进，否则页间重叠。这是与 #20（首页排序抖动）同源的"分页一致性"问题。
+- 反向修复说明前一次验收的不变量不完整，必须补齐相反方向的症状，而不是只改回旧公式。
 - "下拉回弹"未必是滚动/虚拟列表 bug。先用日志确认回弹发生的**时机**（滚动中 vs fetch 后），再定位——本例真凶是数据层重复，不是渲染层。
-- React 的 `duplicate key` 警告是数据重复的强信号，出现在 `fetchNextPage` 栈里即指向分页接口跨页返回重复。
+- React 的 `duplicate key` 警告是数据重复的强信号，出现在 `fetchNextPage` 栈里即指向分页接口跨页返回重复；测试中也不能把它当噪音忽略。
 
 ---
 

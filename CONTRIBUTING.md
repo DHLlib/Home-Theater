@@ -1,0 +1,86 @@
+# 开发与质量规则
+
+这些规则来自本地与远程提交历史中的反复事故。项目明确不使用 GitHub Actions；质量门必须在本地执行，不能把“已手动检查”当作默认证明。
+
+## 1. 统一质量门
+
+先安装开发依赖：
+
+```bash
+cd backend && pip install -e ".[dev]"
+cd frontend && npm install
+```
+
+在仓库根目录运行：
+
+| 命令 | 用途 | 覆盖 |
+|---|---|---|
+| `python scripts/verify.py --static` | 最小编译检查 | Python compileall、ruff F、PowerShell 语法、TypeScript |
+| `python scripts/verify.py` | 每次提交前 | 静态检查 + 全部前端测试 |
+| `python scripts/verify.py --full` | 合并/发布前 | 上述检查 + 后端 PostgreSQL 测试 + 前端生产构建 |
+| `python scripts/verify.py --install-hook` | 每个本地克隆一次 | 安装 pre-commit 钩子；已有自定义钩子时不覆盖 |
+
+完整验收还需要一次真实用户场景：启动服务、调用接口或操作页面。编译、import、类型检查都不能替代这一步。后端测试使用 `home_theater_test`，不是业务库。
+
+## 2. Bug 修复必须留下回归证据
+
+- 先写清被破坏的不变量，再修改实现。每个 Bug 原则上必须同时提交一个能在旧实现上复现、在新实现上通过的测试。
+- 真实资源站、特殊浏览器等确实无法自动化时，必须在提交说明或验收记录中写明：复现步骤、真实调用结果、未自动化原因。不能只写“已修复”。
+- 禁止通过删除断言、放宽断言、屏蔽警告来制造通过。React `duplicate key`、未捕获 Promise、事件循环 lag 都是缺陷信号，不是可忽略噪音。
+- 反向修改近期修复时，必须解释前一次修复为什么错误，并补齐此前缺少的场景；不能只把代码改回去。
+
+## 3. 同一业务概念只能有一个所有者
+
+- HLS 后缀、年份归一化、聚合键、进度唯一键等规则，不得在播放、下载、详情和不同端各自复制判断。
+- 后端 HLS 后缀统一使用 `app.services.parser.is_hls_suffix`；前端格式入口是 `utils/mediaFormat.ts` 的 `analyzeFormat`。新增后缀必须同时更新 `test_media_format.py` 与 `MediaFormat.test.ts` 的契约样例。
+- 多个接口返回同一业务对象时，共用后处理函数；桌面与移动端优先共用领域组件、hook 和 API 层。
+- 修改前后端共同概念时，交付清单必须列出两端的文件、契约样例和真实调用结果。
+
+## 4. 分页与聚合按不变量验收
+
+分页必须同时满足：跨页不重复、联合不遗漏、顺序稳定、末页可终止。测试必须覆盖 SQL 与 Python 二次过滤、空来源行、超过一个扫描窗口的数据量；不能只改 offset 公式后看一屏结果。
+
+聚合写入必须保证：
+
+- `(norm_title, COALESCE(year, -1))` 唯一；
+- 每条聚合视频至少有一个来源；
+- 来源不悬空、不重复；
+- `source_count` 等于实际来源数；
+- 归一化键非空，全量与增量使用同一归一化版本。
+
+修改聚合器、站点删除、清理任务或相关约束后，运行：
+
+```bash
+backend/.venv/Scripts/python.exe backend/scripts/audit_aggregated.py
+```
+
+该命令只读，任一指标非零即失败。涉及查询性能或大数据量重建时，还要在代表性数据量上查看 `EXPLAIN (ANALYZE)`；小夹具通过不代表生产规模可用。
+
+## 5. 并发状态必须按交错时序设计
+
+- `AsyncSession`、单条 asyncpg 连接不得被协程并发使用；不要用一把锁掩盖对象生命周期不清的问题。
+- 状态转换使用原子 `UPDATE ... WHERE status=...`、upsert 或数据库锁；“先读再决定再写”不是并发保护。
+- worker 的暂停、恢复、删除必须同时覆盖 queued/running/completed，保留 stop signal，并在关闭共享 HTTP client 前取消且等待子任务。
+- 下载相关改动除单元测试外，运行 `cd backend && python scripts/simulate_download.py`，覆盖创建、暂停、继续、删除运行中任务及文件清理。
+- 新测试要描述两个操作的具体交错顺序，而不只是连续调用 happy path。
+
+## 6. 外部系统与性能不凭假设
+
+- 第三方 API 的分页、批量上限、必填参数、返回截断和插件配置键必须用真实响应或实际源码确认；不能把“请求成功”当成“语义正确”。
+- 无界外部扫描不得放在同步请求或启动路径中；后台任务必须有页数、批次、并发或总时长预算，以及可停止、可恢复机制。
+- 请求路径禁止新建 SSLContext、执行大规模 Python 统计循环或逐行数据库往返。复用 `SourceClient`/共享客户端，统计下推 SQL。
+- “整站超时”先检查 `event_loop_lag`、`slow_request` 和线程栈；不要只增加超时或重试。
+
+## 7. Windows、UI 与产品返工门槛
+
+- 修改 `.ps1` 后必须通过 PowerShell 语法解析；启动/停止脚本还要实跑一次 `start.cmd` / `stop.cmd` 场景。调试启动的进程必须清理。
+- UI 至少检查深色/浅色、桌面/移动、加载/空/错误状态。所有 React hooks 在任何 return 前无条件调用；浏览器 API 与封面候选耗尽必须有降级路径。
+- 新首页区块或新入口先对照 `docs/registry/system-context.md` 的现有路由与能力，写清它与既有功能的差异。重复用途应在实现前消除。
+- 视觉改版属于产品迭代，不自动等同于返工；但样式重构不得夹带业务修复，也不得提交日志、PID、构建产物或数据库转储。
+
+## 8. 小提交与知识闭环
+
+- 一个提交只处理一个业务域和一个目的；禁止用 WIP 合集承载多日、多领域修改。业务修复与大规模视觉重构分开。
+- 提交说明写明根因、验证命令和真实结果，而不只列改动点。
+- 后续提交推翻旧方案时，必须同步修正 `docs/lessons-learned.md` / `lesson_learn.md` 的旧结论，标清当前规则；不能只追加一条互相矛盾的新记录。
+- 历史复盘与长期规则分开维护。事故时间线见 [缺陷、返工与重复修改复盘](docs/quality-retrospective.md)。
