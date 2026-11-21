@@ -34,6 +34,7 @@ from app.constants import (
 )
 from app.db import async_session_factory
 from app.models import AppConfig, DownloadTask, Site
+from app.services import playback_guard
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.m3u8_sanitizer import sanitize_m3u8_text
 from app.services.notify_sender import Event, notify_sender
@@ -234,6 +235,7 @@ async def download_coordinator() -> None:
     await _load_max_concurrent()
     try:
         while True:
+            await playback_guard.wait_until_idle()
             # 清理已完成的任务
             done_tasks = {t for t in _active_download_tasks if t.done()}
             _active_download_tasks.difference_update(done_tasks)
@@ -427,6 +429,7 @@ async def _run_direct_download(
                 try:
                     async with aiofiles.open(task.file_path, file_mode) as f:
                         async for chunk in resp.aiter_bytes(DOWNLOAD_CHUNK_SIZE):
+                            await playback_guard.wait_until_idle(stop_event)
                             now = time.monotonic()
 
                             # 每 N 秒检查一次暂停/删除状态
@@ -667,6 +670,7 @@ async def _run_m3u8_download(
                         for attempt in range(RETRY_MAX_ATTEMPTS):
                             if not ts_dir.exists():
                                 return "deleted"
+                            await playback_guard.wait_until_idle(stop_event)
                             # API 层已请求停止，立即检查状态而不是等轮询间隔
                             if stop_event.is_set():
                                 async with _session_lock:

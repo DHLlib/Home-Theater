@@ -189,6 +189,29 @@ class PlaybackEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
 
+class SourceMediaInfo(Base):
+    """当前视频在某一来源、某一集上的真实媒体参数。"""
+
+    __tablename__ = "source_media_info"
+
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True
+    )
+    original_id: Mapped[str] = mapped_column(String, primary_key=True)
+    episode_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    url_hash: Mapped[str] = mapped_column(String, default="", nullable=False)
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    video_bitrate: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    codec: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    evidence: Mapped[str] = mapped_column(String, nullable=False)
+    method: Mapped[str] = mapped_column(String, nullable=False)
+    probe_ok: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+
 class DownloadTask(Base):
     __tablename__ = "download_tasks"
     __table_args__ = (Index("ix_download_created_at", "created_at"),)

@@ -16,6 +16,7 @@ from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
 from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
+from app.services.playback_enhancement import shutdown_enhancements
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
 from app.services.source_client import close_shared_clients
@@ -508,6 +509,7 @@ async def lifespan(app: FastAPI):
     # 启动时先把 TLS 上下文建好：Windows 上首次建上下文可能要几秒到几十秒，
     # 放在请求路径里会直接卡住事件循环（曾导致整站 45 秒无响应）。
     await asyncio.to_thread(get_ssl_context)
+    await shutdown_enhancements()
     await check_db_connection()
     await init_db()
     await _fix_postgres_sequences()
@@ -569,6 +571,7 @@ async def lifespan(app: FastAPI):
         await loop_lag_task
     except asyncio.CancelledError:
         pass
+    await shutdown_enhancements()
     await close_shared_clients()
     await listen_manager.stop()
 

@@ -65,6 +65,7 @@ from app.services.category_mapping import (
     get_site_category_mappings,
     load_all_site_mappings,
 )
+from app.services import playback_guard
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
 from app.services.resolver import resolve_share_page
 import app.services.scheduler as scheduler_module
@@ -2137,7 +2138,8 @@ async def _cleanup_one_site(
                 if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
                     return []
                 async with sem:
-                    # 全局限速：并发再高，实际请求速率也不超过档位上限
+                    # 播放期间后台清理退让；恢复后继续沿用原有全局限速
+                    await playback_guard.wait_until_idle()
                     await limiter.acquire()
                     try:
                         items = await client.videolist(ids=batch, op="cleanup_expired")

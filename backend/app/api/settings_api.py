@@ -3,13 +3,15 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from app.errors import validation_error
+from app.constants import PLAYBACK_ENHANCEMENT_TARGET_HEIGHT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import AppConfig
-from app.services import downloader
+from app.services import downloader, feature_settings
 from app.services.ad_filter import is_ad_filter_enabled, set_ad_filter_enabled
+from app.services.playback_enhancement import ENHANCEMENT_ALGORITHM, enhancement_available
 from app.services.stream_accel import ACCEL_LEVELS, ACCEL_LEVEL_LABELS, DEFAULT_LEVEL
 from app.services.stream_settings import get_stream_accel, set_stream_accel
 
@@ -141,3 +143,36 @@ async def set_stream_accel_api(body: dict = Body(...)):
     except ValueError as exc:
         raise validation_error(str(exc))
     return {"enabled": new_enabled, "level": new_level}
+
+@router.get("/playback-features")
+async def get_playback_features_api():
+    values = await feature_settings.get_playback_features()
+    return {
+        **values,
+        "enhancement_available": enhancement_available(),
+        "algorithm": ENHANCEMENT_ALGORITHM,
+        "target_height": PLAYBACK_ENHANCEMENT_TARGET_HEIGHT,
+    }
+
+
+@router.put("/playback-features")
+async def set_playback_features_api(
+    body: dict = Body(...), db: AsyncSession = Depends(get_db)
+):
+    changes = {
+        key: body[key]
+        for key in feature_settings.DEFAULTS
+        if key in body
+    }
+    if not changes or any(not isinstance(value, bool) for value in changes.values()):
+        raise validation_error("需要提供至少一个布尔类型的播放功能开关")
+    try:
+        values = await feature_settings.set_playback_features(changes, db)
+    except ValueError as exc:
+        raise validation_error(str(exc))
+    return {
+        **values,
+        "enhancement_available": enhancement_available(),
+        "algorithm": ENHANCEMENT_ALGORITHM,
+        "target_height": PLAYBACK_ENHANCEMENT_TARGET_HEIGHT,
+    }

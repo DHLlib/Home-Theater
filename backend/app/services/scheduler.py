@@ -15,6 +15,7 @@ from app.constants import (
 from app.config import settings
 from app.db import async_session_factory
 from app.models import Site, SiteProbeLog, SiteHealthCounter, _utcnow
+from app.services import playback_guard
 from app.services.crawler import Crawler
 from app.services.health import ProbeResult, probe
 from app.services.notify_sender import Event, notify_sender
@@ -139,6 +140,7 @@ async def _probe_all_sites() -> None:
 
     async def _probe_one(site: Site):
         try:
+            await playback_guard.wait_until_idle()
             pr = await probe(site.id, site.base_url, site.name)
         except Exception as exc:
             logger.warning("探测异常 site=%s error=%s", site.name, exc)

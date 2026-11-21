@@ -16,6 +16,14 @@ class Episode(BaseModel):
     reachable: bool | None = None
 
 
+class PlaybackMediaIn(BaseModel):
+    url: str = Field(..., min_length=1, max_length=4096)
+    width: int = Field(..., ge=1, le=16384)
+    height: int = Field(..., ge=1, le=16384)
+    video_bitrate: int | None = Field(default=None, ge=1, le=1_000_000_000)
+    codec: str | None = Field(default=None, max_length=64)
+
+
 class PlaybackEventIn(BaseModel):
     event_id: str = Field(..., min_length=1, max_length=64)
     session_id: str = Field(..., min_length=1, max_length=64)
@@ -25,6 +33,7 @@ class PlaybackEventIn(BaseModel):
     event_type: Literal["attempt", "first_frame", "stall", "fatal_error", "ended"]
     first_frame_ms: int | None = Field(default=None, ge=0, le=300000)
     error: str | None = Field(default=None, max_length=500)
+    media: PlaybackMediaIn | None = None
 
 
 class PlaybackEventBatch(BaseModel):

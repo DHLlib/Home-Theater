@@ -35,6 +35,7 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
 )
 from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
+from app.services import playback_guard
 from app.services.aggregator import (
     acquire_operation_lock,
     is_operation_in_progress,
@@ -644,6 +645,7 @@ class Crawler:
         """请求单页 list，带重试。"""
         for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
+                await playback_guard.wait_until_idle()
                 t = cat_id if cat_id is not None else None
                 items = await client.list(t=t, pg=page, op=op)
                 return items
@@ -669,6 +671,7 @@ class Crawler:
                 ids = [e["original_id"] for e in sub_batch]
 
                 try:
+                    await playback_guard.wait_until_idle()
                     details = await client.videolist(ids=ids, op=op)
                     detail_map = {str(d.get("original_id", "")): d for d in details}
 

@@ -6,8 +6,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
+import aiofiles
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -31,9 +33,17 @@ from app.models import (
     _utcnow,
 )
 from app.schemas import Episode, PlaybackEventBatch
+from app.services import feature_settings, playback_enhancement, playback_guard
 from app.services.ad_filter import is_ad_filter_enabled
 from app.services.aggregator import normalize_title
 from app.services.m3u8_sanitizer import sanitize_m3u8
+from app.services.media_analysis import analyze_candidates
+from app.services.media_metadata import (
+    MediaMetadata,
+    describe_media,
+    load_media_metadata,
+    upsert_media_metadata_many,
+)
 from app.services.parser import is_hls_suffix, parse_episodes
 from app.services.resolver import resolve_share_page
 from app.services.source_client import SourceClient, _safe_year
@@ -67,7 +77,7 @@ CACHE_TTL_SECONDS = settings.play_cache_ttl_seconds
 
 # 播放前线路探测：2xx/3xx 算可达；HEAD 受限时用 Range GET 复核
 _PROBE_TIMEOUT = 1.5
-_PROBE_CONCURRENCY = 16
+_PROBE_CONCURRENCY = 1
 _PROBE_BUDGET = 4.0
 _PROBE_TTL = 180.0
 _probe_cache: dict[str, tuple[float, bool]] = {}
@@ -146,6 +156,17 @@ class PlaySourceQualityOut(BaseModel):
     last_success_at: datetime | None
 
 
+class PlaySourceMediaOut(BaseModel):
+    width: int | None
+    height: int | None
+    video_bitrate: int | None
+    codec: str | None
+    evidence: str
+    method: str
+    checked_at: datetime
+    description: str | None
+
+
 class PlaySourceOut(BaseModel):
     site_id: int
     site_name: str
@@ -153,12 +174,20 @@ class PlaySourceOut(BaseModel):
     episode_count: int
     suffix: str
     recommended: bool = False
+    hd_recommended: bool = False
+    stable_recommended: bool = False
     recommendation_reason: str | None = None
+    hd_reason: str | None = None
     quality: PlaySourceQualityOut | None = None
+    media: PlaySourceMediaOut | None = None
 
 
 class PlaySourcesResponse(BaseModel):
     sources: list[PlaySourceOut]
+    analyzed: int = 0
+    remaining: int = 0
+    analysis_running: bool = False
+    analysis_disabled: bool = False
 
 
 def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
@@ -235,6 +264,29 @@ async def record_playback_events(
         index_elements=["event_id"]
     )
     result = await db.execute(stmt)
+    media_entries = []
+    for event in req.events:
+        media = event.media
+        if event.event_type != "first_frame" or media is None:
+            continue
+        media_entries.append(
+            (
+                event.site_id,
+                event.original_id,
+                event.episode_index,
+                media.url,
+                MediaMetadata(
+                    width=media.width,
+                    height=media.height,
+                    video_bitrate=media.video_bitrate,
+                    codec=media.codec,
+                    evidence="actual",
+                    method="playing",
+                ),
+                None,
+            )
+        )
+    await upsert_media_metadata_many(db, media_entries)
     await db.execute(
         delete(PlaybackEvent).where(
             PlaybackEvent.created_at
@@ -243,6 +295,21 @@ async def record_playback_events(
     )
     await db.commit()
     return {"accepted": max(result.rowcount or 0, 0)}
+
+
+class PlaybackHeartbeatIn(BaseModel):
+    session_id: str
+    active: bool
+
+
+@router.post("/heartbeat", status_code=204)
+async def playback_heartbeat(req: PlaybackHeartbeatIn):
+    if req.active and await feature_settings.is_feature_enabled("playback_guard"):
+        playback_guard.heartbeat(req.session_id)
+        playback_enhancement.keepalive(req.session_id)
+    else:
+        playback_guard.stop(req.session_id)
+    return Response(status_code=204)
 
 
 @router.get("/sources", response_model=PlaySourcesResponse)
@@ -311,6 +378,7 @@ async def get_sources(
 
     pairs = [(source.site_id, source.original_id) for source in sources]
     quality_map = await load_source_quality(db, pairs)
+    media_map = await load_media_metadata(db, pairs)
 
     def sort_score(source: PlaySourceOut) -> float:
         score = quality_score(
@@ -321,28 +389,100 @@ async def get_sources(
     sources.sort(key=sort_score, reverse=True)
     for source in sources:
         stats = quality_map.get((source.site_id, source.original_id))
-        if stats is None:
-            continue
-        source.quality = PlaySourceQualityOut(
-            attempts=stats.attempts,
-            success_rate=round(stats.success_rate, 4),
-            avg_first_frame_ms=(
-                round(stats.avg_first_frame_ms)
-                if stats.avg_first_frame_ms is not None
-                else None
-            ),
-            stall_count=stats.stall_count,
-            last_success_at=stats.last_success_at,
-        )
-        source.recommendation_reason = quality_reason(stats)
+        if stats is not None:
+            source.quality = PlaySourceQualityOut(
+                attempts=stats.attempts,
+                success_rate=round(stats.success_rate, 4),
+                avg_first_frame_ms=(
+                    round(stats.avg_first_frame_ms)
+                    if stats.avg_first_frame_ms is not None
+                    else None
+                ),
+                stall_count=stats.stall_count,
+                last_success_at=stats.last_success_at,
+            )
+            source.recommendation_reason = quality_reason(stats)
+        media = media_map.get((source.site_id, source.original_id))
+        if media is not None:
+            source.media = PlaySourceMediaOut(
+                width=media.width,
+                height=media.height,
+                video_bitrate=media.video_bitrate,
+                codec=media.codec,
+                evidence=media.evidence,
+                method=media.method,
+                checked_at=media.checked_at,
+                description=describe_media(media),
+            )
 
-    if sources:
+    stable_key = None
+    if sources and is_recommendable(
+        quality_map.get((sources[0].site_id, sources[0].original_id))
+    ):
         top = sources[0]
-        if is_recommendable(quality_map.get((top.site_id, top.original_id))):
-            top.recommended = True
+        top.stable_recommended = True
+        stable_key = (top.site_id, top.original_id)
 
+    hd_key = None
+    if media_map:
+        hd_key = max(
+            media_map,
+            key=lambda key: (
+                media_map[key].height or 0,
+                media_map[key].width or 0,
+                media_map[key].evidence == "actual",
+                media_map[key].video_bitrate or 0,
+            ),
+        )
+        for source in sources:
+            if (source.site_id, source.original_id) == hd_key:
+                source.hd_recommended = True
+                source.hd_reason = source.media.description if source.media else None
+                break
+
+    def recommendation_rank(source: PlaySourceOut) -> tuple[int, float, int, str]:
+        key = (source.site_id, source.original_id)
+        group = 2
+        if key == hd_key:
+            group = 0
+        elif key == stable_key:
+            group = 1
+        source.recommended = source.hd_recommended or source.stable_recommended
+        return group, -sort_score(source), source.site_id, source.original_id
+
+    sources.sort(key=recommendation_rank)
     logger.info("play_sources title=%s year=%s count=%d", title, year, len(sources))
     return PlaySourcesResponse(sources=sources)
+
+
+class AnalyzeSourcesIn(BaseModel):
+    title: str
+    year: int | None = None
+
+
+@router.post("/sources/analyze", response_model=PlaySourcesResponse)
+async def analyze_play_sources(
+    req: AnalyzeSourcesIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    current = await get_sources(req.title, req.year, db)
+    if not await feature_settings.is_feature_enabled("media_analysis"):
+        current.analysis_disabled = True
+        return current
+    candidates = [
+        (source.site_id, source.original_id) for source in current.sources
+    ]
+
+    async def should_continue() -> bool:
+        return not await request.is_disconnected()
+
+    outcome = await analyze_candidates(db, candidates, should_continue)
+    response = await get_sources(req.title, req.year, db)
+    response.analyzed = outcome.probed
+    response.remaining = max(len(candidates) - outcome.processed, 0)
+    response.analysis_running = outcome.running
+    return response
 
 
 @router.get("/episodes")
@@ -470,12 +610,13 @@ async def get_episodes(
 
     # 播放前探测线路是否可达（必须在改写成后端代理之前探测真实地址）
     upstream_urls = {i: e.url for i, e in enumerate(episodes)}
+    probe_targets = [upstream_urls[0]] if 0 in upstream_urls else []
     probe_start = time.monotonic()
-    probed = await _probe_episodes(list(upstream_urls.values()))
+    probed = await _probe_episodes(probe_targets)
     logger.info(
-        "play_probe site=%s urls=%d unreachable=%d elapsed=%.2fs",
+        "play_probe site=%s probe_urls=%d unreachable=%d elapsed=%.2fs",
         site.name,
-        len(upstream_urls),
+        len(probe_targets),
         sum(1 for ok in probed.values() if not ok),
         time.monotonic() - probe_start,
     )
@@ -517,6 +658,66 @@ async def get_episodes(
         )
         for i, e in enumerate(episodes)
     ]
+
+
+@router.get("/enhance/capability")
+async def enhancement_capability():
+    return {
+        "available": playback_enhancement.enhancement_available(),
+        "algorithm": playback_enhancement.ENHANCEMENT_ALGORITHM,
+        "target_height": playback_enhancement.PLAYBACK_ENHANCEMENT_TARGET_HEIGHT,
+    }
+
+
+class EnhancePlaybackIn(BaseModel):
+    site_id: int
+    url: str
+    suffix: str
+    session_id: str = ""
+
+
+@router.post("/enhance")
+async def start_playback_enhancement(
+    req: EnhancePlaybackIn, db: AsyncSession = Depends(get_db)
+):
+    if not await feature_settings.is_feature_enabled("enhancement"):
+        raise HTTPException(status_code=403, detail="请先在设置中启用轻量画质增强")
+    site = await db.get(Site, req.site_id)
+    if site is None:
+        raise site_not_found(req.site_id)
+    try:
+        return await playback_enhancement.start_enhancement(
+            req.url, req.suffix, site.base_url, req.session_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.get("/enhance/{session_id}/{filename}")
+async def read_enhancement_file(session_id: str, filename: str):
+    path = await playback_enhancement.get_enhancement_file(session_id, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="增强会话不存在或已过期")
+    if filename == "index.m3u8":
+        async with aiofiles.open(path, "r", encoding="utf-8") as file:
+            content = await file.read()
+        return Response(
+            content=content,
+            media_type="application/vnd.apple.mpegurl",
+            headers={"Cache-Control": "no-store"},
+        )
+    return FileResponse(
+        path,
+        media_type="video/mp2t",
+        headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
+@router.delete("/enhance/{session_id}")
+async def stop_playback_enhancement(session_id: str):
+    return {"stopped": await playback_enhancement.stop_enhancement(session_id)}
 
 
 @router.get("/accel/m3u8")
