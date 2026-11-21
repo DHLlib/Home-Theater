@@ -59,6 +59,15 @@ class AggregatedListResponse(BaseModel):
     failed_sources: list[dict] = Field(default_factory=list)
 
 
+class HomeSection(BaseModel):
+    category: str
+    items: list[AggregatedVideo]
+
+
+class HomeSectionsResponse(BaseModel):
+    sections: list[HomeSection]
+
+
 class SourceDetail(BaseModel):
     site_id: int
     site_name: str | None = None

@@ -6,6 +6,7 @@ import type {
   DetailRequest,
   DetailResponse,
   FillVideolistResponse,
+  HomeSectionsResponse,
 } from "../types";
 
 /* ===== AC-023: 移动端检测，自动追加 device 参数 ===== */
@@ -54,6 +55,9 @@ export const searchVideos = (params: { wd: string; pg?: number; category?: strin
 
 export const getRecommendedVideos = () =>
   get<AggregatedListResponse>("/api/videos/recommended", 15000);
+
+export const getHomeSections = () =>
+  get<HomeSectionsResponse>("/api/videos/home-sections", 15000);
 
 /* ===== 未分类归因 ===== */
 

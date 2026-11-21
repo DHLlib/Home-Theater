@@ -121,6 +121,10 @@
   margin-bottom: 16px;
 }
 
+.mobile-home {
+  --home-category-nav-offset: 0px;
+}
+
 /* 首页页头：品牌锚点 + 一行搜索（契约要求移动首屏有搜索） */
 .mobile-home-head {
   display: flex;

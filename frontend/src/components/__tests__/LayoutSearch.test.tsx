@@ -49,11 +49,13 @@ function mockFetch() {
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
-    if (url.includes("/api/videos/recommended")) {
-      return new Response(JSON.stringify({ items: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (url.includes("/api/videos/home-sections")) {
+      return new Response(
+        JSON.stringify({
+          sections: [{ category: "电影", items: searchItems.slice(0, 1) }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
     }
     if (url.includes("/api/videos/crawler/status")) {
       return new Response(
@@ -114,9 +116,13 @@ describe("Layout + Home search", () => {
   }
 
   it("默认首页在缺少 ResizeObserver 时仍能渲染（不会整页白屏）", async () => {
+    expect(window.ResizeObserver).toBeUndefined();
     renderWithRouter(["/"]);
     await waitFor(() => {
-      expect(screen.getByText("全部视频")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "电影", level: 2 })
+      ).toBeInTheDocument();
+      expect(document.querySelectorAll(".video-card")).toHaveLength(1);
     });
   });
 

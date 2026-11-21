@@ -54,11 +54,15 @@ export function useCrawlerStatusQuery() {
   });
 }
 
-export function useVideosInfinite(filters: {
-  category?: string | null;
-  wd?: string;
-  sort?: string;
-}) {
+export function useVideosInfinite(
+  filters: {
+    category?: string | null;
+    wd?: string;
+    sort?: string;
+  },
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true;
   const wd = filters.wd?.trim() ?? "";
   const pagesKey = PAGES_STORAGE_PREFIX + JSON.stringify(filters);
   const query = useInfiniteQuery({
@@ -89,6 +93,7 @@ export function useVideosInfinite(filters: {
       return allPages.length + 1;
     },
     initialPageParam: 1,
+    enabled,
   });
 
   const fetchNextPage = query.fetchNextPage;
@@ -113,7 +118,7 @@ export function useVideosInfinite(filters: {
 
   // 刷新后把页数补回保存值，补完再允许滚动恢复
   useEffect(() => {
-    if (restoredPagesRef.current) return;
+    if (!enabled || restoredPagesRef.current) return;
     const data = query.data;
     if (!data) return;
 
@@ -138,6 +143,7 @@ export function useVideosInfinite(filters: {
     query.isFetchingNextPage,
     fetchNextPage,
     pagesKey,
+    enabled,
   ]);
 
   // 内存封顶：当缓存页累计超过阈值时，裁剪最旧的页面

@@ -6,7 +6,20 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.errors import crawler_not_running, validation_error
-from sqlalchemy import delete, desc, exists, func, or_, select, text, tuple_
+from sqlalchemy import (
+    String,
+    column,
+    delete,
+    desc,
+    exists,
+    func,
+    or_,
+    select,
+    text,
+    true,
+    tuple_,
+    values,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,6 +49,8 @@ from app.schemas import (
     FailedSource,
     FillVideolistRequest,
     FillVideolistResponse,
+    HomeSection,
+    HomeSectionsResponse,
     SiteStat,
     SourceRef,
 )
@@ -797,6 +812,174 @@ def _filter_sources_by_site_id(sources: list[SourceRef], site_id: int | None) ->
     if site_id is None:
         return sources
     return [s for s in sources if s.site_id == site_id]
+
+
+# ------------------------------------------------------------------
+# 首页分类区块 API
+# ------------------------------------------------------------------
+
+HOME_CATEGORY_ORDER = ("电影", "连续剧", "综艺", "动漫", "短剧", "体育", "其他")
+HOME_SECTION_LIMIT = 8
+HOME_SECTION_SCAN_LIMIT = HOME_SECTION_LIMIT * 5
+
+
+@router.get("/home-sections")
+async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsResponse:
+    """按顶级分类返回最新视频，分类展开与来源禁用规则同列表查询。"""
+    system_by_name, system_by_id, site_mappings = await _load_category_filter_maps(db)
+
+    top_categories = {
+        info["id"]: name
+        for name, info in system_by_name.items()
+        if name in HOME_CATEGORY_ORDER
+        and info["parent_id"] is None
+        and info["enabled"]
+    }
+    system_to_home: dict[str, str] = {}
+    for name, info in system_by_name.items():
+        if not info["enabled"]:
+            continue
+        home_category = top_categories.get(info["parent_id"])
+        if name in HOME_CATEGORY_ORDER and info["id"] in top_categories:
+            home_category = name
+        if home_category is not None:
+            system_to_home[name] = home_category
+
+    if not system_to_home:
+        return HomeSectionsResponse(sections=[])
+
+    home_remote_names: dict[str, set[str]] = {
+        category: set() for category in HOME_CATEGORY_ORDER
+    }
+    aliases = await load_aliases(db)
+    for info in aliases.values():
+        home_category = system_to_home.get(info["system_name"])
+        if home_category is not None and info["enabled"]:
+            home_remote_names[home_category].update(info["raw_names"] or [])
+
+    category_values = values(
+        column("system_name", String),
+        column("home_category", String),
+    ).data(list(system_to_home.items())).alias("home_categories")
+
+    def latest_candidates(null_timestamps: bool):
+        query = (
+            select(
+                AggregatedVideoV3.id.label("id"),
+                AggregatedVideoV3.title.label("title"),
+                AggregatedVideoV3.year.label("year"),
+                AggregatedVideoV3.poster_url.label("poster_url"),
+                AggregatedVideoV3.latest_updated_at.label("latest_updated_at"),
+                category_values.c.home_category.label("category"),
+            )
+            .where(AggregatedVideoV3.system_category == category_values.c.system_name)
+            .where(
+                exists(
+                    select(AggregatedSource.id)
+                    .join(Site, Site.id == AggregatedSource.site_id)
+                    .where(
+                        AggregatedSource.aggregated_video_id == AggregatedVideoV3.id,
+                        Site.enabled.is_(True),
+                    )
+                )
+            )
+        )
+        if null_timestamps:
+            query = query.where(AggregatedVideoV3.latest_updated_at.is_(None)).order_by(
+                AggregatedVideoV3.id.desc()
+            )
+        else:
+            query = query.where(AggregatedVideoV3.latest_updated_at.isnot(None)).order_by(
+                AggregatedVideoV3.latest_updated_at.desc(),
+                AggregatedVideoV3.id.desc(),
+            )
+        lateral = query.limit(HOME_SECTION_SCAN_LIMIT).lateral()
+        return select(lateral).select_from(category_values).join(lateral, true())
+
+    candidate_rows = []
+    for null_timestamps in (False, True):
+        candidate_rows.extend(
+            (await db.execute(latest_candidates(null_timestamps))).all()
+        )
+
+    rows = []
+    for category in HOME_CATEGORY_ORDER:
+        category_rows = [row for row in candidate_rows if row.category == category]
+        dated = sorted(
+            (row for row in category_rows if row.latest_updated_at is not None),
+            key=lambda row: (row.latest_updated_at, row.id),
+            reverse=True,
+        )
+        undated = sorted(
+            (row for row in category_rows if row.latest_updated_at is None),
+            key=lambda row: row.id,
+            reverse=True,
+        )
+        rows.extend((dated + undated)[:HOME_SECTION_SCAN_LIMIT])
+    if not rows:
+        return HomeSectionsResponse(sections=[])
+
+    source_rows = (
+        await db.execute(
+            select(AggregatedSource)
+            .where(AggregatedSource.aggregated_video_id.in_([row.id for row in rows]))
+            .order_by(AggregatedSource.id)
+        )
+    ).scalars().all()
+    sources_by_video: dict[int, list[SourceRef]] = {}
+    for source in source_rows:
+        sources_by_video.setdefault(source.aggregated_video_id, []).append(
+            SourceRef(
+                site_id=source.site_id,
+                site_name=source.site_name,
+                original_id=source.original_id,
+                type=source.type_name,
+                type_id=source.type_id,
+                category=None,
+                remarks=source.remarks,
+                updated_at=source.updated_at,
+            )
+        )
+
+    grouped: dict[str, list[AggregatedVideo]] = {
+        category: [] for category in HOME_CATEGORY_ORDER
+    }
+    for row in rows:
+        items = grouped[row.category]
+        if len(items) >= HOME_SECTION_LIMIT:
+            continue
+
+        sources = sources_by_video.get(row.id, [])
+        remote_names = home_remote_names[row.category]
+        if remote_names:
+            sources = [source for source in sources if source.type in remote_names]
+        if not _video_has_enabled_source(
+            sources, system_by_name, system_by_id, site_mappings
+        ):
+            continue
+        if not sources:
+            continue
+
+        items.append(
+            AggregatedVideo(
+                id=row.id,
+                title=row.title,
+                year=row.year,
+                poster_url=row.poster_url,
+                sources=sources,
+                source_count=len(sources),
+            )
+        )
+
+    all_items = [item for items in grouped.values() for item in items]
+    await _enrich_poster_urls(db, all_items)
+    return HomeSectionsResponse(
+        sections=[
+            HomeSection(category=category, items=grouped[category])
+            for category in HOME_CATEGORY_ORDER
+            if grouped[category]
+        ]
+    )
 
 
 # ------------------------------------------------------------------

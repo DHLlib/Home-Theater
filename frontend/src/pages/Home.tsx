@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
-import SpotlightRow from "../components/SpotlightRow";
+import HomeCategorySections from "../components/HomeCategorySections";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
@@ -9,10 +9,10 @@ import { useIsMobile } from "../hooks/useViewport";
 import { useScrollRestoration } from "../hooks/useScrollRestoration";
 import {
   useSitesQuery,
-  useRecommendedVideosQuery,
   useCrawlerStatusQuery,
   useVideosInfinite,
 } from "../hooks/useVideos";
+import { useHomeSections } from "../hooks/useHomeSections";
 import type { AggregatedVideo } from "../types";
 import "./Home.css";
 
@@ -20,27 +20,6 @@ function videoKey(item: AggregatedVideo): string {
   // 优先用聚合行 id：标题+年份在重复行存在时会让虚拟列表 key 冲突，
   // 表现为同一张卡片重复出现、并留下空位
   return item.id != null ? `v-${item.id}` : `${item.title}-${item.year ?? "null"}`;
-}
-
-function getLatestUpdatedAt(item: AggregatedVideo): string | null {
-  let latest: string | null = null;
-  for (const s of item.sources) {
-    if (s.updated_at) {
-      if (!latest || s.updated_at > latest) {
-        latest = s.updated_at;
-      }
-    }
-  }
-  return latest;
-}
-
-function compareByYearDescNullLast(a: AggregatedVideo, b: AggregatedVideo): number {
-  const ya = a.year ?? -Infinity;
-  const yb = b.year ?? -Infinity;
-  if (ya !== yb) return yb - ya;
-  const ta = getLatestUpdatedAt(a) || "";
-  const tb = getLatestUpdatedAt(b) || "";
-  return tb.localeCompare(ta);
 }
 
 /* ===== 主页面 ===== */
@@ -55,10 +34,16 @@ export default function Home() {
   const wdFromUrl = searchParams.get("wd") || "";
   const activeCategory = searchParams.get("category") || null;
   const sort = searchParams.get("sort") === "year" ? "year" : "updated";
+  const isDefaultView = !wdFromUrl.trim() && !activeCategory;
 
   const { data: sites = [], isLoading: sitesLoading } = useSitesQuery();
-  const { data: recommendedVideos = [], isLoading: recommendedLoading } =
-    useRecommendedVideosQuery();
+  const {
+    data: homeSectionsData,
+    isLoading: homeSectionsLoading,
+    isError: homeSectionsError,
+    refetch: refetchHomeSections,
+  } = useHomeSections(isDefaultView);
+  const homeSections = homeSectionsData?.sections ?? [];
   const { data: crawlerStatus } = useCrawlerStatusQuery();
   const {
     data,
@@ -69,7 +54,10 @@ export default function Home() {
     refetch,
     isCapped,
     pagesRestored,
-  } = useVideosInfinite({ category: activeCategory, wd: wdFromUrl, sort });
+  } = useVideosInfinite(
+    { category: activeCategory, wd: wdFromUrl, sort },
+    { enabled: !isDefaultView }
+  );
 
   const videos = useMemo(() => {
     return data?.pages.flat() ?? [];
@@ -77,34 +65,37 @@ export default function Home() {
 
   const mobileGridMinWidth = isMobile ? 130 : 190;
 
-  const allSection = useMemo(() => {
-    const list = [...videos];
-    if (sort === "year") {
-      list.sort(compareByYearDescNullLast);
-    } else {
-      list.sort((a, b) => {
-        const ta = getLatestUpdatedAt(a);
-        const tb = getLatestUpdatedAt(b);
-        if (!ta && !tb) return 0;
-        if (!ta) return 1;
-        if (!tb) return -1;
-        return tb.localeCompare(ta);
-      });
-    }
-    return list;
-  }, [videos, sort]);
-
   // 稳定的 renderItem 引用，避免每次渲染重建所有 VideoCard 使其 React.memo 失效
   const renderGridItem = useCallback(
     (v: AggregatedVideo) => <VideoCard item={v} />,
     []
   );
 
+  const handleViewAll = useCallback(
+    (category: string) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("category", category);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const handleSectionsRetry = useCallback(() => {
+    void refetchHomeSections();
+  }, [refetchHomeSections]);
+
+  const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
+    (s) => s === "full_crawling" || s === "incremental_running"
+  );
+
   // F5/浏览器刷新后恢复滚动位置：等虚拟列表把内容高度撑起来再滚，
   // 否则浏览器的默认恢复会被夹到顶部
   useScrollRestoration(
     `home:${location.pathname}${location.search}`,
-    sites.length > 0 && !isLoading && pagesRestored
+    sites.length > 0 &&
+      (isDefaultView
+        ? !homeSectionsLoading
+        : !isLoading && pagesRestored)
   );
 
   // 返回顶部按钮显隐
@@ -119,15 +110,26 @@ export default function Home() {
   // 刮削完成后自动刷新（从 syncing 变为 idle）
   const wasSyncingRef = useRef(false);
   useEffect(() => {
-    const statuses = Object.values(crawlerStatus?.site_status || {});
-    const isSyncing = statuses.some(
-      (s) => s === "full_crawling" || s === "incremental_running"
-    );
-    if (wasSyncingRef.current && !isSyncing && videos.length === 0) {
-      refetch();
+    const hasNoContent = isDefaultView
+      ? homeSections.length === 0
+      : videos.length === 0;
+    if (wasSyncingRef.current && !isSyncing && hasNoContent) {
+      if (isDefaultView) {
+        void refetchHomeSections();
+      } else {
+        void refetch();
+      }
     }
     wasSyncingRef.current = isSyncing;
-  }, [crawlerStatus, videos.length, refetch]);
+  }, [
+    crawlerStatus,
+    homeSections.length,
+    isDefaultView,
+    isSyncing,
+    videos.length,
+    refetch,
+    refetchHomeSections,
+  ]);
 
   // 无限滚动：监听 sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -217,12 +219,13 @@ export default function Home() {
     );
   }
 
-  const hasContent =
-    recommendedVideos.length > 0 || allSection.length > 0;
-
-  const isSyncing = Object.values(crawlerStatus?.site_status || {}).some(
-    (s) => s === "full_crawling" || s === "incremental_running"
-  );
+  const hasContent = videos.length > 0;
+  const showInitialSync =
+    isDefaultView &&
+    isSyncing &&
+    !homeSectionsLoading &&
+    !homeSectionsError &&
+    homeSections.length === 0;
 
   return (
     <div>
@@ -231,23 +234,25 @@ export default function Home() {
       {/* ===== 移动端顶部搜索栏 + 分类 ===== */}
       {isMobile && <MobileSearchBar />}
 
-      <div className="home-cats">
-        <CategoryBar
-          activeCategory={activeCategory}
-          onSelect={(cat) => {
-            const next = new URLSearchParams(searchParams);
-            if (cat) {
-              next.set("category", cat);
-            } else {
-              next.delete("category");
-            }
-            setSearchParams(next, { replace: true });
-          }}
-        />
-      </div>
+      {!isDefaultView && (
+        <div className="home-cats">
+          <CategoryBar
+            activeCategory={activeCategory}
+            onSelect={(cat) => {
+              const next = new URLSearchParams(searchParams);
+              if (cat) {
+                next.set("category", cat);
+              } else {
+                next.delete("category");
+              }
+              setSearchParams(next, { replace: true });
+            }}
+          />
+        </div>
+      )}
 
       {/* ===== 加载骨架屏 ===== */}
-      {isLoading && (
+      {!isDefaultView && isLoading && (
         <div className="home-loading">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="home-loading-item">
@@ -297,56 +302,57 @@ export default function Home() {
         </>
       )}
 
-      {/* ===== 首页模式 ===== */}
-      {!isLoading && !wdFromUrl.trim() && (
-        <>
-          {/* 推荐横条 */}
-          {!activeCategory && (
-            <SpotlightRow
-              videos={recommendedVideos}
-              loading={recommendedLoading}
+      {/* ===== 默认分类分区 ===== */}
+      {isDefaultView &&
+        (showInitialSync ? (
+          <div className="empty" style={{ padding: 40 }}>
+            <div
+              className="spinner"
+              style={{
+                width: 48,
+                height: 48,
+                margin: "0 auto 16px",
+                borderWidth: 3,
+              }}
             />
-          )}
+            <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+              正在同步数据
+            </h2>
+            <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>
+              首次初始化预计需要 20-40 分钟，请稍候...
+            </p>
+          </div>
+        ) : (
+          <HomeCategorySections
+            sections={homeSections}
+            isLoading={homeSectionsLoading}
+            isError={homeSectionsError}
+            onRetry={handleSectionsRetry}
+            onViewAll={handleViewAll}
+            renderItem={renderGridItem}
+          />
+        ))}
 
+      {/* ===== 分类筛选模式 ===== */}
+      {!isLoading && !isDefaultView && !wdFromUrl.trim() && (
+        <>
           {!hasContent && (
             <div className="empty" style={{ padding: 40 }}>
-              {isSyncing && !activeCategory ? (
-                <>
-                  <div
-                    className="spinner"
-                    style={{
-                      width: 48,
-                      height: 48,
-                      margin: "0 auto 16px",
-                      borderWidth: 3,
-                    }}
-                  />
-                  <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
-                    正在同步数据
-                  </h2>
-                  <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>
-                    首次初始化预计需要 20-40 分钟，请稍候...
-                  </p>
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="empty-icon"
-                    width="48"
-                    height="48"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <circle cx="8.5" cy="8.5" r="1.5" />
-                    <polyline points="21 15 16 10 5 21" />
-                  </svg>
-                  <p>该条件下暂无更新</p>
-                </>
-              )}
+              <svg
+                className="empty-icon"
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              <p>该条件下暂无更新</p>
             </div>
           )}
 
@@ -379,13 +385,13 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            {allSection.length === 0 && !isFetchingNextPage && (
+            {videos.length === 0 && !isFetchingNextPage && (
               <div className="empty" style={{ padding: 20 }}>
                 <p>该条件下暂无更新</p>
               </div>
             )}
             <VirtualGrid
-              items={allSection}
+              items={videos}
               itemKey={videoKey}
               renderItem={renderGridItem}
               minItemWidth={mobileGridMinWidth}

@@ -69,6 +69,15 @@ export interface AggregatedListResponse {
   items: AggregatedVideo[];
 }
 
+export interface HomeSection {
+  category: string;
+  items: AggregatedVideo[];
+}
+
+export interface HomeSectionsResponse {
+  sections: HomeSection[];
+}
+
 export interface SourceDetail {
   site_id: number;
   site_name?: string | null;
