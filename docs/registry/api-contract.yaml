@@ -527,6 +527,56 @@ endpoints:
     response_schema: SourceDetail[]
     consumers: [AC-007]
 
+  - id: API-PLAY-SOURCES-ANALYZE
+    path: /api/play/sources/analyze
+    method: POST
+    summary: 按需分析当前视频的来源媒体参数
+    request_schema: AnalyzeSourcesIn
+    response_schema: PlaySourcesResponse
+    consumers: [AC-007, AC-008]
+    notes: 全局串行，每次最多 2 个来源；不下载未选源的视频分片
+
+  - id: API-PLAY-HEARTBEAT
+    path: /api/play/heartbeat
+    method: POST
+    summary: 播放会话心跳，触发后台任务退让
+    request_schema: PlaybackHeartbeatIn
+    response_schema: null
+    consumers: [AC-008]
+
+  - id: API-PLAY-ENHANCE-CAPABILITY
+    path: /api/play/enhance/capability
+    method: GET
+    summary: 查询本机轻量画质增强能力
+    request_schema: null
+    response_schema: EnhancementCapability
+    consumers: [AC-008]
+
+  - id: API-PLAY-ENHANCE-START
+    path: /api/play/enhance
+    method: POST
+    summary: 为当前选中来源启动 Lanczos + 轻度锐化转码
+    request_schema: EnhancePlaybackIn
+    response_schema: EnhancementStartResponse
+    consumers: [AC-008]
+    notes: 单进程、单线程、实时读取；ffmpeg 不可用时返回 503
+
+  - id: API-PLAY-ENHANCE-FILE
+    path: /api/play/enhance/{session_id}/{filename}
+    method: GET
+    summary: 读取当前增强会话的 playlist 或分片
+    request_schema: null
+    response_schema: null
+    consumers: [AC-008]
+
+  - id: API-PLAY-ENHANCE-STOP
+    path: /api/play/enhance/{session_id}
+    method: DELETE
+    summary: 停止增强并清理临时文件
+    request_schema: null
+    response_schema: null
+    consumers: [AC-008]
+
   - id: API-PLAY-PROXY-M3U8
     path: /api/play/proxy-m3u8
     method: GET
@@ -720,6 +770,23 @@ endpoints:
     response_schema: null
     consumers: []
     notes: 档位 1/2/3/4 → 2/4/8/16 并发
+
+  - id: API-SETTINGS-PLAYBACK-FEATURES-GET
+    path: /api/settings/playback-features
+    method: GET
+    summary: 读取按需画质分析、播放保护与轻量增强开关
+    request_schema: null
+    response_schema: PlaybackFeatureSettings
+    consumers: [AC-008]
+
+  - id: API-SETTINGS-PLAYBACK-FEATURES-SET
+    path: /api/settings/playback-features
+    method: PUT
+    summary: 保存播放与画质功能开关
+    request_schema: PlaybackFeatureChanges
+    response_schema: PlaybackFeatureSettings
+    consumers: [AC-008]
+    notes: 增强需要 ffmpeg；三个设置共享给详情和播放页
 
 
 schema_references:

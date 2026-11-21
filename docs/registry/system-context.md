@@ -47,7 +47,9 @@
 | 启动自愈 | `main.CacheControlStaticFiles` + `lazyWithRetry` | 旧 HTML 引用失效 chunk 时自动重载，不再白屏 |
 | 默认分类首页 | `api/videos.py`、`components/HomeCategorySections.tsx`、`hooks/useHomeSections.ts` | 七个父类固定顺序，每类最多 8 条最新视频且仅返回非空分区；默认不再展示推荐或混合视频墙 |
 | 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；校验 HTTP 状态，HEAD 受限时 Range GET 复核 |
-| 来源质量推荐 | `playback_events`、`source_quality.py`、`usePlaySources.ts` | 近 30 天真实播放统计驱动排序；样本 ≥3 且平滑成功率达标才标记推荐，不自动选源 |
+| 高清 / 稳定双推荐 | `source_media_info`、`media_metadata.py`、`source_quality.py` | 每片每源区分声明/检测/实测；高清看媒体参数，稳定看本机播放证据；不自动选源 |
+| 按需媒体分析 | `media_analysis.py`、`POST /play/sources/analyze` | 当前视频全局串行、每次最多 2 源；不全库采样、不下载未选源分片 |
+| 播放保护与轻量增强 | `playback_guard.py`、`playback_enhancement.py` | 播放时后台任务退让；可选 Lanczos + Unsharp，单 ffmpeg 进程、失败回退原源 |
 | 分类映射工作台 | `services/category_map.py`, `api/category_map.py` | 按站点聚类（≥0.75）+ 建议 + 批量 upsert + 撤销；分类页实测 258ms |
 | 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
@@ -108,9 +110,13 @@
 - `POST   /api/system-categories` / `PATCH` / `DELETE` → 维护（受保护分类不可删）
 
 ### Play (`/api/play`)
-- `GET    /api/play/sources` → 播放源列表（真实质量排序 + 推荐理由）
-- `POST   /api/play/events` → 批量上报播放事件（event_id 幂等，原始事件保留 90 天）
-- `GET    /api/play/episodes` → 集列表（含 `reachable` 探测结果，缓存 3 分钟）
+- `GET    /api/play/sources` → 播放源列表（高清/稳定双推荐 + 媒体证据）
+- `POST   /api/play/sources/analyze` → 当前视频按需媒体分析（每次最多 2 源）
+- `POST   /api/play/events` → 批量上报播放事件（event_id 幂等，首帧可带实测媒体参数）
+- `POST   /api/play/heartbeat` → 播放会话心跳，后台任务退让
+- `GET    /api/play/episodes` → 集列表（仅首集做可达性探测，缓存 3 分钟）
+- `GET    /api/play/enhance/capability` → 本机增强能力
+- `POST   /api/play/enhance` → 当前来源轻量增强；`GET /enhance/{session}/{file}` 读取，`DELETE` 停止
 - `GET    /api/play/proxy-m3u8` → m3u8 去广告代理
 - `GET    /api/play/accel/m3u8` → 播放加速：改写 playlist 分片地址（需开启加速）
 - `GET    /api/play/accel/segment` → 播放加速：分片代理（并发预取 + LRU 缓存 + Range 透传）
@@ -128,6 +134,7 @@
 - `GET/PUT /api/settings/download-root`
 - `GET/PUT /api/settings/ad-filter-enabled` → m3u8 去广告开关
 - `GET/PUT /api/settings/stream-accel` → 播放加速开关与档位（1/2/3/4 → 2/4/8/16 并发）
+- `GET/PUT /api/settings/playback-features` → 按需画质分析、播放保护、轻量增强共享开关
 - `GET/PUT /api/settings/max-concurrent-downloads`
 
 ### SSE / Health
@@ -168,6 +175,7 @@
 | Favorite | `favorites` | `(title, year)` UNIQUE |
 | PlayProgress | `play_progress` | `(title, year)` UNIQUE（NULLS NOT DISTINCT），`updated_at` 索引 |
 | PlaybackEvent | `playback_events` | `event_id` UNIQUE；`(site_id, original_id, created_at)` 索引；90 天保留 |
+| SourceMediaInfo | `source_media_info` | `(site_id, original_id, episode_index)` 主键；声明/检测/实测分辨率、码率、编码与探测时间 |
 | DownloadTask | `download_tasks` | `status`/`created_at` 索引 |
 | SiteProbeLog | `site_probe_logs` | 探测记录 |
 | CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |

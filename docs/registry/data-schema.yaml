@@ -343,6 +343,27 @@ db_models:
       V1/V2 通过 AppConfig key="aggregated_active_version" 切换，
       写入时先清空非活跃表，批量插入后原子切换版本标记。
 
+  - name: SourceMediaInfo
+    table: source_media_info
+    owner: backend
+    description: 当前视频在指定来源和剧集上的媒体参数与证据类型
+    fields:
+      - {name: site_id, type: Integer, pk: true}
+      - {name: original_id, type: String, pk: true}
+      - {name: episode_index, type: Integer, pk: true}
+      - {name: url_hash, type: String, nullable: false}
+      - {name: width, type: Integer, nullable: true}
+      - {name: height, type: Integer, nullable: true}
+      - {name: video_bitrate, type: Integer, nullable: true}
+      - {name: codec, type: String, nullable: true}
+      - {name: evidence, type: String, nullable: false, description: declared / probed / actual}
+      - {name: method, type: String, nullable: false}
+      - {name: probe_ok, type: Boolean, default: true, nullable: false}
+      - {name: latency_ms, type: Integer, nullable: true}
+      - {name: error, type: String, nullable: true}
+      - {name: checked_at, type: DateTime, nullable: false}
+    notes: 按需写入；声明最高与播放实测分开，失败短期退避。
+
   - name: AppConfig
     table: app_config
     owner: backend
