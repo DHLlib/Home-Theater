@@ -20,7 +20,7 @@ MATCH_RULES: list[dict] = [
     {"system_name": "恐怖片",   "exact": ["恐怖片"],     "keywords": ["恐怖", "惊悚", "灾难"], "exclude": []},
     {"system_name": "伦理片",   "exact": ["伦理片"],     "keywords": ["伦理"],       "exclude": ["福利", "三级", "主播", "写真", "套图", "热舞", "课堂"]},
     {"system_name": "纪录片",   "exact": ["纪录片", "记录片"], "keywords": ["纪录", "科普"], "exclude": []},
-    {"system_name": "动画片",   "exact": ["动画片", "动画电影"], "keywords": ["动画"],  "exclude": []},
+    {"system_name": "动画片",   "exact": ["动画片", "动画电影"], "keywords": ["动画"],  "exclude": ["国产"]},
     {"system_name": "短片",     "exact": ["短片"],       "keywords": [],             "exclude": []},
     {"system_name": "4K电影",   "exact": ["4K电影", "4K"], "keywords": [],            "exclude": []},
     {"system_name": "邵氏电影", "exact": ["邵氏电影", "邵氏"], "keywords": [],          "exclude": []},
