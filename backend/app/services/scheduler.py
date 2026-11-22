@@ -19,7 +19,6 @@ from app.services import playback_guard
 from app.services.crawler import Crawler
 from app.services.health import ProbeResult, probe
 from app.services.notify_sender import Event, notify_sender
-from app.services.aggregator import is_operation_in_progress
 
 logger = logging.getLogger(__name__)
 PROBE_INTERVAL = settings.probe_interval  # 站点探测间隔（秒）
@@ -392,12 +391,9 @@ async def _fill_videolist_loop() -> None:
 
         try:
             if crawler:
-                # 检查全局操作锁，防止与删除站点等操作冲突
-                current_op = is_operation_in_progress()
-                if current_op:
-                    logger.info("全局操作进行中 (%s)，跳过定时补 videolist", current_op)
-                    continue
                 logger.info("定时任务：开始自动全量补 videolist")
-                await crawler.fill_missing_videolist()
+                started = crawler.try_start_fill(None)
+                if not started:
+                    logger.info("已有补全任务或全局操作在运行，跳过本次定时触发")
         except Exception:
             logger.exception("定时补 videolist 任务异常")

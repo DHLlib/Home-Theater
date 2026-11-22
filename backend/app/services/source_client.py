@@ -38,6 +38,14 @@ class SourceProtocolError(Exception):
     """资源站返回不符合 ac=list / videolist 协议时抛出。"""
 
 
+class SourceHttpError(SourceProtocolError):
+    """资源站返回 HTTP 错误状态码（4xx/5xx），带状态码供调用方熔断。"""
+
+    def __init__(self, site: str, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"site={site} HTTP {status_code}")
+
+
 # 共享 httpx 客户端池：按 (site_id, base_url, timeout) 复用连接。
 # 之前每次 SourceClient 都新建 AsyncClient → 每次请求都要重新 TCP + TLS 握手
 # （单次 0.2–1 秒），爬虫一轮上百页就是上百次握手，还会产生大量连接重置。
@@ -144,9 +152,7 @@ class SourceClient:
                         "source_request_error site=%s attempt=%d status=%d url=%s elapsed=%.2fs",
                         self.name, attempt + 1, resp.status_code, url_with_params, elapsed
                     )
-                    raise SourceProtocolError(
-                        f"site={self.name} HTTP {resp.status_code}"
-                    )
+                    raise SourceHttpError(self.name, resp.status_code)
                 try:
                     data = resp.json()
                 except Exception as exc:

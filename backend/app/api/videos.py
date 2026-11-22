@@ -47,6 +47,7 @@ from app.schemas import (
     DetailRequest,
     DetailResponse,
     FailedSource,
+    FillStatus,
     FillVideolistRequest,
     FillVideolistResponse,
     HomeSection,
@@ -66,6 +67,7 @@ from app.services.category_mapping import (
     load_all_site_mappings,
 )
 from app.services import playback_guard
+from app.services.fill_status import fill_status_tracker
 from app.services.parser import Episode as EpisodeDataclass, parse_episodes
 from app.services.resolver import resolve_share_page
 import app.services.scheduler as scheduler_module
@@ -1638,19 +1640,36 @@ async def fill_videolist(
 ) -> FillVideolistResponse:
     """按站点分组批量补全缺失的 videolist 详情。
 
-    后台运行，立即返回任务已启动。补全完成后会自动刷新聚合缓存与看板统计。
+    后台运行，立即返回任务是否真正启动；进度用 status 接口轮询。
+    已有任务在途或全局操作被占用时返回 started=false 与当前状态，
+    前端不得据此误认为任务已结束。
     """
     if scheduler_module.crawler is None:
         raise crawler_not_running()
 
     site_id = req.site_id
-    asyncio.create_task(scheduler_module.crawler.fill_missing_videolist(site_id))
-    message = (
-        f"站点 {site_id} 补全任务已启动"
-        if site_id is not None
-        else "全站 videolist 补全任务已启动"
+    started = scheduler_module.crawler.try_start_fill(site_id)
+    if started:
+        message = (
+            f"站点 {site_id} 补全任务已启动"
+            if site_id is not None
+            else "全站 videolist 补全任务已启动"
+        )
+    else:
+        message = "已有补全任务或全局操作正在进行，未重复启动"
+    return FillVideolistResponse(
+        message=message,
+        site_id=site_id,
+        started=started,
+        status=FillStatus(**fill_status_tracker.snapshot()),
     )
-    return FillVideolistResponse(message=message, site_id=site_id)
+
+
+@router.get("/crawler/fill-videolist/status")
+async def fill_videolist_status() -> FillStatus:
+    """返回补全任务的真实状态（含重启后恢复为 interrupted 的遗留任务）。"""
+    await fill_status_tracker.ensure_loaded(async_session_factory)
+    return FillStatus(**fill_status_tracker.snapshot())
 
 
 async def _get_aggregated_count(db: AsyncSession) -> int:

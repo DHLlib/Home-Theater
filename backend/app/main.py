@@ -16,6 +16,7 @@ from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
 from app.logging_config import setup_logging
 from app.services.downloader import download_coordinator
+from app.services.fill_status import fill_status_tracker
 from app.services.playback_enhancement import shutdown_enhancements
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
@@ -512,6 +513,8 @@ async def lifespan(app: FastAPI):
     await shutdown_enhancements()
     await check_db_connection()
     await init_db()
+    # 重启前遗留的 running 补全任务恢复为 interrupted（在调度器启动前完成）
+    await fill_status_tracker.recover_interrupted(async_session_factory)
     await _fix_postgres_sequences()
     await _ensure_progress_unique_index()
     await _ensure_category_aliases()

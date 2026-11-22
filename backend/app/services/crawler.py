@@ -44,7 +44,8 @@ from app.services.aggregator import (
     release_operation_lock,
 )
 from app.services.category_mapping import get_site_category_mappings
-from app.services.source_client import SourceClient
+from app.services.fill_status import fill_status_tracker
+from app.services.source_client import SourceClient, SourceHttpError
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,19 @@ class BatchVideolistResult:
     """批量 videolist 结果。"""
     affected: set[str]
     filled: int
+
+
+@dataclass
+class FillChunkResult:
+    """补全任务单批（200 条）处理结果。"""
+    affected: set[str]
+    filled: int
+    failed: int
+    blocked_error: str | None = None
+
+
+# videolist 返回这些状态码时视为站点级封禁：重试无意义，直接熔断该站剩余批次
+FILL_BLOCK_STATUS_CODES = (401, 403)
 
 
 class Crawler:
@@ -77,6 +91,8 @@ class Crawler:
         self._pending_norm_titles: set[str] = set()
         self._refresh_lock = asyncio.Lock()
         self._fill_lock = asyncio.Lock()
+        self._fill_active = False  # 补全任务是否在途（同步标记，避免重复启动竞态）
+        self._fill_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -179,23 +195,68 @@ class Crawler:
         finally:
             self._site_status[site_id] = "idle"
 
-    async def fill_missing_videolist(self, site_id: int | None = None) -> dict:
+    def try_start_fill(self, site_id: int | None = None) -> bool:
+        """原子地尝试启动补全任务。
+
+        已有补全任务在途或全局操作被占用时返回 False（调用方据此回 started=false）。
+        检查与标记之间没有 await，单事件循环内不会和两个调用方同时通过。
+        """
+        if self._fill_active or self._fill_lock.locked():
+            logger.info("fill_missing_videolist 已有任务在运行，跳过 site_id=%s", site_id)
+            return False
+        current_op = is_operation_in_progress()
+        if current_op:
+            logger.info("全局操作进行中 (%s)，跳过补全 site_id=%s", current_op, site_id)
+            return False
+        self._fill_active = True
+        # 状态先于后台协程落地，前端紧接着轮询也能看到 running
+        fill_status_tracker.begin()
+        self._fill_task = asyncio.create_task(
+            self.fill_missing_videolist(site_id, _begun=True)
+        )
+        return True
+
+    async def fill_missing_videolist(
+        self, site_id: int | None = None, _begun: bool = False
+    ) -> dict:
         """按站点分组批量补全缺失的 videolist 详情。
 
         只处理已启用站点；可按 site_id 指定单个站点。
         站点间最多 2 个并发，每个站点内按 200 条/批次请求 videolist。
         使用全局操作锁，防止与删除站点、全量刮削等操作冲突。
+        全程更新 fill_status_tracker：手动触发与每日定时任务共用同一条路径。
         """
-        if self._fill_lock.locked():
-            logger.info("fill_missing_videolist 已有任务在运行，跳过 site_id=%s", site_id)
-            return {"site_id": site_id, "results": [], "skipped": True}
+        if not _begun:
+            # 直接调用（测试/历史入口）也要经过单例闸门
+            if self._fill_active:
+                logger.info(
+                    "fill_missing_videolist 已有任务在运行，跳过 site_id=%s", site_id
+                )
+                return fill_status_tracker.snapshot()
+            self._fill_active = True
+            fill_status_tracker.begin()
 
-        # 获取全局操作锁
-        if not await acquire_operation_lock(f"fill_videolist_{site_id or 'all'}", timeout=60):
-            logger.warning("fill_missing_videolist 全局操作锁被占用，跳过 site_id=%s", site_id)
-            return {"site_id": site_id, "results": [], "skipped": True}
-
+        lock_op = f"fill_videolist_{site_id or 'all'}"
+        acquired = False
+        affected_all: set[str] = set()
+        # 总体终态只在收尾（聚合刷新 + 统计更新）完成后发布，先占位
+        overall = "failed"
+        overall_error: str | None = "任务未执行"
         try:
+            if not await acquire_operation_lock(lock_op, timeout=60):
+                current_op = is_operation_in_progress()
+                logger.warning(
+                    "fill_missing_videolist 全局操作锁被占用 (%s)，跳过 site_id=%s",
+                    current_op, site_id,
+                )
+                fill_status_tracker.finish(
+                    "failed", error=f"全局操作被占用：{current_op}"
+                )
+                await fill_status_tracker.persist(self._db_factory)
+                self._fill_active = False
+                return fill_status_tracker.snapshot()
+            acquired = True
+
             async with self._fill_lock:
                 logger.info("fill_missing_videolist started site_id=%s", site_id)
 
@@ -206,83 +267,248 @@ class Crawler:
                     else:
                         sites = await self._get_enabled_sites(db)
 
+                fill_status_tracker.set_sites([(s.id, s.name) for s in sites])
+                await fill_status_tracker.persist(self._db_factory)
+
                 if not sites:
                     logger.info("fill_missing_videolist 无可用站点")
-                    return {"site_id": site_id, "results": []}
+                    fill_status_tracker.finish("done")
+                    await fill_status_tracker.persist(self._db_factory)
+                    self._fill_active = False
+                    return fill_status_tracker.snapshot()
 
-                affected_all: set[str] = set()
                 semaphore = asyncio.Semaphore(2)
 
-                async def _fill_one(site: Site) -> dict:
+                async def _fill_one(site: Site) -> None:
                     async with semaphore:
-                        entries: list[dict] = []
-                        async with self._db_factory() as db:
-                            result = await db.execute(
-                                select(
-                                    VideoCache.original_id,
-                                    VideoCache.type_id,
-                                    VideoCache.type_name,
-                                ).where(
-                                    VideoCache.site_id == site.id,
-                                    VideoCache.has_detail.is_(False),
-                                )
-                            )
-                            entries = [
-                                {
-                                    "original_id": str(r.original_id),
-                                    "type_id": r.type_id,
-                                    "type_name": r.type_name,
-                                }
-                                for r in result.all()
-                            ]
+                        await self._fill_site(site, affected_all)
 
-                        missing = len(entries)
-                        if missing == 0:
-                            return {
-                                "site_id": site.id,
-                                "site_name": site.name,
-                                "missing": 0,
-                                "filled": 0,
-                                "failed": 0,
-                            }
-
-                        filled = 0
-                        client = SourceClient(
-                            site_id=site.id, base_url=site.base_url, name=site.name
-                        )
-                        try:
-                            for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
-                                chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
-                                res = await self._batch_videolist(
-                                    site, client, chunk, op="fill_videolist"
-                                )
-                                filled += res.filled
-                                affected_all.update(res.affected)
-                        finally:
-                            await client.aclose()
-
-                        return {
-                            "site_id": site.id,
-                            "site_name": site.name,
-                            "missing": missing,
-                            "filled": filled,
-                            "failed": max(0, missing - filled),
-                        }
-
-                results = await asyncio.gather(*[_fill_one(s) for s in sites])
-
-                if affected_all:
-                    async with self._db_factory() as db:
-                        await refresh_aggregated_view(db, affected_norm_titles=affected_all)
-
-                await self._update_stats_cache(force=True)
-                logger.info(
-                    "fill_missing_videolist completed sites=%d affected=%d",
-                    len(results), len(affected_all)
+                outcomes = await asyncio.gather(
+                    *[_fill_one(s) for s in sites], return_exceptions=True
                 )
-                return {"site_id": site_id, "results": list(results)}
+                # 单站抛出未预期异常不能丢掉整个摘要：标 failed 后继续汇总
+                for site, outcome in zip(sites, outcomes):
+                    if isinstance(outcome, Exception):
+                        logger.warning(
+                            "补全站点 %s 异常: %s", site.name, outcome
+                        )
+                        info = fill_status_tracker.snapshot()["sites"]
+                        current = next(
+                            (s for s in info if s["site_id"] == site.id), None
+                        )
+                        fill_status_tracker.site_finished(
+                            site.id,
+                            "failed",
+                            filled=current["filled"] if current else 0,
+                            failed=current["failed"] if current else 0,
+                            skipped=current["skipped"] if current else 0,
+                            error=str(outcome),
+                        )
+                await fill_status_tracker.persist(self._db_factory)
+
+                site_snaps = fill_status_tracker.snapshot()["sites"]
+                site_states = [s["state"] for s in site_snaps]
+                if all(state == "done" for state in site_states):
+                    overall = "done"
+                elif any(state in ("done", "partial") for state in site_states):
+                    overall = "partial"
+                else:
+                    overall = "failed"
+                # 聚合非成功站点的错误（含站点名），保证 403 这类阻断原因
+                # 在总体状态上可见，前端不会只拿到「未知错误」
+                site_errors = [
+                    f"{s['site_name']}：{s['error']}"
+                    for s in site_snaps
+                    if s["state"] != "done" and s["error"]
+                ]
+                overall_error = "；".join(site_errors) if site_errors else None
+        except Exception as exc:
+            logger.exception("fill_missing_videolist 任务异常")
+            overall = "failed"
+            overall_error = str(exc)
         finally:
-            release_operation_lock(f"fill_videolist_{site_id or 'all'}")
+            if acquired:
+                release_operation_lock(lock_op)
+
+        # 收尾：聚合刷新 + 统计更新。期间 status 保持 running、_fill_active 保持
+        # True——终态发布过早会让前端拿到 done 后立即 refreshStats 读到旧统计，
+        # 也会让新任务抢占操作锁导致本次 affected titles 的刷新被跳过。
+        # 聚合刷新必须放在操作锁释放之后：refresh_aggregated_view 检测到
+        # 「全局操作进行中」会直接跳过，锁内调用等于白调（补全看似不生效的根因之一）。
+        tail_error: str | None = None
+        try:
+            if affected_all:
+                async with self._db_factory() as db:
+                    refreshed = await refresh_aggregated_view(
+                        db, affected_norm_titles=affected_all
+                    )
+                if not refreshed:
+                    logger.warning(
+                        "fill_missing_videolist 聚合刷新被跳过，%d 个受影响标题转入待刷新队列",
+                        len(affected_all),
+                    )
+                    # 回填到 pending 通道（60 秒防抖），后续任意一次刷新会带上它们
+                    await self._refresh_aggregated_cache(
+                        affected_norm_titles=affected_all
+                    )
+
+            await self._update_stats_cache(force=True)
+        except Exception as exc:
+            logger.exception("fill_missing_videolist 收尾阶段异常")
+            tail_error = f"收尾阶段异常：{exc}"
+        finally:
+            self._fill_active = False
+
+        # 收尾完成后才发布并持久化总体终态；收尾异常不会留下 running/done
+        if tail_error is not None:
+            fill_status_tracker.finish("failed", error=tail_error)
+        else:
+            fill_status_tracker.finish(overall, error=overall_error)
+        await fill_status_tracker.persist(self._db_factory)
+        logger.info(
+            "fill_missing_videolist completed state=%s affected=%d",
+            fill_status_tracker.snapshot()["state"],
+            len(affected_all),
+        )
+        return fill_status_tracker.snapshot()
+
+    async def _fill_site(self, site: Site, affected_all: set[str]) -> None:
+        """补全单个站点：分批请求 videolist，401/403 熔断剩余批次。"""
+        async with self._db_factory() as db:
+            result = await db.execute(
+                select(
+                    VideoCache.original_id,
+                    VideoCache.type_id,
+                    VideoCache.type_name,
+                ).where(
+                    VideoCache.site_id == site.id,
+                    VideoCache.has_detail.is_(False),
+                )
+            )
+            entries = [
+                {
+                    "original_id": str(r.original_id),
+                    "type_id": r.type_id,
+                    "type_name": r.type_name,
+                }
+                for r in result.all()
+            ]
+
+        missing = len(entries)
+        fill_status_tracker.site_started(site.id, missing)
+        if missing == 0:
+            fill_status_tracker.site_finished(
+                site.id, "done", filled=0, failed=0, skipped=0
+            )
+            return
+
+        client = SourceClient(
+            site_id=site.id, base_url=site.base_url, name=site.name
+        )
+        filled = 0
+        failed = 0
+        blocked_error: str | None = None
+        try:
+            for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
+                chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
+                res = await self._fill_chunk(site, client, chunk, op="fill_videolist")
+                filled += res.filled
+                failed += res.failed
+                affected_all.update(res.affected)
+                fill_status_tracker.site_progress(
+                    site.id, filled=filled, failed=failed
+                )
+                if res.blocked_error is not None:
+                    blocked_error = res.blocked_error
+                    break
+        finally:
+            await client.aclose()
+
+        if blocked_error is not None:
+            # 熔断：没来得及请求的条目记 skipped，不算 failed（根本没尝试过）
+            skipped = missing - filled - failed
+            fill_status_tracker.site_finished(
+                site.id, "blocked",
+                filled=filled, failed=failed, skipped=skipped,
+                error=blocked_error,
+            )
+        else:
+            if failed == 0:
+                state = "done"
+            elif filled > 0:
+                state = "partial"
+            else:
+                state = "failed"
+            # 非 blocked 的失败没有异常错误可引用，补一条明确说明，
+            # 否则前端在 partial/failed 下只能显示「未知错误」
+            site_error = f"{failed} 条未返回详情或请求失败" if failed > 0 else None
+            fill_status_tracker.site_finished(
+                site.id, state, filled=filled, failed=failed, skipped=0,
+                error=site_error,
+            )
+        await fill_status_tracker.persist(self._db_factory)
+
+    async def _fill_chunk(
+        self, site: Site, client: SourceClient, entries: list[dict], op: str
+    ) -> FillChunkResult:
+        """处理一批（200 条）缺失条目，内部按 20 条/请求拆分子批。
+
+        与 _batch_videolist 的区别：逐条区分 filled/failed，且遇到
+        401/403 立即熔断返回 blocked_error，不再继续轰炸该站点。
+        """
+        affected: set[str] = set()
+        filled = 0
+        failed = 0
+        detail_entries: list[dict] = []
+
+        for j in range(0, len(entries), CRAWLER_VIDEOLIST_BATCH_SIZE):
+            sub_batch = entries[j : j + CRAWLER_VIDEOLIST_BATCH_SIZE]
+            ids = [e["original_id"] for e in sub_batch]
+
+            try:
+                await playback_guard.wait_until_idle()
+                details = await client.videolist(ids=ids, op=op)
+            except SourceHttpError as exc:
+                if exc.status_code in FILL_BLOCK_STATUS_CODES:
+                    logger.warning(
+                        "站点 %s videolist 返回 HTTP %s，熔断该站剩余 %d 条",
+                        site.name, exc.status_code, len(entries) - j,
+                    )
+                    return FillChunkResult(
+                        affected=affected, filled=filled, failed=failed,
+                        blocked_error=str(exc),
+                    )
+                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+                failed += len(sub_batch)
+                continue
+            except Exception as exc:
+                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+                failed += len(sub_batch)
+                continue
+
+            detail_map = {str(d.get("original_id", "")): d for d in details}
+            for entry in sub_batch:
+                d = detail_map.get(entry["original_id"])
+                if not d:
+                    # 请求成功但站点没返回这条：尝试过却没补上，记 failed
+                    failed += 1
+                    continue
+                detail_entry = self._build_detail_entry(site.id, d)
+                # 保留 list 阶段的分类信息（videolist 接口不返回 type_id）
+                detail_entry["type_id"] = entry.get("type_id")
+                detail_entry["type_name"] = entry.get("type_name")
+                detail_entries.append(detail_entry)
+
+        if detail_entries:
+            async with self._db_factory() as db:
+                batch_affected = await self._batch_upsert_detail_fields(
+                    db, detail_entries
+                )
+                affected.update(batch_affected)
+            filled += len(detail_entries)
+
+        return FillChunkResult(affected=affected, filled=filled, failed=failed)
+
 
     async def check_one_site(self, site: Site) -> bool:
         """检测单个站点是否有更新。返回 True 表示需要刮削。"""

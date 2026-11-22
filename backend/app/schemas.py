@@ -380,18 +380,38 @@ class FillVideolistRequest(BaseModel):
     site_id: int | None = None
 
 
-class FillVideolistSiteResult(BaseModel):
+class FillSiteStatus(BaseModel):
     site_id: int
     site_name: str
-    missing: int
-    filled: int
-    failed: int
+    state: str  # pending/running/done/partial/blocked/failed
+    missing: int = 0
+    filled: int = 0
+    failed: int = 0
+    skipped: int = 0
+    error: str | None = None
+
+
+class FillStatus(BaseModel):
+    state: str  # idle/running/done/partial/failed/interrupted
+    current_site_id: int | None = None
+    current_site_name: str | None = None
+    completed_sites: int = 0
+    total_sites: int = 0
+    missing: int = 0
+    filled: int = 0
+    failed: int = 0
+    skipped: int = 0
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    sites: list[FillSiteStatus] = Field(default_factory=list)
 
 
 class FillVideolistResponse(BaseModel):
     message: str
     site_id: int | None = None
-    results: list[FillVideolistSiteResult] = Field(default_factory=list)
+    started: bool = False
+    status: FillStatus = Field(default_factory=FillStatus)
 
 
 # ===== AC-026: 智能分类映射 Schema =====
