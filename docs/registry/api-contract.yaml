@@ -219,12 +219,58 @@ endpoints:
     response_schema: FillStatus
     consumers: [AC-014]
     notes: |
-      [FIX-FILL-PROGRESS] 前端在 state=running 期间轮询本接口展示进度；
-      仅在 state 进入终态（done/partial/failed/interrupted）后才刷新刮削统计。
+      旧客户端在 state=running 期间轮询本接口；新前端读取统一 detail.fill 任务。
+      仅在任务进入终态后才刷新刮削统计。
       状态轻量持久化在 app_config（key=fill_videolist_status），不新增表；
       重启后遗留的 running 由启动流程改写为 interrupted。
       单站连续收到 HTTP 403 等封禁响应时该站熔断：site state=blocked，
       未处理条目计入 skipped，不再请求该站，其余站点照常补全。
+
+  # 统一站点运维控制面；旧 crawler/cleanup 接口保留兼容
+  - id: API-MAINTENANCE-OVERVIEW
+    path: /api/maintenance/overview
+    method: GET
+    summary: 站点健康、补全缺口、刮削与调度总览
+    request_schema: null
+    response_schema: MaintenanceOverview
+    consumers: [AC-013, AC-014]
+    notes: 每站最新探测用 DISTINCT ON 一次查询，统计读取预计算缓存，不做整表 Python 聚合
+
+  - id: API-MAINTENANCE-JOB-LIST
+    path: /api/maintenance/jobs
+    method: GET
+    summary: 统一维护任务历史与活动任务
+    query_params:
+      - {name: limit, type: int, required: false, default: 30}
+      - {name: active_only, type: bool, required: false, default: false}
+    response_schema: MaintenanceJobOut[]
+    consumers: [AC-014, AC-018]
+
+  - id: API-MAINTENANCE-JOB-START
+    path: /api/maintenance/jobs/{kind}
+    method: POST
+    summary: 提交全量/增量刮削、详情补全或失效资源清理
+    request_schema: MaintenanceJobCreate
+    response_schema: MaintenanceJobOut
+    consumers: [AC-014]
+    notes: kind 为 crawl.full/crawl.incremental/detail.fill/cache.cleanup；增量必须 site_id；活动任务去重返回同一 job id
+
+  - id: API-MAINTENANCE-JOB-DETAIL
+    path: /api/maintenance/jobs/{job_id}
+    method: GET
+    summary: 获取维护任务快照
+    request_schema: null
+    response_schema: MaintenanceJobOut
+    consumers: [AC-014]
+    notes: SSE maintenance_progress 只提示刷新，真实状态以本接口或列表快照为准
+
+  - id: API-MAINTENANCE-JOB-CANCEL
+    path: /api/maintenance/jobs/{job_id}/cancel
+    method: POST
+    summary: 在页或子批边界合作取消维护任务
+    request_schema: null
+    response_schema: MaintenanceJobOut
+    consumers: [AC-014]
 
   - id: API-VIDEO-CACHE-CLEAR
     path: /api/videos/cache
@@ -620,10 +666,11 @@ endpoints:
   - id: API-SITE-PROBE-BATCH
     path: /api/sites/probe-batch
     method: POST
-    summary: 批量探测站点
+    summary: 批量探测站点，逐站流式返回结果
     request_schema: ProbeSitesBatchRequest
-    response_schema: BatchProbeResponse
+    response_schema: SiteProbeResult
     consumers: [AC-013]
+    notes: 返回 application/x-ndjson；每行一个站点检测结果，客户端可逐行更新；离开页面可中止请求
 
   - id: API-SITE-EXPORT
     path: /api/sites/export
@@ -738,7 +785,7 @@ endpoints:
     request_schema: null
     response_schema: null
     consumers: []
-    notes: 前端每 2 秒轮询
+    notes: 旧客户端兼容接口；新前端读取 cache.cleanup 任务的 details.cleanup
 
   - id: API-VIDEOS-CLEANUP-CANCEL
     path: /api/videos/cleanup-expired/cancel

@@ -55,7 +55,8 @@
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
 | 性能与可观测 | `services/tls.py`、共享客户端池、`event_loop_lag`、`slow_request` | 见 §15 性能检查清单 |
-| videolist 批量补全进度 | `crawler.fill_missing_videolist` + `fill-videolist/status` | 后台任务立即返回，前端轮询 FillStatus；终态才刷新统计；403 单站熔断；状态存 `app_config`，重启后 running → interrupted |
+| 统一站点运维 | `services/maintenance.py`、`api/maintenance.py`、`hooks/useMaintenance.ts`、`MaintenanceCenter` | 全量/增量/补全/清理统一 job_id、去重、取消、进度与中断恢复；SSE + GET 快照；手动探测写健康日志但不改变自动禁用计数 |
+| videolist 批量补全进度 | `crawler.run_fill_job` + `detail.fill` 任务 | 手动与每日本地 04:00 定时共用协调器；`details.fill` 保留 FillStatus；403 单站熔断；取消与重启中断分别展示 |
 
 ---
 
@@ -67,7 +68,8 @@
 - `PATCH  /api/sites/{site_id}` → update_site（启用/禁用会失效隐藏缓存）
 - `DELETE /api/sites/{site_id}` → delete_site
 - `POST   /api/sites/{site_id}/probe` → probe_site
-- `POST   /api/sites/probe-batch` → probe_sites（批量）
+- `POST   /api/sites/probe-batch` → probe_sites_batch（NDJSON 逐站返回，结果写健康日志）
+- `POST   /api/sites/batch-probe` → batch_probe（新站嗅探、自动添加、记录 site.discover、触发 lifecycle 全量）
 - `GET    /api/sites/{site_id}/categories` → get_site_categories
 - `PUT    /api/sites/{site_id}/categories` → update_site_categories
 - `POST   /api/sites/{site_id}/fetch-categories` → fetch_remote_categories
@@ -97,6 +99,14 @@
 - `POST   /api/videos/cleanup-expired` → 启动全站失效清理后台任务（`speed=eco|normal|fast`，`dry_run`）
 - `GET    /api/videos/cleanup-expired/status` → 清理进度（站点数/已检查/已删除/待确认/ETA）
 - `POST   /api/videos/cleanup-expired/cancel` → 停止清理并保留游标
+
+### Maintenance (`/api/maintenance`)
+- `GET    /api/maintenance/overview` → 站点健康、详情缺口、最近刮削与调度快照
+- `GET    /api/maintenance/jobs` → 统一任务历史/活动任务（limit、active_only）
+- `POST   /api/maintenance/jobs/{kind}` → 提交 crawl.full / crawl.incremental / detail.fill / cache.cleanup
+- `GET    /api/maintenance/jobs/{job_id}` → 任务快照（含 details.fill / details.cleanup）
+- `POST   /api/maintenance/jobs/{job_id}/cancel` → 合作式取消
+- `maintenance_progress` SSE 只提示刷新快照，活动任务有 2 秒低频兜底轮询；旧 crawler/cleanup API 仍可用
 
 ### Category Aliases (`/api/category-aliases`)
 - `GET    /api/category-aliases` → 别名列表（含来源条数/站点数）
@@ -180,9 +190,10 @@
 | PlaybackEvent | `playback_events` | `event_id` UNIQUE；`(site_id, original_id, created_at)` 索引；90 天保留 |
 | SourceMediaInfo | `source_media_info` | `(site_id, original_id, episode_index)` 主键；声明/检测/实测分辨率、码率、编码与探测时间 |
 | DownloadTask | `download_tasks` | `status`/`created_at` 索引 |
-| SiteProbeLog | `site_probe_logs` | 探测记录 |
+| SiteProbeLog | `site_probe_logs` | 手动/自动探测记录；手动探测不触发自动禁用计数 |
+| MaintenanceJob | `maintenance_jobs` | UUID 字符串 PK；`kind/state/created_at` 索引；站点删除后保留历史 |
 | CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |
-| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled`、`fill_videolist_status`（补全任务 FillStatus JSON 快照） |
+| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled`、`fill_videolist_status`（旧补全接口快照）、`site_maintenance_schedule`（站点健康/更新调度状态） |
 
 ---
 
@@ -199,13 +210,14 @@
 9. **进度上报**：每 15 秒，`beforeunload` 用 `sendBeacon` 兜底。
 10. **来源推荐**：播放事件按 `event_id` 幂等写入；质量按来源聚合近 30 天数据，推荐只影响排序与标识，不自动选中。
 11. **默认首页**：按电影 → 连续剧 → 综艺 → 动漫 → 短剧 → 体育 → 其他展示非空父类，每类最多 8 条最新聚合视频；不展示推荐或混合视频墙。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
-12. **批量补全 videolist**：POST 立即返回 `started` + FillStatus 快照，任务后台运行（全站 8–10 分钟）；前端运行期间轮询 `/fill-videolist/status`，仅在终态（done/partial/failed/interrupted）刷新统计，不用固定短延时冒充进度。单站连续 HTTP 403 时熔断为 blocked，剩余条目计 skipped，其余站点继续。状态持久化在 `app_config.fill_videolist_status`，重启后遗留 running 改写为 interrupted。
+12. **统一站点运维**：长任务写入 `maintenance_jobs` 并返回真实 job_id；手动/定时/启动/生命周期共用协调器；页/子批边界合作取消，重启后遗留活动任务标 interrupted。健康与更新同轮共享一次列表探测，网络错误不误判为无更新。
+13. **批量补全 videolist**：新前端读取 `detail.fill` 的 `details.fill`；旧 API 的 FillStatus 快照仍兼容。单站连续 HTTP 403 时熔断为 blocked，剩余条目计 skipped，其余站点继续；取消与后端重启分别显示。
 
 ---
 
 ## 已知限制
 
-- `_failure_counts` / `_recovery_counts` 为内存字典，多进程部署不共享。
+- 维护协调器的活动任务表是进程内状态；只支持单进程后端，多进程需另行实现数据库租约与跨进程取消。
 - `failed_sources` 字段保留用于兼容旧前端。
 - SSE 为单例 EventSource，每客户端 1 秒心跳；规模再大需换 WebSocket。
 - 全量重建聚合表时的 Python 回填仍可能造成秒级 lag（待压测验证）。

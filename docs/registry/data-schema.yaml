@@ -647,6 +647,29 @@ db_models:
       - name: ix_site_category_mappings_system_name
         fields: [system_name]
 
+  - name: MaintenanceJob
+    table: maintenance_jobs
+    owner: backend
+    description: 统一维护任务；记录触发来源、状态、站点级进度、详情与中断原因
+    fields:
+      - {name: id, type: String, pk: true, description: UUID hex}
+      - {name: kind, type: String, nullable: false}
+      - {name: trigger, type: String, nullable: false}
+      - {name: state, type: String, nullable: false}
+      - {name: site_id, type: Integer, nullable: true, description: 无外键，站点删除后保留历史}
+      - {name: cancel_requested, type: Boolean, default: false, nullable: false}
+      - {name: progress_completed, type: Integer, default: 0, nullable: false}
+      - {name: progress_total, type: Integer, default: 0, nullable: false}
+      - {name: details, type: JSON, default: '{}', nullable: false}
+      - {name: error, type: Text, nullable: true}
+      - {name: created_at, type: DateTime, default: datetime.utcnow}
+      - {name: started_at, type: DateTime, nullable: true}
+      - {name: finished_at, type: DateTime, nullable: true}
+    indexes:
+      - {name: ix_maintenance_jobs_kind, fields: [kind]}
+      - {name: ix_maintenance_jobs_state, fields: [state]}
+      - {name: ix_maintenance_jobs_created_at, fields: [created_at]}
+
   - name: SiteProbeLog
     table: site_probe_logs
     owner: backend
