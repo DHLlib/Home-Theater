@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_CHANNELS = frozenset({"download_events", "health_events", "site_delete_events"})
+_ALLOWED_CHANNELS = frozenset({
+    "download_events", "health_events", "site_delete_events", "maintenance_events",
+})
 
 
 def _quote_ident(name: str) -> str:

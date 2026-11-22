@@ -17,6 +17,11 @@ from app.models import AppConfig, _utcnow
 
 logger = logging.getLogger(__name__)
 
+
+def _timestamp() -> str:
+    return _utcnow().isoformat() + "Z"
+
+
 # 站点终态：计入 completed_sites
 TERMINAL_SITE_STATES = ("done", "partial", "blocked", "failed")
 
@@ -86,7 +91,7 @@ class FillStatusTracker:
         """启动一次新任务：重置为 running。必须在创建后台协程前同步调用。"""
         status = _idle_status()
         status["state"] = "running"
-        status["started_at"] = _utcnow().isoformat()
+        status["started_at"] = _timestamp()
         self._status = status
         self._loaded = True
 
@@ -140,7 +145,7 @@ class FillStatusTracker:
     def finish(self, state: str, error: str | None = None) -> None:
         self._status["state"] = state
         self._status["error"] = error
-        self._status["finished_at"] = _utcnow().isoformat()
+        self._status["finished_at"] = _timestamp()
         self._status["current_site_id"] = None
         self._status["current_site_name"] = None
 
@@ -195,7 +200,7 @@ class FillStatusTracker:
         self._recount()
         self._status["state"] = "interrupted"
         self._status["error"] = "服务重启，任务中断"
-        self._status["finished_at"] = _utcnow().isoformat()
+        self._status["finished_at"] = _timestamp()
         self._status["current_site_id"] = None
         self._status["current_site_name"] = None
         await self.persist(db_factory)

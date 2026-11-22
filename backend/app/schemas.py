@@ -414,6 +414,62 @@ class FillVideolistResponse(BaseModel):
     status: FillStatus = Field(default_factory=FillStatus)
 
 
+# ===== 统一维护任务（MaintenanceJob）=====
+
+MaintenanceKind = Literal[
+    "crawl.full", "crawl.incremental", "detail.fill", "cache.cleanup", "site.discover"
+]
+MaintenanceState = Literal[
+    "queued", "running", "done", "partial", "failed",
+    "skipped", "cancelled", "interrupted",
+]
+MaintenanceTrigger = Literal["manual", "scheduled", "startup", "lifecycle"]
+
+
+class MaintenanceJobOut(BaseModel):
+    id: str
+    kind: str
+    state: str
+    trigger: str
+    site_id: int | None = None
+    cancel_requested: bool = False
+    progress_completed: int = 0
+    progress_total: int = 0
+    details: dict = Field(default_factory=dict)
+    error: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    # 重复提交时命中已有活动任务，返回该任务的快照并置 True
+    deduplicated: bool | None = None
+
+
+class MaintenanceJobCreate(BaseModel):
+    site_id: int | None = None
+    dry_run: bool = False
+    speed: Literal["eco", "normal", "fast"] = "eco"
+
+
+class SiteMaintenanceStatus(BaseModel):
+    site_id: int
+    site_name: str
+    enabled: bool
+    health: dict | None = None
+    last_crawl_at: str | None = None
+    total: int = 0
+    with_detail: int = 0
+    without_detail: int = 0
+    next_check_at: str | None = None
+    last_check_status: str | None = None
+    active_job_ids: list[str] = Field(default_factory=list)
+
+
+class MaintenanceOverview(BaseModel):
+    sites: list[SiteMaintenanceStatus] = Field(default_factory=list)
+    jobs: list[MaintenanceJobOut] = Field(default_factory=list)
+    schedules: dict = Field(default_factory=dict)
+
+
 # ===== AC-026: 智能分类映射 Schema =====
 
 class SmartMatchItem(BaseModel):

@@ -37,6 +37,24 @@ async def _prepare_database():
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_maintenance_dependencies(monkeypatch):
+    """维护任务及其测试只能使用测试库，事件不发送到开发环境。"""
+    from app.api import sites, videos
+    from app.services import scheduler
+    from app.services.maintenance import maintenance_coordinator
+    from app.services.notify_sender import notify_sender
+
+    for module in (sites, videos, scheduler):
+        monkeypatch.setattr(module, "async_session_factory", async_session_factory)
+    monkeypatch.setattr(maintenance_coordinator, "_db_factory", async_session_factory)
+
+    async def _discard_event(channel, event):
+        return None
+
+    monkeypatch.setattr(notify_sender, "send", _discard_event)
+
+
 @pytest_asyncio.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
     """每个测试独立 session：开始前 truncate 所有业务表保证隔离。"""

@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
-from app.api import category_aliases, category_map, favorites, downloads, play, progress, settings_api, sites, sse, system_categories, videos
+from app.api import category_aliases, category_map, favorites, downloads, maintenance, play, progress, settings_api, sites, sse, system_categories, videos
 from app.config import settings
 from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
@@ -20,6 +20,7 @@ from app.services.fill_status import fill_status_tracker
 from app.services.playback_enhancement import shutdown_enhancements
 from app.services.scheduler import init_scheduler
 from app.services.listen_manager import listen_manager
+from app.services.maintenance import maintenance_coordinator
 from app.services.source_client import close_shared_clients
 from app.services.tls import get_ssl_context
 from app.services.category_mapping import migrate_categories_to_mapping_table
@@ -515,6 +516,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     # 重启前遗留的 running 补全任务恢复为 interrupted（在调度器启动前完成）
     await fill_status_tracker.recover_interrupted(async_session_factory)
+    # 统一维护任务同理：queued/running 的遗留任务标记 interrupted
+    await maintenance_coordinator.recover_interrupted()
     await _fix_postgres_sequences()
     await _ensure_progress_unique_index()
     await _ensure_category_aliases()
@@ -574,6 +577,8 @@ async def lifespan(app: FastAPI):
         await loop_lag_task
     except asyncio.CancelledError:
         pass
+    # 调度器已停，不会再提交新任务；合作取消在途维护任务并兜底清理
+    await maintenance_coordinator.shutdown()
     await shutdown_enhancements()
     await close_shared_clients()
     await listen_manager.stop()
@@ -672,6 +677,7 @@ app.include_router(sse.router, prefix="/api")
 app.include_router(system_categories.router, prefix="/api")
 app.include_router(category_aliases.router, prefix="/api")
 app.include_router(category_map.router, prefix="/api")
+app.include_router(maintenance.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -5,6 +5,12 @@
 - 日常增量：从第一页开始扫，遇旧即停，只处理新增/变更记录
 - 5分钟检测：查各站第一页，有新内容则自动触发增量
 - 状态持久化：AppConfig key="crawler_state"
+
+统一维护任务适配：
+- 全量/增量/补全都可被 maintenance 协调器调度：stop_event 在页/批次边界
+  合作式取消，progress 回调上报站点级进度，返回 {state, details, ...}。
+- run_full_crawl 实际执行期间持有 aggregator 全局操作锁（不只是启动前检查），
+  锁拿不到按 state='skipped' 返回；聚合刷新一律放在锁外。
 """
 from __future__ import annotations
 
@@ -13,6 +19,7 @@ import json
 import logging
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone, date
 
@@ -31,6 +38,7 @@ from app.constants import (
     CRAWLER_PAGE_CONCURRENCY,
     CRAWLER_PAGE_SIZE_THRESHOLD,
     CRAWLER_VIDEOLIST_BATCH_SIZE,
+    FULL_CRAWL_LOCK_TIMEOUT,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
 )
@@ -69,6 +77,12 @@ class FillChunkResult:
 # videolist 返回这些状态码时视为站点级封禁：重试无意义，直接熔断该站剩余批次
 FILL_BLOCK_STATUS_CODES = (401, 403)
 
+ProgressCallback = Callable[[int, int, dict], Awaitable[None]]
+
+
+def _stop_requested(stop_event: asyncio.Event | None) -> bool:
+    return stop_event is not None and stop_event.is_set()
+
 
 class Crawler:
     """资源站定时刮削器。
@@ -93,18 +107,28 @@ class Crawler:
         self._fill_lock = asyncio.Lock()
         self._fill_active = False  # 补全任务是否在途（同步标记，避免重复启动竞态）
         self._fill_task: asyncio.Task | None = None
+        # 当次补全任务的取消信号与进度回调（单飞任务，实例级共享安全）
+        self._fill_stop_event: asyncio.Event | None = None
+        self._fill_progress: ProgressCallback | None = None
 
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
 
-    async def start(self):
-        """启动时检查是否需要刮削。
+    async def start(
+        self,
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> dict:
+        """启动时检查是否需要刮削（由 scheduler 以 crawl.full/startup 任务包装调用）。
 
         触发条件：
         1. 首次启动：VideoCache 为空且有已启用站点
         2. 冷启动补全：有已启用站点从未被刮削过（如新添加的站点）
         3. 无站点时跳过（刮削无意义）
+
+        本方法就是启动全量任务的执行体，不在内部再向协调器提交任务，
+        避免与包装它的 crawl.full 任务自去重。
         """
         self._running = True
 
@@ -112,7 +136,7 @@ class Crawler:
             sites = await self._get_enabled_sites(db)
             if not sites:
                 logger.info("暂无站点配置，跳过刮削")
-                return
+                return {"state": "skipped", "error": "暂无启用站点"}
 
             # 获取已有缓存的站点 ID
             result = await db.execute(select(VideoCache.site_id).distinct())
@@ -121,8 +145,7 @@ class Crawler:
             if not cached_site_ids:
                 # 完全首次启动
                 logger.info("首次启动检测到 %d 个站点，启动全量刮削", len(sites))
-                await self.run_full_crawl()
-                return
+                return await self.run_full_crawl(stop_event=stop_event, progress=progress)
 
             # 检查是否有新站点（从未刮削过）
             new_sites = [s for s in sites if s.id not in cached_site_ids]
@@ -130,55 +153,169 @@ class Crawler:
                 logger.info(
                     "检测到 %d 个新站点，启动全量刮削", len(new_sites)
                 )
-                await self._run_full_crawl_for_sites(new_sites)
+                return await self.run_full_crawl(
+                    site_ids=[s.id for s in new_sites],
+                    stop_event=stop_event,
+                    progress=progress,
+                )
+
+            return {"state": "done", "details": {"sites": []}}
 
     async def trigger_full_crawl(self, site_id: int) -> None:
-        """触发单个站点的全量刮削（用于新站点添加/启用时即时补全）。"""
+        """触发单个站点的全量刮削（新站点添加/启用时的 lifecycle 入口）。
+
+        通过 maintenance 协调器提交 crawl.full 任务：有持久化 job 记录、
+        与手动/启动全量共享全局去重，不再自行直接执行。
+        """
         if not self._running:
             logger.debug("crawler 未运行，跳过触发")
             return
         if self._site_status.get(site_id) in ("full_crawling", "incremental_running"):
             logger.info("站点 %d 正在刮削中，跳过重复触发", site_id)
             return
-        async with self._db_factory() as db:
-            site = await db.get(Site, site_id)
-        if site:
-            logger.info("触发站点 %s 全量刮削", site.name)
-            await self._crawl_site_full(site)
 
-    async def run_full_crawl(self):
-        """首次全量刮削所有站点（站点间并发，最多 2 个同时）。
-        
-        使用全局操作锁，防止与删除站点、补全 videolist 等操作冲突。
+        from app.services.maintenance import maintenance_coordinator
+
+        async def _handler(ctx):
+            return await self.run_full_crawl(
+                site_id=site_id,
+                stop_event=ctx.cancel_event,
+                progress=ctx.progress,
+            )
+
+        job = await maintenance_coordinator.submit(
+            "crawl.full", _handler, trigger="lifecycle", site_id=site_id
+        )
+        if job.get("deduplicated"):
+            logger.info(
+                "站点 %d 全量刮削触发被去重：已有全量任务 %s 在运行",
+                site_id,
+                job["id"],
+            )
+        else:
+            logger.info("站点 %d 全量刮削已提交 job=%s", site_id, job["id"])
+
+    async def run_full_crawl(
+        self,
+        site_id: int | None = None,
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+        site_ids: list[int] | None = None,
+    ) -> dict:
+        """全量刮削（全部站点、单个站点或指定站点集合；站点间并发最多 2 个）。
+
+        实际执行期间持有 aggregator 全局操作锁（不只是启动前检查一次），
+        防止与删除站点、补全 videolist 等操作冲突；锁拿不到或正在停止时
+        返回 state='skipped'。stop_event 在站点/页边界合作式取消。
         """
-        # 检查全局操作锁
-        current_op = is_operation_in_progress()
-        if current_op:
-            logger.warning("全局操作正在进行中: %s，跳过全量刮削", current_op)
-            return
+        if not self._running:
+            return {"state": "skipped", "error": "刮削器未运行"}
 
-        async with self._db_factory() as db:
-            sites = await self._get_enabled_sites(db)
-        await self._run_full_crawl_for_sites(sites)
+        lock_op = f"full_crawl_{site_id or 'all'}"
+        if not await acquire_operation_lock(lock_op, timeout=FULL_CRAWL_LOCK_TIMEOUT):
+            current_op = is_operation_in_progress()
+            logger.warning("全量刮削全局操作锁被占用 (%s)，跳过", current_op)
+            return {
+                "state": "skipped",
+                "error": f"全局操作被占用：{current_op}",
+            }
 
-    async def _run_full_crawl_for_sites(self, sites: list[Site]) -> None:
-        """对指定站点列表执行全量刮削（站点间并发，最多 2 个同时）。"""
+        results: list[dict] = []
+        try:
+            async with self._db_factory() as db:
+                if site_ids is not None:
+                    rows = await db.execute(
+                        select(Site).where(
+                            Site.id.in_(site_ids), Site.enabled.is_(True)
+                        )
+                    )
+                    sites = list(rows.scalars().all())
+                elif site_id is not None:
+                    site = await db.get(Site, site_id)
+                    sites = [site] if site and site.enabled else []
+                else:
+                    sites = await self._get_enabled_sites(db)
+            if not sites:
+                return {"state": "skipped", "error": "没有可刮削的启用站点"}
+
+            results = await self._run_full_crawl_for_sites(
+                sites, stop_event=stop_event, progress=progress
+            )
+        finally:
+            release_operation_lock(lock_op)
+
+        # 聚合刷新必须在操作锁释放之后：锁内 refresh_aggregated_view 检测到
+        # 「全局操作进行中」会直接跳过，刮削看似不生效
+        await self._refresh_aggregated_cache()
+
+        total = len(results)
+        ok_count = sum(1 for r in results if r["ok"])
+        cancelled = _stop_requested(stop_event)
+        if cancelled:
+            state = "partial" if ok_count else "failed"
+            error = "已取消"
+        elif ok_count == total:
+            state = "done"
+            error = None
+        elif ok_count:
+            state = "partial"
+            failed_names = "、".join(r["site_name"] for r in results if not r["ok"])
+            error = f"部分站点刮削失败：{failed_names}"
+        else:
+            state = "failed"
+            error = "全部站点刮削失败"
+        return {
+            "state": state,
+            "details": {"sites": results},
+            "error": error,
+            "progress_completed": total,
+            "progress_total": total,
+        }
+
+    async def _run_full_crawl_for_sites(
+        self,
+        sites: list[Site],
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> list[dict]:
+        """对指定站点列表执行全量刮削（站点间并发，最多 2 个同时）。
+
+        返回每站 {"site_id", "site_name", "ok"}；站点间失败互相隔离。
+        """
         if not sites:
-            return
+            return []
         semaphore = asyncio.Semaphore(2)
+        total = len(sites)
+        results: list[dict] = []
+        completed = 0
 
         async def _crawl_one(site: Site):
-            if not self._running:
+            nonlocal completed
+            if not self._running or _stop_requested(stop_event):
+                results.append(
+                    {"site_id": site.id, "site_name": site.name, "ok": False}
+                )
+                completed += 1
                 return
             async with semaphore:
-                await self._crawl_site_full(site)
+                ok = await self._crawl_site_full(site, stop_event=stop_event)
+            results.append({"site_id": site.id, "site_name": site.name, "ok": ok})
+            completed += 1
+            if progress is not None:
+                await progress(completed, total, {})
 
         await asyncio.gather(*[_crawl_one(s) for s in sites])
+        return results
 
-    async def run_incremental(self, site_id: int):
-        """对指定站点执行增量更新。"""
+    async def run_incremental(
+        self,
+        site_id: int,
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> dict:
+        """对指定站点执行增量更新；同站全量/增量互斥，忙时返回 skipped。"""
         if self._site_status.get(site_id) in ("full_crawling", "incremental_running"):
-            return
+            return {"state": "skipped", "error": f"站点 {site_id} 已有刮削任务在运行"}
 
         self._site_status[site_id] = "incremental_running"
         try:
@@ -187,13 +324,81 @@ class Crawler:
                 site = site_result.scalar_one_or_none()
 
             if not site:
-                return
+                return {"state": "skipped", "error": f"站点 {site_id} 不存在"}
 
-            await self._crawl_site_incremental(site)
+            completed = await self._crawl_site_incremental(
+                site, stop_event=stop_event
+            )
         except Exception as exc:
             logger.warning("增量更新站点 %s 失败: %s", site_id, exc)
+            return {"state": "failed", "error": str(exc)}
         finally:
             self._site_status[site_id] = "idle"
+
+        if progress is not None:
+            await progress(1, 1, {})
+        if _stop_requested(stop_event) or not completed:
+            # 协调器会依据 cancel_event 把任务标为 cancelled
+            return {
+                "state": "partial",
+                "error": "已取消",
+                "progress_completed": 1,
+                "progress_total": 1,
+            }
+        return {"state": "done", "progress_completed": 1, "progress_total": 1}
+
+    def fill_in_progress(self) -> bool:
+        """补全任务是否在途（含全局操作被占用时不可启动的判定，供 API 预检）。"""
+        return (
+            self._fill_active
+            or self._fill_lock.locked()
+            or is_operation_in_progress() is not None
+        )
+
+    async def run_fill_job(
+        self,
+        site_id: int | None = None,
+        cancel_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> dict:
+        """detail.fill 维护任务的执行器入口（scheduler / maintenance API 共用）。
+
+        忙时返回 state='skipped'；否则同步占位（_fill_active + tracker.begin）
+        后执行 fill_missing_videolist，返回协调器契约 dict：
+        state 映射自 FillStatus（done/partial/failed；interrupted 归为 failed），
+        details={'fill': FillStatus 快照}，进度为站点级。取消由协调器依据
+        cancel_event 把任务标为 cancelled。
+        """
+        if self._fill_active or self._fill_lock.locked():
+            logger.info("run_fill_job 已有任务在运行，跳过 site_id=%s", site_id)
+            return {"state": "skipped", "error": "已有补全任务在运行"}
+        current_op = is_operation_in_progress()
+        if current_op:
+            logger.info("run_fill_job 全局操作进行中 (%s)，跳过", current_op)
+            return {"state": "skipped", "error": f"全局操作进行中：{current_op}"}
+
+        # 同步标记 + 状态落地，与 try_start_fill 同一组闸门
+        self._fill_active = True
+        fill_status_tracker.begin()
+        # 兼容旧调用方/测试对 _fill_task 的等待：指向当前协调器任务协程
+        self._fill_task = asyncio.current_task()
+        try:
+            await self.fill_missing_videolist(
+                site_id, _begun=True, stop_event=cancel_event, progress=progress
+            )
+        finally:
+            # fill_missing_videolist 所有正常出口都会复位；异常兜底再复位一次
+            self._fill_active = False
+
+        snap = fill_status_tracker.snapshot()
+        state_map = {"done": "done", "partial": "partial", "failed": "failed"}
+        return {
+            "state": state_map.get(snap["state"], "failed"),
+            "details": {"fill": snap},
+            "error": snap.get("error"),
+            "progress_completed": snap.get("completed_sites", 0),
+            "progress_total": snap.get("total_sites", 0),
+        }
 
     def try_start_fill(self, site_id: int | None = None) -> bool:
         """原子地尝试启动补全任务。
@@ -217,7 +422,11 @@ class Crawler:
         return True
 
     async def fill_missing_videolist(
-        self, site_id: int | None = None, _begun: bool = False
+        self,
+        site_id: int | None = None,
+        _begun: bool = False,
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
     ) -> dict:
         """按站点分组批量补全缺失的 videolist 详情。
 
@@ -225,6 +434,8 @@ class Crawler:
         站点间最多 2 个并发，每个站点内按 200 条/批次请求 videolist。
         使用全局操作锁，防止与删除站点、全量刮削等操作冲突。
         全程更新 fill_status_tracker：手动触发与每日定时任务共用同一条路径。
+        stop_event 在子批边界合作式取消：已补数据正常落库/刷新聚合，
+        未处理条目计 skipped，整体 tracker 以 interrupted + error='已取消' 收尾。
         """
         if not _begun:
             # 直接调用（测试/历史入口）也要经过单例闸门
@@ -235,6 +446,11 @@ class Crawler:
                 return fill_status_tracker.snapshot()
             self._fill_active = True
             fill_status_tracker.begin()
+
+        # 存到实例上：_fill_one 对 _fill_site 的调用签名保持兼容
+        # （历史测试会替换 _fill_site 为两参数函数）
+        self._fill_stop_event = stop_event
+        self._fill_progress = progress
 
         lock_op = f"fill_videolist_{site_id or 'all'}"
         acquired = False
@@ -306,22 +522,28 @@ class Crawler:
                         )
                 await fill_status_tracker.persist(self._db_factory)
 
-                site_snaps = fill_status_tracker.snapshot()["sites"]
-                site_states = [s["state"] for s in site_snaps]
-                if all(state == "done" for state in site_states):
-                    overall = "done"
-                elif any(state in ("done", "partial") for state in site_states):
-                    overall = "partial"
+                if _stop_requested(stop_event):
+                    # 合作式取消：站点级已按边界收尾，整体标 interrupted；
+                    # 收尾（聚合刷新 + 统计）照常执行，协调器最终标 cancelled
+                    overall = "interrupted"
+                    overall_error = "已取消"
                 else:
-                    overall = "failed"
-                # 聚合非成功站点的错误（含站点名），保证 403 这类阻断原因
-                # 在总体状态上可见，前端不会只拿到「未知错误」
-                site_errors = [
-                    f"{s['site_name']}：{s['error']}"
-                    for s in site_snaps
-                    if s["state"] != "done" and s["error"]
-                ]
-                overall_error = "；".join(site_errors) if site_errors else None
+                    site_snaps = fill_status_tracker.snapshot()["sites"]
+                    site_states = [s["state"] for s in site_snaps]
+                    if all(state == "done" for state in site_states):
+                        overall = "done"
+                    elif any(state in ("done", "partial") for state in site_states):
+                        overall = "partial"
+                    else:
+                        overall = "failed"
+                    # 聚合非成功站点的错误（含站点名），保证 403 这类阻断原因
+                    # 在总体状态上可见，前端不会只拿到「未知错误」
+                    site_errors = [
+                        f"{s['site_name']}：{s['error']}"
+                        for s in site_snaps
+                        if s["state"] != "done" and s["error"]
+                    ]
+                    overall_error = "；".join(site_errors) if site_errors else None
         except Exception as exc:
             logger.exception("fill_missing_videolist 任务异常")
             overall = "failed"
@@ -329,6 +551,8 @@ class Crawler:
         finally:
             if acquired:
                 release_operation_lock(lock_op)
+            self._fill_stop_event = None
+            self._fill_progress = None
 
         # 收尾：聚合刷新 + 统计更新。期间 status 保持 running、_fill_active 保持
         # True——终态发布过早会让前端拿到 done 后立即 refreshStats 读到旧统计，
@@ -372,8 +596,22 @@ class Crawler:
         )
         return fill_status_tracker.snapshot()
 
-    async def _fill_site(self, site: Site, affected_all: set[str]) -> None:
-        """补全单个站点：分批请求 videolist，401/403 熔断剩余批次。"""
+    async def _fill_site(
+        self,
+        site: Site,
+        affected_all: set[str],
+        stop_event: asyncio.Event | None = None,
+        progress: ProgressCallback | None = None,
+    ) -> None:
+        """补全单个站点：分批请求 videolist，401/403 熔断剩余批次。
+
+        stop_event 在批次边界合作式取消：已补数据保留，未处理条目计 skipped。
+        """
+        if stop_event is None:
+            stop_event = self._fill_stop_event
+        if progress is None:
+            progress = self._fill_progress
+
         async with self._db_factory() as db:
             result = await db.execute(
                 select(
@@ -395,11 +633,22 @@ class Crawler:
             ]
 
         missing = len(entries)
+        if _stop_requested(stop_event):
+            # 尚未开始就收到取消：未处理条目计 skipped，不算 failed
+            fill_status_tracker.site_finished(
+                site.id, "blocked", filled=0, failed=0, skipped=missing,
+                error="已取消",
+            )
+            await fill_status_tracker.persist(self._db_factory)
+            await self._report_fill_progress(progress)
+            return
+
         fill_status_tracker.site_started(site.id, missing)
         if missing == 0:
             fill_status_tracker.site_finished(
                 site.id, "done", filled=0, failed=0, skipped=0
             )
+            await self._report_fill_progress(progress)
             return
 
         client = SourceClient(
@@ -410,8 +659,13 @@ class Crawler:
         blocked_error: str | None = None
         try:
             for i in range(0, missing, CRAWLER_BATCH_VIDEOLIST_SIZE):
+                if _stop_requested(stop_event):
+                    break
                 chunk = entries[i : i + CRAWLER_BATCH_VIDEOLIST_SIZE]
-                res = await self._fill_chunk(site, client, chunk, op="fill_videolist")
+                res = await self._fill_chunk(
+                    site, client, chunk, op="fill_videolist",
+                    stop_event=stop_event,
+                )
                 filled += res.filled
                 failed += res.failed
                 affected_all.update(res.affected)
@@ -432,6 +686,15 @@ class Crawler:
                 filled=filled, failed=failed, skipped=skipped,
                 error=blocked_error,
             )
+        elif _stop_requested(stop_event):
+            # 中途取消：已补数据保留，未处理条目计 skipped
+            skipped = missing - filled - failed
+            fill_status_tracker.site_finished(
+                site.id,
+                "partial" if filled > 0 else "blocked",
+                filled=filled, failed=failed, skipped=skipped,
+                error="已取消",
+            )
         else:
             if failed == 0:
                 state = "done"
@@ -447,14 +710,33 @@ class Crawler:
                 error=site_error,
             )
         await fill_status_tracker.persist(self._db_factory)
+        await self._report_fill_progress(progress)
+
+    async def _report_fill_progress(self, progress: ProgressCallback | None) -> None:
+        """向协调器上报站点级进度（completed_sites / total_sites + FillStatus）。"""
+        if progress is None:
+            return
+        try:
+            snap = fill_status_tracker.snapshot()
+            await progress(
+                snap["completed_sites"], snap["total_sites"], {"fill": snap}
+            )
+        except Exception:
+            logger.warning("上报补全进度失败", exc_info=True)
 
     async def _fill_chunk(
-        self, site: Site, client: SourceClient, entries: list[dict], op: str
+        self,
+        site: Site,
+        client: SourceClient,
+        entries: list[dict],
+        op: str,
+        stop_event: asyncio.Event | None = None,
     ) -> FillChunkResult:
         """处理一批（200 条）缺失条目，内部按 20 条/请求拆分子批。
 
         与 _batch_videolist 的区别：逐条区分 filled/failed，且遇到
         401/403 立即熔断返回 blocked_error，不再继续轰炸该站点。
+        stop_event 在子批边界响应取消。
         """
         affected: set[str] = set()
         filled = 0
@@ -462,6 +744,8 @@ class Crawler:
         detail_entries: list[dict] = []
 
         for j in range(0, len(entries), CRAWLER_VIDEOLIST_BATCH_SIZE):
+            if _stop_requested(stop_event):
+                break
             sub_batch = entries[j : j + CRAWLER_VIDEOLIST_BATCH_SIZE]
             ids = [e["original_id"] for e in sub_batch]
 
@@ -511,35 +795,44 @@ class Crawler:
 
 
     async def check_one_site(self, site: Site) -> bool:
-        """检测单个站点是否有更新。返回 True 表示需要刮削。"""
+        """检测单个站点是否有更新。返回 True 表示需要刮削。
+
+        单次尝试：SourceClient 与 _fetch_list_page 各带重试，叠加后一次检测
+        最多放大成 9 次请求；更新检测靠调度节奏兜底，这里只试一次。
+        """
         if not self._running:
             return False
         if self._site_status.get(site.id) in ("full_crawling", "incremental_running"):
             return False
 
-        state = await self._load_state()
+        client = SourceClient(
+            site_id=site.id, base_url=site.base_url, name=site.name,
+            max_attempts=1,
+        )
         try:
-            client = SourceClient(
-                site_id=site.id, base_url=site.base_url, name=site.name
-            )
-            items = await self._fetch_list_page(
-                client, None, 1, op="crawler_check"
-            )
-            await client.aclose()
-
-            if not items:
-                return False
-
-            first_vod_time = items[0].get("updated_at")
-            site_state = state.get("sites", {}).get(str(site.id), {})
-            last_vod_time = site_state.get("last_vod_time")
-
-            return bool(
-                not last_vod_time or (first_vod_time and first_vod_time > last_vod_time)
-            )
+            await playback_guard.wait_until_idle()
+            items = await client.list(t=None, pg=1, op="crawler_check")
         except Exception as exc:
             logger.warning("检测站点 %s 更新失败: %s", site.name, exc)
             return False
+        finally:
+            await client.aclose()
+
+        return await self.check_list_items(site, items or [])
+
+    async def check_list_items(self, site: Site, items: list[dict]) -> bool:
+        """基于已有第一页 list 结果判断站点是否有更新（与调度器共享探测结果）。"""
+        if not items:
+            return False
+
+        state = await self._load_state()
+        first_vod_time = items[0].get("updated_at")
+        site_state = state.get("sites", {}).get(str(site.id), {})
+        last_vod_time = site_state.get("last_vod_time")
+
+        return bool(
+            not last_vod_time or (first_vod_time and first_vod_time > last_vod_time)
+        )
 
     async def check_updates(self):
         """并发检测所有站点（兼容旧调用，由 scheduler 调用）。"""
@@ -572,9 +865,16 @@ class Crawler:
     # 全量刮削（单站点）
     # ------------------------------------------------------------------
 
-    async def _crawl_site_full(self, site: Site):
+    async def _crawl_site_full(
+        self, site: Site, stop_event: asyncio.Event | None = None
+    ) -> bool:
+        """全量刮削单个站点，返回是否真正完成。
+
+        异常记日志并返回 False（不静默吞成成功）；stop_event 在页边界响应，
+        中断的分类不推进 last_vod_time，避免漏抓。
+        """
         if self._site_status.get(site.id) in ("full_crawling", "incremental_running"):
-            return
+            return False
 
         self._site_status[site.id] = "full_crawling"
         client = SourceClient(
@@ -596,11 +896,13 @@ class Crawler:
             batch_entries: list[dict] = []
 
             for cat_id in categories:
+                if _stop_requested(stop_event):
+                    break
                 cat_key = str(cat_id) if cat_id else "__all__"
                 page = 1
                 last_vod_time = None
 
-                while self._running:
+                while self._running and not _stop_requested(stop_event):
                     start_time = time.time()
                     # 并发拉取多页，减少等待时间
                     tasks = [
@@ -638,7 +940,11 @@ class Crawler:
 
                         # 避免内存无限堆积
                         if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
-                            await self._batch_videolist(site, client, need_videolist, op="crawler_full")
+                            result = await self._batch_videolist(
+                                site, client, need_videolist, op="crawler_full",
+                                stop_event=stop_event,
+                            )
+                            affected_norm_titles.update(result.affected)
                             need_videolist = []
 
                     # 记录本页日志（全量）
@@ -658,18 +964,26 @@ class Crawler:
 
                     page += self.PAGE_CONCURRENCY
 
-                # 分类结束：刷新剩余 batch_entries
+                # 已抓取的数据正常落库
                 if batch_entries:
                     async with self._db_factory() as db:
                         affected_norm_titles.update(await self._batch_upsert_list_fields(db, batch_entries))
                     batch_entries = []
 
+                if _stop_requested(stop_event):
+                    # 中断的分类不推进 last_vod_time，下次增量会重扫，避免漏抓
+                    break
                 cat_states[cat_key] = {"last_vod_time": last_vod_time}
 
+            if _stop_requested(stop_event):
+                return False
+
             if need_videolist:
-                affected_norm_titles.update(
-                    await self._batch_videolist(site, client, need_videolist, op="crawler_full")
+                result = await self._batch_videolist(
+                    site, client, need_videolist, op="crawler_full",
+                    stop_event=stop_event,
                 )
+                affected_norm_titles.update(result.affected)
 
             site_state["status"] = "idle"
             site_state["last_full_crawl"] = _utcnow().isoformat()
@@ -684,9 +998,11 @@ class Crawler:
                 site_state["last_vod_time"] = max(all_times)
 
             await self._save_state(state)
+            return True
 
         except Exception as exc:
             logger.warning("全量刮削站点 %s 失败: %s", site.name, exc)
+            return False
         finally:
             self._site_status[site.id] = "idle"
             await client.aclose()
@@ -697,7 +1013,14 @@ class Crawler:
     # 增量刮削（单站点）
     # ------------------------------------------------------------------
 
-    async def _crawl_site_incremental(self, site: Site):
+    async def _crawl_site_incremental(
+        self, site: Site, stop_event: asyncio.Event | None = None
+    ) -> bool:
+        """增量刮削单个站点，返回是否跑完（False 表示被 stop_event 中断）。
+
+        中断的分类不推进 last_vod_time（由遇旧即停的分支天然保证），
+        下次检测会重新扫描，不漏抓。
+        """
         state = await self._load_state()
         site_state = state.setdefault("sites", {}).setdefault(str(site.id), {})
         cat_states = site_state.setdefault("categories", {})
@@ -718,6 +1041,8 @@ class Crawler:
 
         try:
             for cat_id in categories:
+                if _stop_requested(stop_event):
+                    return False
                 cat_key = str(cat_id) if cat_id else "__all__"
                 last_vod_time = cat_states.get(cat_key, {}).get("last_vod_time")
 
@@ -728,6 +1053,7 @@ class Crawler:
                 while (
                     self._running
                     and not stopped
+                    and not _stop_requested(stop_event)
                     and page <= CRAWLER_INCREMENTAL_MAX_PAGES
                 ):
                     start_time = time.time()
@@ -810,7 +1136,11 @@ class Crawler:
                         page += 1
 
                         if len(need_videolist) >= CRAWLER_BATCH_VIDEOLIST_SIZE:
-                            await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
+                            result = await self._batch_videolist(
+                                site, client, need_videolist, op="crawler_incremental",
+                                stop_event=stop_event,
+                            )
+                            affected_norm_titles.update(result.affected)
                             need_videolist = []
 
                 # 分类结束：刷新剩余 batch_entries
@@ -822,10 +1152,15 @@ class Crawler:
                 if new_last_vod_time:
                     cat_states[cat_key] = {"last_vod_time": new_last_vod_time}
 
+            if _stop_requested(stop_event):
+                return False
+
             if need_videolist:
-                affected_norm_titles.update(
-                    await self._batch_videolist(site, client, need_videolist, op="crawler_incremental")
+                result = await self._batch_videolist(
+                    site, client, need_videolist, op="crawler_incremental",
+                    stop_event=stop_event,
                 )
+                affected_norm_titles.update(result.affected)
 
             site_state["last_incremental"] = _utcnow().isoformat()
             all_times = [
@@ -837,6 +1172,7 @@ class Crawler:
                 site_state["last_vod_time"] = max(all_times)
 
             await self._save_state(state)
+            return True
 
         finally:
             await client.aclose()
@@ -882,17 +1218,26 @@ class Crawler:
         return []
 
     async def _batch_videolist(
-        self, site: Site, client: SourceClient, entries: list[dict], op: str = "unknown"
+        self,
+        site: Site,
+        client: SourceClient,
+        entries: list[dict],
+        op: str = "unknown",
+        stop_event: asyncio.Event | None = None,
     ) -> BatchVideolistResult:
-        """批量 videolist 补充 detail 字段。"""
+        """批量 videolist 补充 detail 字段，在子批边界响应取消。"""
         affected: set[str] = set()
         filled = 0
         for i in range(0, len(entries), self.BATCH_SIZE):
+            if _stop_requested(stop_event):
+                break
             batch = entries[i : i + self.BATCH_SIZE]
             detail_entries: list[dict] = []
 
             # 每个 videolist 请求最多 20 个 ID，避免站点截断
             for j in range(0, len(batch), CRAWLER_VIDEOLIST_BATCH_SIZE):
+                if _stop_requested(stop_event):
+                    break
                 sub_batch = batch[j : j + CRAWLER_VIDEOLIST_BATCH_SIZE]
                 ids = [e["original_id"] for e in sub_batch]
 

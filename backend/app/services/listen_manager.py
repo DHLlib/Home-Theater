@@ -131,5 +131,5 @@ def _dsn_for_asyncpg() -> str:
 # 全局实例
 listen_manager = ListenConnectionManager(
     dsn=_dsn_for_asyncpg(),
-    channels={"download_events", "health_events", "site_delete_events"},
+    channels={"download_events", "health_events", "site_delete_events", "maintenance_events"},
 )

@@ -392,6 +392,36 @@ class RecommendedVideo(Base):
     rn: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class MaintenanceJob(Base):
+    """统一维护任务：刮削 / videolist 补全 / 缓存清理等长任务的持久化状态。
+
+    单进程个人部署，协调器（services/maintenance.py）进程内调度，DB 行是
+    恢复与历史依据：重启时 queued/running 遗留任务由 recover_interrupted
+    标记为 interrupted。site_id 不建外键，站点删除后历史任务仍可查。
+    """
+
+    __tablename__ = "maintenance_jobs"
+    __table_args__ = (
+        Index("ix_maintenance_jobs_kind", "kind"),
+        Index("ix_maintenance_jobs_state", "state"),
+        Index("ix_maintenance_jobs_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # uuid4 hex
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    trigger: Mapped[str] = mapped_column(String, default="manual", nullable=False)
+    state: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    site_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    progress_completed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
 

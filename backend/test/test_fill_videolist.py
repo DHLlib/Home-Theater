@@ -393,6 +393,16 @@ async def test_api_post_returns_started_and_status(db_session, fake_client, monk
 
     crawler = Crawler(async_session_factory)
     monkeypatch.setattr(videos_api.scheduler_module, "crawler", crawler)
+    from app.services.maintenance import MaintenanceCoordinator
+    import app.services.maintenance as maintenance_module
+
+    coordinator = MaintenanceCoordinator(async_session_factory)
+    monkeypatch.setattr(maintenance_module, "maintenance_coordinator", coordinator)
+
+    async def _no_events(channel, event):
+        return None
+
+    monkeypatch.setattr(maintenance_module.notify_sender, "send", _no_events)
 
     resp = await videos_api.fill_videolist(FillVideolistRequest(site_id=None))
     assert resp.started is True
@@ -404,7 +414,9 @@ async def test_api_post_returns_started_and_status(db_session, fake_client, monk
     assert isinstance(status, FillStatus)
     assert status.state == "running"
 
-    await crawler._fill_task
+    active = coordinator.find_active("detail.fill")
+    assert active is not None
+    await coordinator.wait(active["id"])
     status = await videos_api.fill_videolist_status()
     assert status.state == "done"
     assert status.filled == 1

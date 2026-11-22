@@ -23,7 +23,11 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.constants import AGGREGATION_RAW_LIMIT_MULTIPLIER
+from app.constants import (
+    AGGREGATION_RAW_LIMIT_MULTIPLIER,
+    CLEANUP_LOCK_TIMEOUT,
+    CLEANUP_PROGRESS_REPORT_SECONDS,
+)
 from app.db import async_session_factory, get_db
 from sqlalchemy.dialects.postgresql import insert as insert_cls
 from app.models import (
@@ -55,7 +59,14 @@ from app.schemas import (
     SiteStat,
     SourceRef,
 )
-from app.services.aggregator import _aggregate_records, normalize_title, refresh_aggregated_view
+from app.services.aggregator import (
+    _aggregate_records,
+    acquire_operation_lock,
+    is_operation_in_progress,
+    normalize_title,
+    refresh_aggregated_view,
+    release_operation_lock,
+)
 from app.services.category_alias import (
     load_aliases,
     normalize_category_name,
@@ -1618,20 +1629,62 @@ async def crawler_status():
 
 @router.post("/crawler/full")
 async def trigger_full():
-    """手动触发所有站点的全量刮削。"""
+    """手动触发所有站点的全量刮削（统一维护任务，返回真实 job_id）。"""
     if scheduler_module.crawler is None:
         raise crawler_not_running()
-    asyncio.create_task(scheduler_module.crawler.run_full_crawl())
-    return {"message": "全量刮削已启动"}
+    from app.services.maintenance import maintenance_coordinator
+
+    crawler = scheduler_module.crawler
+
+    async def _handler(ctx):
+        return await crawler.run_full_crawl(
+            stop_event=ctx.cancel_event, progress=ctx.progress
+        )
+
+    job = await maintenance_coordinator.submit(
+        "crawl.full", _handler, trigger="manual"
+    )
+    started = not job.get("deduplicated", False)
+    message = "全量刮削已启动" if started else "已有全量刮削任务在进行，未重复启动"
+    return {
+        "message": message,
+        "started": started,
+        "job_id": job["id"],
+        "state": job["state"],
+        "site_id": None,
+    }
 
 
 @router.post("/crawler/incremental/{site_id}")
 async def trigger_incremental(site_id: int):
-    """手动触发指定站点的增量更新。"""
+    """手动触发指定站点的增量更新（统一维护任务，返回真实 job_id）。"""
     if scheduler_module.crawler is None:
         raise crawler_not_running()
-    asyncio.create_task(scheduler_module.crawler.run_incremental(site_id))
-    return {"message": f"站点 {site_id} 增量更新已启动"}
+    from app.services.maintenance import maintenance_coordinator
+
+    crawler = scheduler_module.crawler
+
+    async def _handler(ctx):
+        return await crawler.run_incremental(
+            site_id, stop_event=ctx.cancel_event, progress=ctx.progress
+        )
+
+    job = await maintenance_coordinator.submit(
+        "crawl.incremental", _handler, trigger="manual", site_id=site_id
+    )
+    started = not job.get("deduplicated", False)
+    message = (
+        f"站点 {site_id} 增量更新已启动"
+        if started
+        else f"站点 {site_id} 已有增量任务在进行，未重复启动"
+    )
+    return {
+        "message": message,
+        "started": started,
+        "job_id": job["id"],
+        "state": job["state"],
+        "site_id": site_id,
+    }
 
 
 @router.post("/crawler/fill-videolist")
@@ -1640,15 +1693,40 @@ async def fill_videolist(
 ) -> FillVideolistResponse:
     """按站点分组批量补全缺失的 videolist 详情。
 
-    后台运行，立即返回任务是否真正启动；进度用 status 接口轮询。
+    提交为统一维护任务 detail.fill（持久化 job，可取消、重启可恢复），
+    立即返回任务是否真正启动；进度用 status 接口轮询。
     已有任务在途或全局操作被占用时返回 started=false 与当前状态，
     前端不得据此误认为任务已结束。
     """
     if scheduler_module.crawler is None:
         raise crawler_not_running()
+    from app.services.maintenance import maintenance_coordinator
 
     site_id = req.site_id
-    started = scheduler_module.crawler.try_start_fill(site_id)
+    crawler = scheduler_module.crawler
+
+    # 同步预检（与 try_start_fill 同一组闸门 + 协调器活动任务）：
+    # 忙时诚实返回 started=false，不让协调器跑一个注定 skipped 的空任务
+    if (
+        crawler.fill_in_progress()
+        or maintenance_coordinator.find_active("detail.fill") is not None
+    ):
+        return FillVideolistResponse(
+            message="已有补全任务或全局操作正在进行，未重复启动",
+            site_id=site_id,
+            started=False,
+            status=FillStatus(**fill_status_tracker.snapshot()),
+        )
+
+    async def _handler(ctx):
+        return await crawler.run_fill_job(
+            site_id, cancel_event=ctx.cancel_event, progress=ctx.progress
+        )
+
+    job = await maintenance_coordinator.submit(
+        "detail.fill", _handler, trigger="manual", site_id=site_id
+    )
+    started = not job.get("deduplicated", False)
     if started:
         message = (
             f"站点 {site_id} 补全任务已启动"
@@ -1657,19 +1735,32 @@ async def fill_videolist(
         )
     else:
         message = "已有补全任务或全局操作正在进行，未重复启动"
+    status = FillStatus(**fill_status_tracker.snapshot())
+    if started and status.state != "running":
+        status = FillStatus(state="running", started_at=job["created_at"])
     return FillVideolistResponse(
         message=message,
         site_id=site_id,
         started=started,
-        status=FillStatus(**fill_status_tracker.snapshot()),
+        status=status,
     )
 
 
 @router.get("/crawler/fill-videolist/status")
 async def fill_videolist_status() -> FillStatus:
-    """返回补全任务的真实状态（含重启后恢复为 interrupted 的遗留任务）。"""
+    """兼容旧状态接口；排队中的统一任务也映射为 running。"""
     await fill_status_tracker.ensure_loaded(async_session_factory)
-    return FillStatus(**fill_status_tracker.snapshot())
+    status = FillStatus(**fill_status_tracker.snapshot())
+    if status.state != "running":
+        from app.services.maintenance import maintenance_coordinator
+
+        active = maintenance_coordinator.find_active("detail.fill")
+        if active is not None:
+            return FillStatus(
+                state="running",
+                started_at=active["started_at"] or active["created_at"],
+            )
+    return status
 
 
 async def _get_aggregated_count(db: AsyncSession) -> int:
@@ -1867,35 +1958,43 @@ async def cleanup_expired(
     dry_run: bool = False,
     speed: str = "eco",
 ):
-    """启动「清除失效资源」后台任务，立即返回；进度用 status 接口查。
+    """启动「清除失效资源」后台任务（统一维护任务 cache.cleanup），立即返回。
 
     一次任务会扫完全部启用站点的全部缓存（按 id 游标分页、断点续跑），
-    连续两轮都没被资源站返回的条目才会真正删除。
+    连续两轮都没被资源站返回的条目才会真正删除。进度用 status 接口查，
+    job 详情/取消走 /api/maintenance/jobs。
 
     speed 控制对资源站的压力：eco 省流 / normal 标准 / fast 快速。
     """
-    global _CLEANUP_TASK
-    if _CLEANUP_STATE["running"]:
-        return {"started": False, **_cleanup_status()}
-
     if speed not in CLEANUP_SPEEDS:
         speed = "eco"
+    from app.services.maintenance import maintenance_coordinator
 
-    _reset_cleanup_state()
-    global _cleanup_rate_ema
-    _cleanup_rate_ema = 0.0
-    _CLEANUP_STATE["running"] = True
-    _CLEANUP_STATE["dry_run"] = dry_run
-    _CLEANUP_STATE["speed"] = speed
-    _CLEANUP_STATE["started_at"] = time.time()
-    _CLEANUP_TASK = asyncio.create_task(_cleanup_worker(site_id, dry_run))
-    logger.info(
-        "cleanup_expired_started site_id=%s dry_run=%s speed=%s",
-        site_id,
-        dry_run,
-        speed,
+    # 预检：内存状态或协调器里已有活动任务时直接诚实返回
+    if (
+        _CLEANUP_STATE["running"]
+        or maintenance_coordinator.find_active("cache.cleanup") is not None
+    ):
+        return {"started": False, **_cleanup_status()}
+
+    async def _handler(ctx):
+        return await run_cleanup_managed(site_id, dry_run, speed, ctx)
+
+    job = await maintenance_coordinator.submit(
+        "cache.cleanup", _handler, trigger="manual", site_id=site_id
     )
-    return {"started": True, **_cleanup_status()}
+    started = not job.get("deduplicated", False)
+    if started:
+        logger.info(
+            "cleanup_expired_started job=%s site_id=%s dry_run=%s speed=%s",
+            job["id"],
+            site_id,
+            dry_run,
+            speed,
+        )
+    else:
+        logger.info("cleanup_expired_deduplicated job=%s", job["id"])
+    return {"started": started, "job_id": job["id"], **_cleanup_status()}
 
 
 @router.get("/cleanup-expired/status")
@@ -1905,11 +2004,88 @@ async def cleanup_expired_status():
 
 @router.post("/cleanup-expired/cancel")
 async def cleanup_expired_cancel():
-    if not _CLEANUP_STATE["running"]:
+    """取消清理任务：桥接 cancel_requested，并通知协调器置 cancel_event。"""
+    from app.services.maintenance import maintenance_coordinator
+
+    active = maintenance_coordinator.find_active("cache.cleanup")
+    if active is None and not _CLEANUP_STATE["running"]:
         return {"cancelled": False, **_cleanup_status()}
+    # 内存桥接立即生效，worker 在批次/站点边界响应，不等协调器下一轮快照
     _CLEANUP_STATE["cancel_requested"] = True
+    if active is not None:
+        await maintenance_coordinator.cancel(active["id"])
     logger.info("cleanup_expired_cancel_requested")
     return {"cancelled": True, **_cleanup_status()}
+
+
+async def run_cleanup_managed(
+    site_id: int | None,
+    dry_run: bool,
+    speed: str,
+    ctx,
+) -> dict:
+    """cache.cleanup 维护任务的执行器适配器（供 maintenance API 延迟 import）。
+
+    复用进程内 _CLEANUP_STATE 作为旧 status 接口的数据源；取消桥接
+    ctx.cancel_event → cancel_requested，worker 在批次/站点边界响应；
+    details.cleanup 定期回报给协调器。
+    """
+    global _CLEANUP_TASK, _cleanup_rate_ema
+    if speed not in CLEANUP_SPEEDS:
+        speed = "eco"
+    _reset_cleanup_state()
+    _cleanup_rate_ema = 0.0
+    _CLEANUP_STATE["running"] = True
+    _CLEANUP_STATE["dry_run"] = dry_run
+    _CLEANUP_STATE["speed"] = speed
+    _CLEANUP_STATE["started_at"] = time.time()
+    # 指向当前协调器任务协程（兼容旧调用方对 _CLEANUP_TASK 的引用）
+    _CLEANUP_TASK = asyncio.current_task()
+
+    async def _watch_cancel() -> None:
+        await ctx.cancel_event.wait()
+        _CLEANUP_STATE["cancel_requested"] = True
+
+    watcher = asyncio.create_task(_watch_cancel())
+    worker = asyncio.create_task(_cleanup_worker(site_id, dry_run))
+    try:
+        while not worker.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(worker), timeout=CLEANUP_PROGRESS_REPORT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                pass
+            await ctx.progress(
+                _CLEANUP_STATE["checked"],
+                _CLEANUP_STATE["total"],
+                {"cleanup": _cleanup_status()},
+            )
+        await worker  # 异常已在 worker 内收敛为 _CLEANUP_STATE["error"]
+    finally:
+        watcher.cancel()
+        if not worker.done():
+            worker.cancel()
+        await asyncio.gather(watcher, worker, return_exceptions=True)
+
+    final = _cleanup_status()
+    if final.get("error"):
+        state = "failed"
+        error = final["error"]
+    elif final.get("cancel_requested"):
+        # 协调器会依据 cancel_event 把任务标为 cancelled
+        state = "partial"
+        error = "已取消"
+    else:
+        state = "done"
+        error = None
+    return {
+        "state": state,
+        "details": {"cleanup": final},
+        "error": error,
+        "progress_completed": final.get("checked", 0),
+        "progress_total": final.get("total", 0),
+    }
 
 
 # 后台清理任务状态（进程内；单进程部署）
@@ -2250,7 +2426,18 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
         _CLEANUP_STATE.get("speed", "eco"), CLEANUP_SPEEDS["eco"]
     )
     limiter = _RateLimiter(qps)
+    lock_op = f"cleanup_expired_{site_id or 'all'}"
+    acquired = False
+    affected: set[str] = set()
     try:
+        # 扫描期间持有全局操作锁，防止与删除站点、刮削、补全互相踩数据
+        if not await acquire_operation_lock(lock_op, timeout=CLEANUP_LOCK_TIMEOUT):
+            current_op = is_operation_in_progress()
+            logger.warning("cleanup_expired 全局操作锁被占用 (%s)，跳过", current_op)
+            _CLEANUP_STATE["error"] = f"全局操作被占用：{current_op}"
+            return
+        acquired = True
+
         async with async_session_factory() as db:
             if site_id:
                 rows = (
@@ -2290,7 +2477,6 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
             ).scalar_one()
         _CLEANUP_STATE["total"] = total
 
-        affected: set[str] = set()
         for sid, name, url in sites:
             if _CLEANUP_STATE["cancel_requested"] or time.monotonic() > deadline:
                 break
@@ -2303,11 +2489,6 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
 
         _CLEANUP_STATE["current_site"] = None
 
-        if affected:
-            async with async_session_factory() as db:
-                await refresh_aggregated_view(db, affected_norm_titles=affected)
-                invalidate_category_filter_cache()
-
         logger.info(
             "cleanup_expired_done sites=%d checked=%d deleted=%d pending=%d",
             _CLEANUP_STATE["sites_done"],
@@ -2319,8 +2500,20 @@ async def _cleanup_worker(site_id: int | None, dry_run: bool = False) -> None:
         logger.exception("cleanup_expired_failed")
         _CLEANUP_STATE["error"] = str(exc)
     finally:
+        if acquired:
+            release_operation_lock(lock_op)
         _CLEANUP_STATE["running"] = False
         _CLEANUP_STATE["finished_at"] = time.time()
+
+    # 聚合刷新必须放在操作锁释放之后：锁内 refresh_aggregated_view 检测到
+    # 「全局操作进行中」会直接跳过，清理看似不生效
+    if affected:
+        try:
+            async with async_session_factory() as db:
+                await refresh_aggregated_view(db, affected_norm_titles=affected)
+                invalidate_category_filter_cache()
+        except Exception:  # noqa: BLE001
+            logger.exception("cleanup_expired 聚合刷新失败")
 
 
 # ------------------------------------------------------------------

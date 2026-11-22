@@ -636,10 +636,22 @@ async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
 
 
 async def _probe_one(item: BatchProbeItem) -> BatchProbeResult:
+    """嗅探单个候选站点：单次尝试 + 有界总预算，超时按失败处理。"""
     url = item.url.strip()
     if not url.startswith(("http://", "https://")):
         return BatchProbeResult(name=item.name, url=url, ok=False, latency_ms=None, error="URL 必须以 http:// 或 https:// 开头", added=False)
-    result = await health_probe(site_id=0, base_url=url, name=item.name)
+    try:
+        result = await asyncio.wait_for(
+            health_probe(site_id=0, base_url=url, name=item.name, max_attempts=1),
+            timeout=BATCH_PROBE_TIMEOUT,
+        )
+    except asyncio.CancelledError:
+        raise
+    except asyncio.TimeoutError:
+        return BatchProbeResult(
+            name=item.name, url=url, ok=False,
+            latency_ms=None, error="检测超时", added=False,
+        )
     return BatchProbeResult(
         name=item.name, url=url, ok=result.ok,
         latency_ms=result.latency_ms, error=result.error, added=False,
@@ -687,6 +699,9 @@ async def batch_probe(
         # 自动触发智能匹配
         for s in new_sites:
             await _auto_match_and_save(s, db)
+        # 嗅探添加的站点与单站添加一致：立即提交全量刮削（lifecycle），
+        # 不再出现「嗅探添加后没有刮削」的不一致
+        await _submit_lifecycle_crawl(new_sites)
 
     added_urls = {s.base_url.rstrip("/") for s in new_sites}
     added_names = {s.name for s in new_sites}
@@ -701,8 +716,70 @@ async def batch_probe(
             latency_ms=r.latency_ms, error=r.error, added=is_added,
         ))
 
+    # 记录一次站点嗅探历史（统一维护任务 site.discover，短任务 run 等待落库）；
+    # 记录失败不影响已经完成的探测与添加
+    try:
+        from app.services.maintenance import maintenance_coordinator
+
+        results_payload = [r.model_dump() for r in final]
+
+        async def _record(ctx):
+            return {"details": {"results": results_payload}}
+
+        await maintenance_coordinator.run(
+            "site.discover", _record, trigger="manual"
+        )
+    except Exception:
+        logger.exception("记录站点嗅探历史失败")
+
     logger.info("batch_probe total=%d success=%d added=%d", len(items), sum(1 for r in results if r.ok), len(new_sites))
     return BatchProbeResponse(results=final)
+
+
+async def _submit_lifecycle_crawl(new_sites: list[Site]) -> None:
+    """为嗅探添加的站点提交全量刮削（lifecycle）。
+
+    crawl.full 是全局同类型去重：单站走 trigger_full_crawl，多站合并为
+    一个带站点集合的任务，避免后续站点被去重丢弃而漏抓。
+    """
+    if scheduler_module.crawler is None:
+        logger.info("crawler 未运行，嗅探添加的 %d 个站点留待启动刮削", len(new_sites))
+        return
+    crawler = scheduler_module.crawler
+    try:
+        if len(new_sites) == 1:
+            await crawler.trigger_full_crawl(new_sites[0].id)
+            return
+
+        from app.services.maintenance import maintenance_coordinator
+
+        new_ids = [s.id for s in new_sites]
+
+        async def _batch_full(ctx, _ids: list[int] = new_ids):
+            active = scheduler_module.crawler
+            if active is None:
+                return {"state": "skipped", "error": "刮削器未运行"}
+            return await active.run_full_crawl(
+                site_ids=_ids,
+                stop_event=ctx.cancel_event,
+                progress=ctx.progress,
+            )
+
+        job = await maintenance_coordinator.submit(
+            "crawl.full", _batch_full, trigger="lifecycle"
+        )
+        if job.get("deduplicated"):
+            logger.info(
+                "嗅探添加的 %d 个站点全量刮削被去重：已有任务 %s 在运行",
+                len(new_ids),
+                job["id"],
+            )
+        else:
+            logger.info(
+                "嗅探添加的 %d 个站点已提交全量刮削 job=%s", len(new_ids), job["id"]
+            )
+    except Exception:
+        logger.exception("提交嗅探站点全量刮削失败")
 
 
 @router.get("/export", response_model=SiteExportOut)
