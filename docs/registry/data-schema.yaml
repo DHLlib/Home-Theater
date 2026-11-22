@@ -379,6 +379,10 @@ db_models:
         type: DateTime
         default: datetime.utcnow
         onupdate: datetime.utcnow
+    notes: |
+      fill-videolist 任务状态键：key=fill_videolist_status，value 为 FillStatus
+      的 JSON 快照（轻量持久化，不新增表）。启动时若读到 state=running，
+      改写为 interrupted——进程已重启，原后台任务不可能还在运行。
 
   - name: AggregatedVideoV3
     table: aggregated_videos
@@ -910,6 +914,58 @@ pydantic_schemas:
       - {name: running, type: bool}
       - {name: site_status, type: 'dict[str, str]'}
 
+  - name: FillVideolistRequest
+    fields:
+      - {name: site_id, type: int | None, default: None}
+
+  - name: FillSiteStatus
+    fields:
+      - {name: site_id, type: int}
+      - {name: site_name, type: str}
+      - {name: state, type: str, description: pending / running / done / partial / blocked / failed}
+      - {name: missing, type: int}
+      - {name: filled, type: int}
+      - {name: failed, type: int}
+      - {name: skipped, type: int}
+      - {name: error, type: str | None, default: None}
+    notes: |
+      blocked = 单站熔断：该站连续收到 HTTP 403 等封禁响应后停止请求，
+      剩余未处理条目计入 skipped 而非 failed，其余站点不受影响。
+
+  - name: FillStatus
+    fields:
+      - {name: state, type: str, description: idle / running / done / partial / failed / interrupted}
+      - {name: current_site_id, type: int | None, default: None}
+      - {name: current_site_name, type: str | None, default: None}
+      - {name: completed_sites, type: int}
+      - {name: total_sites, type: int}
+      - {name: missing, type: int}
+      - {name: filled, type: int}
+      - {name: failed, type: int}
+      - {name: skipped, type: int}
+      - {name: started_at, type: str | None, default: None}
+      - {name: finished_at, type: str | None, default: None}
+      - {name: error, type: str | None, default: None}
+      - {name: sites, type: 'list[FillSiteStatus]', default_factory: list}
+    notes: |
+      [FIX-FILL-PROGRESS] 任务状态轻量持久化在 app_config
+      （key=fill_videolist_status，JSON），不新增数据库表。
+      启动时读到 state=running 一律改写为 interrupted。
+      终态集合：done / partial / failed / interrupted；
+      前端只在终态刷新刮削统计，运行期间仅轮询本状态展示进度。
+
+  - name: FillVideolistResponse
+    fields:
+      - {name: message, type: str}
+      - {name: site_id, type: int | None, default: None}
+      - {name: started, type: bool}
+      - {name: status, type: FillStatus}
+    notes: |
+      [FIX-FILL-PROGRESS] POST 立即返回：started=true 表示本次调用启动了新任务，
+      started=false 表示已有任务在运行（status 为该任务的当前状态）。
+      取代旧的「同步等待任务完成才返回 results」行为——旧行为下后台实际
+      运行 8–10 分钟，前端 3 秒超时刷新，表现为「补全不生效」。
+
   - name: SiteCreate
     fields:
       - {name: name, type: str}
@@ -1135,6 +1191,70 @@ typescript_types:
         site_status: Record<string, string>;
       }
 
+  - name: FillSiteStatus
+    definition: |
+      export type FillSiteState =
+        | "pending"
+        | "running"
+        | "done"
+        | "partial"
+        | "blocked"
+        | "failed";
+
+      export interface FillSiteStatus {
+        site_id: number;
+        site_name: string;
+        state: FillSiteState;
+        missing: number;
+        filled: number;
+        failed: number;
+        skipped: number;
+        error?: string | null;
+      }
+    notes: |
+      [FIX-FILL-PROGRESS] blocked = 单站 403 熔断，剩余条目计入 skipped。
+
+  - name: FillStatus
+    definition: |
+      export type FillState =
+        | "idle"
+        | "running"
+        | "done"
+        | "partial"
+        | "failed"
+        | "interrupted";
+
+      export interface FillStatus {
+        state: FillState;
+        current_site_id?: number | null;
+        current_site_name?: string | null;
+        completed_sites: number;
+        total_sites: number;
+        missing: number;
+        filled: number;
+        failed: number;
+        skipped: number;
+        started_at?: string | null;
+        finished_at?: string | null;
+        error?: string | null;
+        sites: FillSiteStatus[];
+      }
+    notes: |
+      [FIX-FILL-PROGRESS] 终态为 done/partial/failed/interrupted；
+      前端运行期间轮询，仅在终态刷新刮削统计。
+
+  - name: FillVideolistResponse
+    definition: |
+      export interface FillVideolistResponse {
+        message: string;
+        site_id?: number | null;
+        started: boolean;
+        status: FillStatus;
+      }
+    notes: |
+      [FIX-FILL-PROGRESS] 取代旧的 results 数组响应；
+      started=false 表示已有任务在运行。
+
 # ═══════════════════════════════════════════════════════════════
 # 类型同步检查清单
 # ═══════════════════════════════════════════════════════════════
@@ -1182,3 +1302,8 @@ type_sync:
     backend: models.py class Site (ORM)
     frontend: types.ts interface Site
     status: synced
+  - field: FillVideolistResponse / FillStatus / FillSiteStatus
+    backend: schemas.py class FillVideolistResponse / FillStatus / FillSiteStatus
+    frontend: types.ts interface FillVideolistResponse / FillStatus / FillSiteStatus
+    status: synced
+    note: fix/fill-videolist-progress 分支新增契约；状态枚举两端必须一致

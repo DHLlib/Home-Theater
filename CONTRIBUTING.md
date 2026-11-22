@@ -68,6 +68,8 @@ backend/.venv/Scripts/python.exe backend/scripts/audit_aggregated.py
 
 - 第三方 API 的分页、批量上限、必填参数、返回截断和插件配置键必须用真实响应或实际源码确认；不能把“请求成功”当成“语义正确”。
 - 无界外部扫描不得放在同步请求或启动路径中；后台任务必须有页数、批次、并发或总时长预算，以及可停止、可恢复机制。
+- 分钟级后台任务（如批量补全 videolist）必须立即返回并提供 status 接口；前端运行期间轮询状态，仅在终态（done/partial/failed/interrupted）刷新统计与列表。禁止用固定短延时刷新冒充进度——后台实际运行 8–10 分钟时，3 秒刷新只会展示旧数据，表现为“任务不生效”。任务状态要轻量持久化（app_config），重启后遗留的 running 必须改写为 interrupted。
+- 外部站点返回封禁类响应（如连续 HTTP 403）时按站点熔断：停止请求该站、站点状态标记 blocked、剩余条目计入 skipped，其余站点照常执行；不能把整站请求失败当作内容缺失，也不能让单个被封站点拖垮整轮任务。
 - 请求路径禁止新建 SSLContext、执行大规模 Python 统计循环或逐行数据库往返。复用 `SourceClient`/共享客户端，统计下推 SQL。
 - “整站超时”先检查 `event_loop_lag`、`slow_request` 和线程栈；不要只增加超时或重试。
 

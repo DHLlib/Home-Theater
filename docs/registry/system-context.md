@@ -1,6 +1,6 @@
 # System Context — Home Theater v0.1.1
 
-**最后更新**: 2026-11-21
+**最后更新**: 2026-11-22
 
 **环境**: Python 3.13, FastAPI, React 18, Vite 5, PostgreSQL 16, xgplayer v3
 
@@ -55,6 +55,7 @@
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
 | 性能与可观测 | `services/tls.py`、共享客户端池、`event_loop_lag`、`slow_request` | 见 §15 性能检查清单 |
+| videolist 批量补全进度 | `crawler.fill_missing_videolist` + `fill-videolist/status` | 后台任务立即返回，前端轮询 FillStatus；终态才刷新统计；403 单站熔断；状态存 `app_config`，重启后 running → interrupted |
 
 ---
 
@@ -90,6 +91,8 @@
 - `POST   /api/videos/crawler/incremental/{site_id}` → trigger_incremental
 - `GET    /api/videos/crawler/stats` → crawler_stats
 - `GET    /api/videos/crawler/logs` → crawler_logs
+- `POST   /api/videos/crawler/fill-videolist` → 启动批量补全 videolist 后台任务，立即返回 `{message, site_id, started, status}`（started=false 表示已有任务在运行）
+- `GET    /api/videos/crawler/fill-videolist/status` → 补全任务 FillStatus（运行期间前端轮询；终态 done/partial/failed/interrupted 才刷新统计）
 - `DELETE /api/videos/cache` → clear_video_cache
 - `POST   /api/videos/cleanup-expired` → 启动全站失效清理后台任务（`speed=eco|normal|fast`，`dry_run`）
 - `GET    /api/videos/cleanup-expired/status` → 清理进度（站点数/已检查/已删除/待确认/ETA）
@@ -179,7 +182,7 @@
 | DownloadTask | `download_tasks` | `status`/`created_at` 索引 |
 | SiteProbeLog | `site_probe_logs` | 探测记录 |
 | CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |
-| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled` |
+| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled`、`fill_videolist_status`（补全任务 FillStatus JSON 快照） |
 
 ---
 
@@ -196,6 +199,7 @@
 9. **进度上报**：每 15 秒，`beforeunload` 用 `sendBeacon` 兜底。
 10. **来源推荐**：播放事件按 `event_id` 幂等写入；质量按来源聚合近 30 天数据，推荐只影响排序与标识，不自动选中。
 11. **默认首页**：按电影 → 连续剧 → 综艺 → 动漫 → 短剧 → 体育 → 其他展示非空父类，每类最多 8 条最新聚合视频；不展示推荐或混合视频墙。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
+12. **批量补全 videolist**：POST 立即返回 `started` + FillStatus 快照，任务后台运行（全站 8–10 分钟）；前端运行期间轮询 `/fill-videolist/status`，仅在终态（done/partial/failed/interrupted）刷新统计，不用固定短延时冒充进度。单站连续 HTTP 403 时熔断为 blocked，剩余条目计 skipped，其余站点继续。状态持久化在 `app_config.fill_videolist_status`，重启后遗留 running 改写为 interrupted。
 
 ---
 

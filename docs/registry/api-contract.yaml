@@ -198,6 +198,34 @@ endpoints:
     response_schema: MessageResponse
     consumers: [AC-014]
 
+  - id: API-VIDEOS-FILL-VIDEOLIST
+    path: /api/videos/crawler/fill-videolist
+    method: POST
+    summary: 启动批量补全 videolist 后台任务（统计看板「批量补全」按钮）
+    request_schema: FillVideolistRequest
+    response_schema: FillVideolistResponse
+    consumers: [AC-014]
+    notes: |
+      [FIX-FILL-PROGRESS] 立即返回 started + 当前 FillStatus 快照，任务在后台
+      运行（全站实测 8–10 分钟），不阻塞 HTTP 请求。已有任务在运行时
+      started=false，status 返回运行中任务的当前状态，不重复启动。
+      补全完成后由后端自动刷新聚合缓存与统计，前端不在固定短延时后刷新。
+
+  - id: API-VIDEOS-FILL-VIDEOLIST-STATUS
+    path: /api/videos/crawler/fill-videolist/status
+    method: GET
+    summary: 查询批量补全 videolist 任务状态（运行期间轮询）
+    request_schema: null
+    response_schema: FillStatus
+    consumers: [AC-014]
+    notes: |
+      [FIX-FILL-PROGRESS] 前端在 state=running 期间轮询本接口展示进度；
+      仅在 state 进入终态（done/partial/failed/interrupted）后才刷新刮削统计。
+      状态轻量持久化在 app_config（key=fill_videolist_status），不新增表；
+      重启后遗留的 running 由启动流程改写为 interrupted。
+      单站连续收到 HTTP 403 等封禁响应时该站熔断：site state=blocked，
+      未处理条目计入 skipped，不再请求该站，其余站点照常补全。
+
   - id: API-VIDEO-CACHE-CLEAR
     path: /api/videos/cache
     method: DELETE
@@ -818,6 +846,10 @@ schema_references:
   - HealthResponse
   - ValidationErrorResponse
   - CrawlerStatusResponse
+  - FillVideolistRequest
+  - FillVideolistResponse
+  - FillStatus
+  - FillSiteStatus
   - FavoriteStatusOut
   - CategoryAliasIn
   - CategoryAliasUpdate
