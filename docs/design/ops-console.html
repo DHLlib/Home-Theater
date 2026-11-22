@@ -1,0 +1,1810 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="cinema">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>运维 · Home Theater</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+
+/* ===== tokens（与 DESIGN.md / global.css 对齐） ===== */
+:root {
+  --bg:#0a0a0b; --bg-elevated:#121214; --bg-surface:#17171a;
+  --text-primary:#f5f5f7; --text-secondary:#a1a1aa; --text-muted:#8a8a93;
+  --border:#232326; --border-hover:#303036; --border-bright:#43434b;
+  --primary:#4ade80; --primary-hover:#6ee7a0; --primary-dim:rgba(74,222,128,.12); --primary-ink:#04160b;
+  --danger:#f87171; --danger-dim:rgba(248,113,113,.12);
+  --warning:#fbbf24; --success:#4ade80;
+  --card-radius:12px; --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-pill:999px;
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --btn-bg:transparent; --btn-bg-hover:#1a1a1a;
+  --btn-primary-bg:#f5f5f7; --btn-primary-bg-hover:#ffffff; --btn-primary-fg:#0a0a0b;
+  --tint-soft:rgba(255,255,255,.03); --tint-softer:rgba(255,255,255,.015); --tint-line:rgba(255,255,255,.09);
+  --scrim:rgba(0,0,0,.8);
+  --glass-border:rgba(255,255,255,.1); --surface:#17171a;
+  --sheet-shadow:-24px 0 70px rgba(0,0,0,.55);
+  --sheet-shadow-mobile:0 -24px 60px rgba(0,0,0,.55);
+  --z-nav:100; --z-modal:900; --z-toast:1100;
+  --transition-fast:150ms cubic-bezier(.4,0,.2,1);
+  --transition-base:200ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme="light"] {
+  --bg:#ffffff; --bg-elevated:#f6f6f7; --bg-surface:#ececef;
+  --text-primary:#101012; --text-secondary:#52525b; --text-muted:#71717a;
+  --border:#e4e4e7; --border-hover:#d4d4d8; --border-bright:#a1a1aa;
+  --primary:#16a34a; --primary-hover:#15803d; --primary-dim:rgba(22,163,74,.12); --primary-ink:#ffffff;
+  --danger:#dc2626; --danger-dim:rgba(220,38,38,.1);
+  --warning:#b45309; --success:#16a34a;
+  --btn-bg-hover:#efeff2;
+  --btn-primary-bg:#101012; --btn-primary-bg-hover:#24242a; --btn-primary-fg:#ffffff;
+  --tint-soft:rgba(0,0,0,.035); --tint-softer:rgba(0,0,0,.02); --tint-line:rgba(0,0,0,.09);
+  --scrim:rgba(0,0,0,.45);
+  --glass-border:rgba(16,16,18,.1); --surface:#ececef;
+  --sheet-shadow:-24px 0 70px rgba(16,16,18,.18);
+  --sheet-shadow-mobile:0 -24px 60px rgba(16,16,18,.18);
+}
+
+/* ===== 基础与浏览器表面 ===== */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;padding:0;background:var(--bg);color:var(--text-primary);
+  font:400 14px/1.6 'Noto Sans SC',-apple-system,BlinkMacSystemFont,'Microsoft YaHei',sans-serif;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:hidden;
+}
+::selection{background:var(--primary-dim);color:var(--text-primary)}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+a{color:inherit;text-decoration:none}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+input,select{outline:none}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-hover);border-radius:999px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important}
+}
+
+/* ===== 桌面顶栏 ===== */
+.top-nav{
+  height:62px;display:flex;align-items:center;gap:14px;padding:0 16px;
+  background:var(--bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:var(--z-nav);
+}
+.top-nav-left{display:flex;align-items:center;gap:14px;min-width:0}
+.nav-brand{
+  font-family:'Cinzel','Noto Sans SC',serif;font-size:14px;font-weight:600;letter-spacing:.12em;
+  text-transform:uppercase;white-space:nowrap;color:var(--text-primary);
+}
+.nav-links{display:flex;align-items:center;gap:2px}
+.nav-link{
+  height:40px;padding:0 16px;display:inline-flex;align-items:center;border-radius:4px;
+  font-size:13px;font-weight:500;letter-spacing:.04em;color:var(--text-muted);
+  transition:color var(--transition-fast),background var(--transition-fast);white-space:nowrap;
+}
+.nav-link:hover{color:var(--text-primary)}
+.nav-link.active{color:var(--text-primary);background:var(--bg-surface)}
+.nav-search{
+  margin-left:auto;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;
+  width:clamp(180px,26vw,320px);border:1px solid var(--border);border-radius:999px;
+  background:var(--bg-elevated);transition:border-color var(--transition-fast);
+}
+.nav-search:focus-within{border-color:var(--border-bright)}
+.nav-search .ico{display:flex;color:var(--text-muted);flex:none}
+.nav-search input{
+  flex:1;min-width:0;border:0;background:transparent;color:var(--text-primary);
+  font-size:13px;padding:0;
+}
+.nav-search input::placeholder{color:var(--text-muted)}
+.top-nav-right{display:flex;align-items:center;gap:8px}
+.icon-btn{
+  width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);
+  transition:color var(--transition-fast),border-color var(--transition-fast);
+}
+.icon-btn:hover{color:var(--text-primary);border-color:var(--border-hover)}
+
+/* ===== 页面容器（复用现有 main + dashboard 内边距算法） ===== */
+main{padding:24px}
+.ops-page{margin:-16px;padding:32px 24px 48px;min-height:calc(100vh - 62px)}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 24px}
+.page-title{margin:0;font-size:22px;font-weight:700;line-height:1.6}
+.page-sub{margin-top:4px;font-size:12px;line-height:1.6;color:var(--text-muted)}
+.page-header-actions{display:flex;align-items:center;gap:10px}
+.page-header-actions .stamp{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+/* ===== 概览条 ===== */
+.stat-strip{
+  display:grid;grid-template-columns:repeat(4,1fr);margin:0 0 12px;
+  border:1px solid var(--border);border-radius:var(--card-radius);background:var(--bg-elevated);overflow:hidden;
+}
+.stat-cell{display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-left:1px solid var(--border)}
+.stat-cell:first-child{border-left:0}
+.stat-label{font-size:12px;color:var(--text-muted)}
+.stat-value{font-size:26px;font-weight:600;line-height:1.1;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.stat-value.is-danger{color:var(--danger)}
+.stat-error{
+  display:flex;align-items:center;gap:10px;min-height:88px;padding:0 18px;
+  border:1px solid var(--border);border-radius:var(--card-radius);background:var(--bg-elevated);
+  font-size:13px;color:var(--danger);margin:0 0 12px;
+}
+.text-btn{
+  background:none;border:0;padding:2px 2px;color:var(--text-secondary);font-size:12px;
+  text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--border-bright);
+}
+.text-btn:hover{color:var(--text-primary)}
+
+/* ===== 趋势折叠 ===== */
+.trend-row{
+  display:flex;align-items:center;gap:8px;width:100%;padding:10px 2px;margin:0 0 20px;
+  border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;
+  font-size:13px;color:var(--text-secondary);
+}
+.trend-row .chev{width:14px;height:14px;color:var(--text-muted);flex:none;transition:transform var(--transition-base)}
+.trend-row[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.trend-title{font-weight:600;letter-spacing:.03em;color:var(--text-primary)}
+.trend-summary{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.trend-hint{margin-left:auto;font-size:12px;color:var(--text-muted)}
+.trend-body{padding:0 0 20px;border-bottom:1px solid var(--border)}
+.trend-body .legend{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text-secondary);margin:14px 0 8px}
+.trend-body .legend span{display:inline-flex;align-items:center;gap:6px}
+.legend-dot{width:8px;height:8px;border-radius:50%;background:var(--primary);flex:none}
+.legend-dot.alt{background:var(--text-secondary)}
+.trend-chart{width:100%;height:auto;display:block}
+.trend-empty{padding:18px 0;font-size:13px;color:var(--text-muted)}
+
+/* ===== 全局操作 ===== */
+.ops-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.btn{
+  min-height:40px;padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--border-hover);
+  background:var(--btn-bg);color:var(--text-primary);font-size:13px;font-weight:500;letter-spacing:.02em;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.btn:hover:not(:disabled){background:var(--btn-bg-hover)}
+.btn-primary{background:var(--btn-primary-bg);border-color:var(--btn-primary-bg);color:var(--btn-primary-fg);font-weight:600}
+.btn-primary:hover:not(:disabled){background:var(--btn-primary-bg-hover);border-color:var(--btn-primary-bg-hover)}
+.btn-danger{background:transparent;border-color:var(--danger);color:var(--danger)}
+.btn-danger:hover:not(:disabled){background:var(--danger-dim)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-sm{min-height:32px;padding:0 12px;font-size:12px;border-radius:var(--radius-sm)}
+.speed{display:inline-flex;align-items:center;gap:8px;margin-left:4px;font-size:12px;color:var(--text-muted)}
+.select{
+  height:32px;padding:0 28px 0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--bg-elevated);color:var(--text-primary);font-size:12px;cursor:pointer;
+  appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center;
+}
+.select:hover{border-color:var(--border-hover)}
+.select:disabled{opacity:.35;cursor:not-allowed}
+.sort:has(.select:disabled){opacity:.55}
+
+/* ===== 活动任务条 ===== */
+.active-strip{
+  display:flex;align-items:center;gap:12px;padding:12px 16px;margin:0 0 20px;
+  border:1px solid var(--border);border-radius:var(--card-radius);background:var(--bg-elevated);
+}
+.active-strip .dot{width:8px;height:8px;border-radius:50%;background:var(--primary);flex:none}
+.active-main{min-width:0;display:flex;flex-direction:column;gap:1px}
+.active-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.active-meta{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.active-bar{width:140px;height:4px;border-radius:999px;background:var(--tint-soft);overflow:hidden;margin-left:auto;flex:none}
+.active-bar i{display:block;height:100%;background:var(--primary);border-radius:999px}
+.active-bar.indeterminate{position:relative}
+.active-bar.indeterminate i{width:30%;position:absolute;top:0;left:0;animation:indet 1.6s var(--ease-out) infinite alternate}
+@keyframes indet{from{transform:translateX(0)}to{transform:translateX(233%)}}
+.active-num{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;flex:none}
+
+/* ===== 采集站工具条 ===== */
+.site-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.site-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.site-title{font-size:13px;font-weight:600;letter-spacing:.03em}
+.site-count{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.filters{display:flex;align-items:center;gap:4px;margin-left:6px;flex-wrap:wrap}
+.chip{
+  height:32px;padding:0 12px;border-radius:999px;border:1px solid transparent;background:transparent;
+  color:var(--text-secondary);font-size:12px;display:inline-flex;align-items:center;gap:6px;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.chip:hover{border-color:var(--border);color:var(--text-primary)}
+.chip[aria-pressed="true"]{background:var(--bg-surface);border-color:var(--border-hover);color:var(--text-primary)}
+.chip .n{font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"] .n{color:var(--text-secondary)}
+.site-tools{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
+.sort{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-muted)}
+.sort .select{height:32px}
+.tool-btn{
+  height:32px;padding:0 10px;border-radius:var(--radius-sm);border:1px solid transparent;background:transparent;
+  color:var(--text-secondary);font-size:12px;display:inline-flex;align-items:center;gap:5px;
+  transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);
+}
+.tool-btn:hover{border-color:var(--border);color:var(--text-primary);background:var(--tint-soft)}
+.tool-btn .ico{display:flex;color:var(--text-muted)}
+.tool-btn:hover .ico{color:var(--text-secondary)}
+.add-site{border-color:var(--border-hover);color:var(--text-primary)}
+.add-site:hover{background:var(--btn-bg-hover)}
+
+/* ===== 站点卡片 ===== */
+.site-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 24px}
+.site-card{
+  position:relative;display:flex;min-height:118px;padding:14px;
+  background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--card-radius);
+  transition:border-color var(--transition-fast),background var(--transition-fast);
+}
+.site-card:hover{border-color:var(--border-hover);background:var(--bg-surface)}
+.site-card:focus-within{outline:2px solid var(--primary);outline-offset:2px}
+.site-card__open{position:absolute;inset:0;z-index:2;border:0;background:transparent;border-radius:var(--card-radius);cursor:pointer}
+.site-card__open:focus-visible{outline:none}
+.site-card__content{position:relative;z-index:1;display:flex;flex-direction:column;gap:7px;width:100%;min-width:0;pointer-events:none}
+.card-top{display:flex;align-items:center;gap:8px;min-width:0}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex:none}
+.dot.ok{background:var(--success)}
+.dot.bad{background:var(--danger)}
+.dot.warn{background:var(--warning)}
+.dot.muted{background:var(--text-muted)}
+.card-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.card-health{
+  margin-left:auto;flex:none;font-size:11px;line-height:1;padding:3px 7px;border-radius:4px;
+  white-space:nowrap;border:1px solid transparent;
+}
+.card-health.ok{background:var(--primary-dim);color:var(--primary)}
+.card-health.bad{background:var(--danger-dim);color:var(--danger)}
+.card-health.warn{color:var(--warning);border-color:var(--warning)}
+.card-health.muted{background:var(--tint-soft);color:var(--text-secondary);border-color:var(--border)}
+.card-mid{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;color:var(--text-muted);min-width:0}
+.pending{display:flex;align-items:baseline;gap:4px;white-space:nowrap;min-width:0}
+.pending b{font-size:13px;font-weight:500;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.pending b.is-danger{color:var(--danger)}
+.pending .total{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.rate{font-size:13px;font-weight:500;color:var(--text-primary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.progress{height:4px;border-radius:999px;background:var(--tint-soft);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--primary);border-radius:999px}
+.card-meta{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.card-meta.is-active{color:var(--primary)}
+
+/* 空态 / 错误 / 骨架 */
+.empty-block{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  padding:56px 24px;border:1px solid var(--border);border-radius:var(--card-radius);
+  background:var(--tint-soft);text-align:center;margin:0 0 24px;
+}
+.empty-block .icon{color:var(--text-muted);opacity:.7;margin-bottom:4px}
+.empty-title{font-size:14px;font-weight:500;color:var(--text-primary)}
+.empty-copy{font-size:12px;color:var(--text-muted);max-width:360px;line-height:1.7}
+.empty-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.error-block{
+  display:flex;align-items:center;gap:12px;padding:18px 20px;margin:0 0 24px;
+  border:1px solid var(--border);border-radius:var(--card-radius);background:var(--bg-elevated);
+  font-size:13px;color:var(--text-secondary);
+}
+.error-block strong{font-weight:500;color:var(--text-primary)}
+.skeleton{
+  background:linear-gradient(90deg,var(--tint-soft) 25%,var(--tint-line) 37%,var(--tint-soft) 63%);
+  background-size:400% 100%;animation:shimmer 1.5s ease infinite;border-radius:4px;
+}
+@keyframes shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.skeleton-card{min-height:118px;padding:14px;border:1px solid var(--border);border-radius:var(--card-radius);background:var(--bg-elevated);display:flex;flex-direction:column;gap:10px}
+.skeleton-line{height:12px}
+.skeleton-line.w60{width:60%}.skeleton-line.w40{width:40%}.skeleton-line.w80{width:80%}
+.skeleton-value{height:26px;width:120px}
+.skeleton-bar{height:4px;width:100%}
+
+/* ===== 折叠区 ===== */
+.section{border-top:1px solid var(--border)}
+.section:last-child{border-bottom:1px solid var(--border)}
+.section-toggle{
+  display:flex;align-items:center;gap:8px;width:100%;padding:14px 2px;border:0;background:transparent;
+  color:var(--text-primary);font-size:13px;font-weight:600;letter-spacing:.03em;text-align:left;
+}
+.section-toggle .chev{width:14px;height:14px;color:var(--text-muted);flex:none;transition:transform var(--transition-base)}
+.section-toggle[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.section-toggle .section-count{font-size:12px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.section-toggle .section-right{margin-left:auto;font-size:12px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.section-body{padding:0 0 20px}
+.section-body[hidden]{display:none}
+.state-chip{
+  display:inline-flex;align-items:center;min-height:20px;padding:1px 8px;border-radius:999px;
+  border:1px solid var(--border);font-size:11px;font-weight:500;color:var(--text-muted);white-space:nowrap;
+}
+.state-chip.ok{color:var(--primary);border-color:var(--primary)}
+.state-chip.ok.fill{background:var(--primary-dim)}
+.state-chip.warn{color:var(--warning);border-color:var(--warning)}
+.state-chip.bad{color:var(--danger);border-color:var(--danger)}
+
+/* 任务 */
+.task-group + .task-group{margin-top:16px}
+.task-group-title{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--text-muted);margin:0 0 8px}
+.job-card{position:relative;padding:12px 14px;background:var(--tint-soft);border-radius:8px;font-size:12px}
+.job-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-right:70px}
+.job-kind{font-size:13px;font-weight:600}
+.job-site{color:var(--text-muted)}
+.job-trigger{color:var(--text-muted)}
+.job-track{margin-top:10px;height:6px;border-radius:999px;background:var(--bg);border:1px solid var(--border);overflow:hidden;position:relative}
+.job-track i{display:block;height:100%;border-radius:999px;background:var(--primary)}
+.job-track.indeterminate i{width:30%;position:absolute;top:0;left:0;animation:indet 1.6s var(--ease-out) infinite alternate}
+.job-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.job-meta b{color:var(--text-primary);font-weight:500}
+.job-cancel{
+  position:absolute;top:10px;right:10px;min-height:28px;padding:0 12px;border:1px solid var(--border);
+  border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12px;
+}
+.job-cancel:hover{border-color:var(--border-hover);color:var(--text-primary)}
+.job-error{margin-top:8px;color:var(--danger);word-break:break-all;font-size:12px}
+.task-row{
+  display:grid;grid-template-columns:minmax(0,1.7fr) 88px 60px minmax(0,1.2fr) 120px;
+  gap:12px;align-items:center;padding:10px 2px;border-bottom:1px solid var(--border);font-size:13px;
+}
+.task-row:last-child{border-bottom:0}
+.task-name{font-weight:500;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-name .site{color:var(--text-muted);font-weight:400;font-size:12px;margin-left:6px}
+.task-brief{font-size:12px;color:var(--text-muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-time{font-size:12px;color:var(--text-muted);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.task-summary{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--border);
+  border-radius:8px;background:var(--tint-softer);font-size:12px;color:var(--text-muted);
+}
+.task-summary b{color:var(--text-primary);font-weight:500;font-variant-numeric:tabular-nums}
+.task-summary .ok{color:var(--primary)}
+.task-summary .warn{color:var(--warning)}
+.task-summary .bad{color:var(--danger)}
+.task-summary .text-btn{margin-left:auto}
+.task-empty{padding:18px 0;font-size:13px;color:var(--text-muted)}
+
+/* 日志 */
+.log-table{width:100%;border-collapse:collapse;font-size:12px}
+.log-table th{
+  text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);
+  font-weight:500;font-size:11px;letter-spacing:.04em;color:var(--text-muted);white-space:nowrap;
+}
+.log-table td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-variant-numeric:tabular-nums}
+.log-table tr:last-child td{border-bottom:0}
+.log-table tbody tr:hover{background:var(--tint-softer)}
+.log-table .num{text-align:right}
+.log-table .new{color:var(--primary)}
+.log-table .upd{color:var(--text-primary)}
+.log-table .muted{color:var(--text-muted)}
+.log-mobile{display:flex;flex-direction:column}
+.log-mobile-row{display:flex;align-items:baseline;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px}
+.log-mobile-row:last-child{border-bottom:0}
+.log-mobile-main{flex:1;min-width:0}
+.log-mobile-time{color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.log-mobile-nums{color:var(--text-muted);white-space:nowrap}
+.log-mobile-nums .new{color:var(--primary)}
+
+/* ===== 单站弹层 ===== */
+.sheet-layer{position:fixed;inset:0;z-index:var(--z-modal);display:flex;justify-content:flex-end}
+.sheet-scrim{position:absolute;inset:0;background:var(--scrim)}
+.sheet{
+  position:relative;width:520px;max-width:100%;height:100%;background:var(--bg-elevated);
+  border-radius:16px 0 0 16px;box-shadow:var(--sheet-shadow);
+  display:flex;flex-direction:column;animation:sheetIn 200ms var(--ease-out);
+}
+@keyframes sheetIn{from{transform:translateX(24px);opacity:.55}to{transform:translateX(0);opacity:1}}
+.sheet-head{display:flex;align-items:flex-start;gap:12px;padding:20px 24px;border-bottom:1px solid var(--border)}
+.sheet-handle{width:36px;height:4px;border-radius:2px;background:var(--border-hover);margin:8px auto 0;flex:none}
+.sheet-title-row{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.sheet-title{margin:0;font-size:18px;font-weight:600;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+.sheet-url{margin-top:4px;font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px}
+.sheet-close{flex:none}
+.sheet-body{flex:1;overflow-y:auto;padding:0 24px 24px}
+.sheet-section{padding:16px 0;border-bottom:1px solid var(--border)}
+.sheet-section:last-child{border-bottom:0}
+.sheet-h{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--text-muted)}
+.kv{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:6px 0;font-size:13px}
+.kv .k{color:var(--text-secondary);flex:none}
+.kv .v{font-weight:500;text-align:right;min-width:0;word-break:break-word}
+.kv .v.ok{color:var(--primary)}
+.kv .v.bad{color:var(--danger)}
+.kv .v.muted{color:var(--text-muted)}
+.data-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px}
+.data-cell .k{display:block;font-size:11px;color:var(--text-muted)}
+.data-cell .v{display:block;margin-top:2px;font-size:18px;font-weight:600;line-height:1.3;font-variant-numeric:tabular-nums}
+.warn-box{
+  margin-top:10px;padding:10px 12px;border:1px solid var(--warning);border-radius:8px;
+  color:var(--warning);font-size:12px;line-height:1.6;background:var(--tint-soft);
+}
+.actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.actions-grid .btn{min-height:44px;width:100%}
+.actions-grid .span2{grid-column:1 / -1}
+.sheet-hint{margin-top:10px;font-size:12px;color:var(--warning);line-height:1.6}
+.history{display:flex;flex-direction:column}
+.history-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);min-width:0}
+.history-row:last-child{border-bottom:0}
+.history-row .time{width:78px;flex:none;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.history-row .ok{color:var(--primary)}
+.history-row .bad{color:var(--danger)}
+.history-row .grow{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-row .muted{color:var(--text-muted)}
+.history-row .ico{display:flex;flex:none}
+.empty-line{padding:10px 0;font-size:12px;color:var(--text-muted)}
+.danger-zone{margin-top:8px;padding-top:14px;border-top:1px solid var(--border)}
+.danger-label{margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--text-muted)}
+.edit-panel{display:flex;flex-direction:column;gap:10px;padding:14px 0 4px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text-muted)}
+.input{
+  height:40px;padding:0 12px;border:1px solid var(--border-hover);border-radius:var(--radius-sm);
+  background:var(--bg-surface);color:var(--text-primary);font-size:13px;
+}
+.input:focus{border-color:var(--primary)}
+.edit-actions{display:flex;gap:8px;margin-top:2px}
+
+/* ===== 确认弹窗 / Toast ===== */
+.dialog-layer{position:fixed;inset:0;z-index:1050;display:flex;align-items:center;justify-content:center;padding:24px}
+.dialog-scrim{position:absolute;inset:0;background:var(--scrim)}
+.dialog{
+  position:relative;width:420px;max-width:100%;background:var(--bg-elevated);border-radius:16px;
+  box-shadow:0 24px 70px rgba(0,0,0,.5);padding:20px;animation:dialogIn 180ms var(--ease-out);
+}
+@keyframes dialogIn{from{opacity:.6;transform:translateY(6px)}to{opacity:1;transform:none}}
+.dialog h2{margin:0 0 8px;font-size:16px;font-weight:600}
+.dialog p{margin:0 0 18px;font-size:13px;line-height:1.7;color:var(--text-secondary)}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+.toast-stack{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:var(--z-toast);display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{
+  padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elevated);
+  color:var(--text-primary);font-size:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:min(90vw,520px);
+}
+.toast.success{border-color:var(--primary);color:var(--primary)}
+.toast.danger{border-color:var(--danger);color:var(--danger)}
+
+/* ===== 桌面断点 ===== */
+@media (max-width:1279px){.site-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:1023px){.site-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:767px){
+  .site-grid{grid-template-columns:1fr}
+  .site-card{min-height:96px}
+  .nav-links{display:none}
+  .nav-search{width:180px}
+  .task-row{grid-template-columns:minmax(0,1.6fr) 80px 70px 100px;gap:8px}
+  .task-row .task-brief{display:none}
+}
+@media (max-width:640px){
+  .stat-strip{grid-template-columns:repeat(2,1fr)}
+  .stat-cell:nth-child(3){border-left:0}
+  .stat-cell:nth-child(n+3){border-top:1px solid var(--border)}
+  .stat-value{font-size:22px}
+  .ops-page{padding:24px 16px 40px;margin:-8px}
+  main{padding:16px}
+}
+
+/* ===== 移动端壳层 ===== */
+.mobile-app{min-height:100vh;background:var(--bg);padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.mobile-page{padding:16px 16px 8px}
+.mobile-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.mobile-head .icon-btn{margin-left:auto;flex:none;width:40px;height:40px}
+.mobile-title{margin:0;font-size:20px;font-weight:700;line-height:1.35}
+.mobile-sub{margin-top:2px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.mobile-stat-strip{
+  display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:var(--card-radius);
+  background:var(--bg-elevated);overflow:hidden;margin-bottom:10px;
+}
+.mobile-stat-cell{padding:12px 14px;display:flex;flex-direction:column;gap:2px;border-left:1px solid var(--border);border-top:1px solid var(--border)}
+.mobile-stat-cell:nth-child(1),.mobile-stat-cell:nth-child(2){border-top:0}
+.mobile-stat-cell:nth-child(odd){border-left:0}
+.mobile-stat-label{font-size:11px;color:var(--text-muted)}
+.mobile-stat-value{font-size:22px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums}
+.mobile-stat-value.is-danger{color:var(--danger)}
+.mobile-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.mobile-actions .btn{min-height:44px;width:100%}
+.mobile-actions .span2{grid-column:1 / -1}
+.mobile-speed{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-muted);padding:2px 2px}
+.mobile-toolbar{display:flex;align-items:center;gap:8px;margin:4px 0 8px}
+.mobile-toolbar .site-heading{gap:6px}
+.mobile-toolbar .tools{margin-left:auto;display:flex;align-items:center;gap:6px;flex:none}
+.mobile-filters{
+  display:flex;gap:6px;overflow-x:auto;margin:0 -16px 12px;padding:0 16px 2px;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.mobile-filters::-webkit-scrollbar{display:none}
+.mobile-filters .chip{height:44px;flex:none;padding:0 14px}
+.mobile-grid{display:flex;flex-direction:column;gap:10px;margin:0 0 20px}
+.mobile-grid .site-card{min-height:96px;padding:13px 14px}
+.mobile-section .section-toggle{padding:14px 0}
+.mobile-empty{padding:44px 18px}
+.mobile-nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:var(--z-nav);height:calc(64px + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);display:flex;align-items:center;
+  background:color-mix(in srgb,var(--bg-elevated) 92%,transparent);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--glass-border);
+}
+.mobile-nav-item{
+  flex:1;min-width:0;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--text-secondary);font-size:10px;letter-spacing:.04em;
+}
+.mobile-nav-item.active{color:var(--primary)}
+.mobile-nav-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.action-sheet-layer{position:fixed;inset:0;z-index:950;display:flex;align-items:flex-end}
+.action-sheet-scrim{position:absolute;inset:0;background:var(--scrim)}
+.action-sheet{
+  position:relative;width:100%;background:var(--bg-elevated);border-radius:16px 16px 0 0;
+  border-top:1px solid var(--border);padding:6px 16px calc(16px + env(safe-area-inset-bottom));
+  animation:sheetUp 200ms var(--ease-out);
+}
+@keyframes sheetUp{from{transform:translateY(20px);opacity:.6}to{transform:none;opacity:1}}
+.action-sheet .action-item{
+  width:100%;height:52px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);
+  font-size:14px;color:var(--text-primary);text-align:left;
+}
+.action-sheet .action-item:last-child{border-bottom:0}
+.action-sheet .action-item .ico{display:flex;color:var(--text-secondary)}
+
+/* 移动端弹层：全宽底部 */
+.sheet-layer.is-mobile{justify-content:center;align-items:flex-end}
+.sheet-layer.is-mobile .sheet{
+  width:100%;height:90vh;border-radius:16px 16px 0 0;box-shadow:var(--sheet-shadow-mobile);
+  animation:sheetUp 200ms var(--ease-out);
+}
+.sheet-layer.is-mobile .sheet-title{max-width:calc(100vw - 120px)}
+.sheet-layer.is-mobile .sheet-url{max-width:calc(100vw - 96px)}
+.toast-stack.is-mobile{bottom:calc(64px + 16px)}
+
+/* 小屏弹层高度 */
+@media (max-width:420px){
+  .sheet-head{padding:18px 16px}
+  .sheet-body{padding:0 16px 20px}
+}
+
+/* ===== 补齐的交互态 ===== */
+.tool-btn:disabled,.chip:disabled,.add-site:disabled{opacity:.35;cursor:not-allowed}
+.tool-btn:disabled:hover{border-color:transparent;background:transparent;color:var(--text-secondary)}
+.filter-empty{
+  grid-column:1 / -1;padding:40px 20px;text-align:center;font-size:13px;color:var(--text-muted);
+  border:1px dashed var(--border);border-radius:var(--card-radius);
+}
+.mobile-grid .filter-empty{width:100%}
+.active-strip .btn-sm{min-height:32px}
+.mobile-app .trend-hint{display:none}
+.mobile-app .sort > span{display:none}
+.mobile-app .trend-row{margin-bottom:14px}
+.mobile-app .active-strip{padding:10px 12px;gap:8px}
+.mobile-app .active-bar{width:64px}
+.mobile-app .active-num{display:none}
+.mobile-app .active-strip .btn-sm{min-height:32px;padding:0 10px}
+.mobile-app .site-tools .select{height:40px}
+.mobile-app .icon-btn{width:40px;height:40px}
+.mobile-app .section-toggle{padding:15px 0}
+.task-row.is-mobile{grid-template-columns:minmax(0,1fr) 72px 76px;gap:8px;align-items:center}
+.task-row.is-mobile .task-time{text-align:right}
+.mobile-app .toast-stack{bottom:calc(64px + 16px)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="sheet-root"></div>
+<div id="dialog-root"></div>
+<div id="action-root"></div>
+<div id="toast-root" class="toast-stack"></div>
+<script>
+const DATA = {"generatedAt":"2026-11-22T23:59:42+08:00","stats":{"total":1086932,"with_detail":1074100,"without_detail":12832,"aggregated_count":246667,"computed_at":"2026-11-22T15:50:03.103158","last_updated_at":"2026-11-22 23:39:01","history":[{"ts":"2026-07-04T06:15:33.803855","total":114303,"with_detail":113764},{"ts":"2026-07-04T06:48:26.088526","total":244536,"with_detail":243943},{"ts":"2026-07-04T07:56:17.204476","total":490178,"with_detail":489042},{"ts":"2026-07-18T04:01:03.313468","total":737712,"with_detail":737712},{"ts":"2026-07-18T04:44:37.716615","total":819456,"with_detail":819184},{"ts":"2026-07-18T05:08:10.124289","total":858600,"with_detail":858185},{"ts":"2026-07-18T05:08:10.129329","total":858600,"with_detail":858185},{"ts":"2026-08-06T13:36:46.001068","total":859357,"with_detail":858942},{"ts":"2026-10-11T10:16:00.174910","total":874177,"with_detail":873731},{"ts":"2026-10-11T11:26:18.475120","total":893577,"with_detail":893025},{"ts":"2026-10-11T13:25:57.261548","total":948850,"with_detail":948218},{"ts":"2026-10-11T17:37:44.314130","total":948869,"with_detail":948863},{"ts":"2026-11-07T17:45:44.854533","total":950310,"with_detail":950304},{"ts":"2026-11-07T18:35:27.036564","total":866953,"with_detail":866953},{"ts":"2026-11-08T09:32:35.993163","total":866996,"with_detail":866974},{"ts":"2026-11-10T12:32:33.866063","total":878624,"with_detail":878553},{"ts":"2026-11-10T13:29:37.206246","total":887174,"with_detail":886970},{"ts":"2026-11-10T15:22:18.691658","total":887175,"with_detail":886970},{"ts":"2026-11-10T15:38:50.252160","total":887175,"with_detail":886970},{"ts":"2026-11-10T15:56:57.531223","total":887175,"with_detail":886970},{"ts":"2026-11-11T11:53:19.044256","total":889786,"with_detail":889570},{"ts":"2026-11-11T12:26:59.016042","total":889952,"with_detail":889731},{"ts":"2026-11-11T12:55:35.277529","total":890161,"with_detail":889942},{"ts":"2026-11-11T13:17:04.906159","total":890161,"with_detail":889942},{"ts":"2026-11-11T13:38:45.682667","total":896231,"with_detail":896018},{"ts":"2026-11-11T14:03:33.440877","total":908738,"with_detail":908439},{"ts":"2026-11-12T13:53:12.383118","total":908778,"with_detail":908479},{"ts":"2026-11-12T14:53:44.952530","total":932868,"with_detail":932549},{"ts":"2026-11-12T14:53:44.956699","total":932868,"with_detail":932549},{"ts":"2026-11-12T15:19:55.360627","total":932888,"with_detail":932570},{"ts":"2026-11-12T15:40:36.786022","total":934491,"with_detail":934173},{"ts":"2026-11-13T15:15:55.997742","total":942618,"with_detail":942179},{"ts":"2026-11-13T18:58:31.454331","total":942905,"with_detail":942453},{"ts":"2026-11-13T19:15:54.699078","total":943026,"with_detail":942588},{"ts":"2026-11-13T19:42:26.433962","total":953882,"with_detail":953182},{"ts":"2026-11-13T20:06:08.831835","total":961825,"with_detail":960965},{"ts":"2026-11-13T20:55:06.295996","total":991431,"with_detail":990571},{"ts":"2026-11-13T21:36:51.279294","total":1003637,"with_detail":990571},{"ts":"2026-11-13T22:10:25.465649","total":1009591,"with_detail":996525},{"ts":"2026-11-13T22:31:06.589628","total":1018027,"with_detail":1004961},{"ts":"2026-11-13T23:11:29.030410","total":1037465,"with_detail":1024399},{"ts":"2026-11-14T04:06:08.730726","total":1046404,"with_detail":1034175},{"ts":"2026-11-14T06:29:14.984287","total":1055743,"with_detail":1043514},{"ts":"2026-11-14T06:49:42.791766","total":1060081,"with_detail":1047852},{"ts":"2026-11-14T07:08:44.968983","total":1071640,"with_detail":1059411},{"ts":"2026-11-14T07:53:24.209397","total":1071668,"with_detail":1059439},{"ts":"2026-11-14T08:09:06.239615","total":1071687,"with_detail":1059458},{"ts":"2026-11-14T08:30:15.617168","total":1072951,"with_detail":1060420},{"ts":"2026-11-14T08:51:02.208715","total":1073129,"with_detail":1060561},{"ts":"2026-11-14T09:14:07.605186","total":1073688,"with_detail":1060980},{"ts":"2026-11-14T09:31:43.544374","total":1073718,"with_detail":1061010},{"ts":"2026-11-14T09:56:46.833436","total":1073942,"with_detail":1061213},{"ts":"2026-11-14T10:17:23.730988","total":1073945,"with_detail":1061216},{"ts":"2026-11-14T10:34:51.432062","total":1073974,"with_detail":1061221},{"ts":"2026-11-14T10:56:32.275775","total":1073984,"with_detail":1061222},{"ts":"2026-11-14T11:14:46.444487","total":1074047,"with_detail":1061282},{"ts":"2026-11-14T11:32:31.854885","total":1074052,"with_detail":1061287},{"ts":"2026-11-14T11:49:06.145251","total":1074053,"with_detail":1061287},{"ts":"2026-11-14T12:06:13.601146","total":1074054,"with_detail":1061287},{"ts":"2026-11-14T12:34:14.412341","total":1074057,"with_detail":1061287},{"ts":"2026-11-14T12:51:02.260240","total":1074148,"with_detail":1061374},{"ts":"2026-11-14T13:09:00.067530","total":1074148,"with_detail":1061374},{"ts":"2026-11-14T13:24:21.503026","total":1074164,"with_detail":1061390},{"ts":"2026-11-14T13:52:38.331452","total":1074472,"with_detail":1061592},{"ts":"2026-11-14T14:08:42.297352","total":1074478,"with_detail":1061598},{"ts":"2026-11-14T15:01:28.141869","total":1074480,"with_detail":1061600},{"ts":"2026-11-14T15:23:49.222980","total":1074546,"with_detail":1061666},{"ts":"2026-11-14T16:11:45.056672","total":1074618,"with_detail":1061735},{"ts":"2026-11-14T16:36:54.863960","total":1074644,"with_detail":1061762},{"ts":"2026-11-14T17:01:34.354822","total":1074872,"with_detail":1061764},{"ts":"2026-11-14T17:24:44.507199","total":1075007,"with_detail":1061767},{"ts":"2026-11-14T18:12:28.246785","total":1075098,"with_detail":1061854},{"ts":"2026-11-14T18:43:33.837223","total":1075098,"with_detail":1061856},{"ts":"2026-11-14T19:20:23.347169","total":1075098,"with_detail":1061856},{"ts":"2026-11-14T19:36:38.436414","total":1075156,"with_detail":1061914},{"ts":"2026-11-14T19:58:25.832853","total":1075322,"with_detail":1062077},{"ts":"2026-11-14T20:14:02.787600","total":1075393,"with_detail":1062130},{"ts":"2026-11-14T20:31:26.472661","total":1075395,"with_detail":1062130},{"ts":"2026-11-14T20:52:54.317134","total":1075428,"with_detail":1062163},{"ts":"2026-11-14T21:18:51.358646","total":1075468,"with_detail":1062203},{"ts":"2026-11-14T21:35:31.617049","total":1075527,"with_detail":1062262},{"ts":"2026-11-14T21:50:46.002809","total":1075582,"with_detail":1062315},{"ts":"2026-11-14T22:11:30.550849","total":1075630,"with_detail":1062363},{"ts":"2026-11-14T22:30:42.113448","total":1075902,"with_detail":1062637},{"ts":"2026-11-14T22:51:33.253286","total":1075955,"with_detail":1062690},{"ts":"2026-11-14T23:06:37.953721","total":1075955,"with_detail":1062690},{"ts":"2026-11-14T23:22:50.605229","total":1075998,"with_detail":1062733},{"ts":"2026-11-14T23:41:24.080720","total":1075998,"with_detail":1062733},{"ts":"2026-11-14T23:59:47.996886","total":1075998,"with_detail":1062733},{"ts":"2026-11-15T00:27:18.264260","total":1075998,"with_detail":1062733},{"ts":"2026-11-15T00:51:32.777420","total":1076046,"with_detail":1062781},{"ts":"2026-11-15T01:10:56.053760","total":1076046,"with_detail":1062781},{"ts":"2026-11-15T01:29:38.827011","total":1076091,"with_detail":1062826},{"ts":"2026-11-15T01:49:24.091314","total":1076097,"with_detail":1062832},{"ts":"2026-11-15T02:12:44.586187","total":1076145,"with_detail":1062876},{"ts":"2026-11-15T02:30:55.625637","total":1076145,"with_detail":1062876},{"ts":"2026-11-15T02:58:14.816453","total":1076315,"with_detail":1063046},{"ts":"2026-11-15T03:21:33.895335","total":1076317,"with_detail":1063046},{"ts":"2026-11-15T03:37:32.709237","total":1076320,"with_detail":1063048},{"ts":"2026-11-15T03:54:42.375191","total":1076364,"with_detail":1063088},{"ts":"2026-11-15T04:04:41.181934","total":1076365,"with_detail":1064090},{"ts":"2026-11-15T04:19:44.240750","total":1076389,"with_detail":1064114},{"ts":"2026-11-15T04:43:22.631292","total":1076638,"with_detail":1064316},{"ts":"2026-11-15T05:01:17.804248","total":1076661,"with_detail":1064339},{"ts":"2026-11-15T05:16:32.688651","total":1076662,"with_detail":1064340},{"ts":"2026-11-15T05:38:01.877040","total":1076679,"with_detail":1064357},{"ts":"2026-11-15T05:54:06.031175","total":1076789,"with_detail":1064357},{"ts":"2026-11-15T06:14:17.667037","total":1077044,"with_detail":1064582},{"ts":"2026-11-15T06:30:13.433741","total":1077115,"with_detail":1064638},{"ts":"2026-11-15T06:45:42.909523","total":1077144,"with_detail":1064647},{"ts":"2026-11-15T16:11:32.755733","total":1077179,"with_detail":1064672},{"ts":"2026-11-15T16:27:05.592209","total":1077348,"with_detail":1064834},{"ts":"2026-11-15T16:59:45.605937","total":1077379,"with_detail":1064861},{"ts":"2026-11-15T17:25:29.759051","total":1077557,"with_detail":1065039},{"ts":"2026-11-15T17:41:56.720251","total":1077577,"with_detail":1065039},{"ts":"2026-11-15T17:58:24.209218","total":1077675,"with_detail":1065130},{"ts":"2026-11-15T18:20:16.928951","total":1077767,"with_detail":1065175},{"ts":"2026-11-15T18:41:24.878844","total":1078000,"with_detail":1065399},{"ts":"2026-11-15T18:57:33.296943","total":1078030,"with_detail":1065429},{"ts":"2026-11-15T19:13:04.087003","total":1078030,"with_detail":1065429},{"ts":"2026-11-15T19:32:13.046773","total":1078055,"with_detail":1065454},{"ts":"2026-11-15T19:49:32.269084","total":1078103,"with_detail":1065502},{"ts":"2026-11-15T20:07:02.741022","total":1078327,"with_detail":1065722},{"ts":"2026-11-15T20:24:54.659257","total":1078375,"with_detail":1065770},{"ts":"2026-11-15T20:44:20.773567","total":1078409,"with_detail":1065804},{"ts":"2026-11-15T21:02:06.418339","total":1078409,"with_detail":1065804},{"ts":"2026-11-15T21:20:19.865677","total":1078439,"with_detail":1065834},{"ts":"2026-11-15T21:36:03.548909","total":1078439,"with_detail":1065834},{"ts":"2026-11-15T21:52:53.069014","total":1078439,"with_detail":1065834},{"ts":"2026-11-15T22:08:03.976170","total":1078439,"with_detail":1065834},{"ts":"2026-11-15T22:24:00.124573","total":1078483,"with_detail":1065878},{"ts":"2026-11-15T22:40:27.708695","total":1078483,"with_detail":1065878},{"ts":"2026-11-15T22:59:21.668960","total":1078523,"with_detail":1065918},{"ts":"2026-11-15T23:18:29.216792","total":1078523,"with_detail":1065918},{"ts":"2026-11-15T23:35:13.721244","total":1078523,"with_detail":1065918},{"ts":"2026-11-15T23:55:54.559728","total":1078523,"with_detail":1065918},{"ts":"2026-11-16T00:13:43.298408","total":1078523,"with_detail":1065918},{"ts":"2026-11-16T00:32:52.123677","total":1078547,"with_detail":1065942},{"ts":"2026-11-16T15:49:03.127947","total":1078807,"with_detail":1066202},{"ts":"2026-11-20T17:35:57.171406","total":1078967,"with_detail":1066314},{"ts":"2026-11-20T17:54:00.201230","total":1080017,"with_detail":1067367},{"ts":"2026-11-20T18:11:06.650790","total":1081157,"with_detail":1068425},{"ts":"2026-11-20T18:28:15.403700","total":1082239,"with_detail":1069169},{"ts":"2026-11-20T18:46:03.218362","total":1083260,"with_detail":1070184},{"ts":"2026-11-20T19:01:06.738308","total":1083648,"with_detail":1070572},{"ts":"2026-11-20T19:21:05.378023","total":1084012,"with_detail":1070936},{"ts":"2026-11-20T19:38:09.127248","total":1084057,"with_detail":1070981},{"ts":"2026-11-20T19:59:34.324773","total":1084089,"with_detail":1071013},{"ts":"2026-11-20T20:20:26.778280","total":1084090,"with_detail":1071014},{"ts":"2026-11-20T20:39:18.714824","total":1084090,"with_detail":1071014},{"ts":"2026-11-20T20:54:22.485797","total":1084090,"with_detail":1071014},{"ts":"2026-11-20T21:11:41.771688","total":1084139,"with_detail":1071063},{"ts":"2026-11-20T21:29:24.362196","total":1084139,"with_detail":1071063},{"ts":"2026-11-20T21:48:03.417134","total":1084140,"with_detail":1071064},{"ts":"2026-11-20T22:04:35.307177","total":1084140,"with_detail":1071064},{"ts":"2026-11-20T22:22:09.177144","total":1084163,"with_detail":1071087},{"ts":"2026-11-20T22:38:27.934164","total":1084163,"with_detail":1071087},{"ts":"2026-11-20T22:54:19.780261","total":1084165,"with_detail":1071089},{"ts":"2026-11-20T23:13:40.883495","total":1084260,"with_detail":1071184},{"ts":"2026-11-20T23:32:49.212507","total":1084286,"with_detail":1071210},{"ts":"2026-11-20T23:51:46.763990","total":1084286,"with_detail":1071210},{"ts":"2026-11-21T00:08:58.349235","total":1084299,"with_detail":1071223},{"ts":"2026-11-21T00:24:37.988910","total":1084312,"with_detail":1071236},{"ts":"2026-11-21T00:43:44.381931","total":1084312,"with_detail":1071236},{"ts":"2026-11-21T01:09:13.853039","total":1084312,"with_detail":1071236},{"ts":"2026-11-21T01:27:33.344835","total":1084334,"with_detail":1071258},{"ts":"2026-11-21T01:45:05.490781","total":1084356,"with_detail":1071280},{"ts":"2026-11-21T02:07:47.643482","total":1084358,"with_detail":1071282},{"ts":"2026-11-21T02:25:51.806196","total":1084358,"with_detail":1071282},{"ts":"2026-11-21T02:40:58.153187","total":1084359,"with_detail":1071282},{"ts":"2026-11-21T02:58:51.599988","total":1084438,"with_detail":1071362},{"ts":"2026-11-21T03:15:34.501948","total":1084460,"with_detail":1071384},{"ts":"2026-11-21T03:32:03.222805","total":1084461,"with_detail":1071384},{"ts":"2026-11-21T03:50:58.656204","total":1084461,"with_detail":1071384},{"ts":"2026-11-21T04:06:17.304701","total":1084510,"with_detail":1071813},{"ts":"2026-11-21T04:08:05.311639","total":1084519,"with_detail":1071822},{"ts":"2026-11-21T04:24:18.088652","total":1084554,"with_detail":1071857},{"ts":"2026-11-21T04:42:05.932532","total":1084748,"with_detail":1071919},{"ts":"2026-11-21T04:58:52.167336","total":1084763,"with_detail":1071934},{"ts":"2026-11-21T05:23:48.127717","total":1084776,"with_detail":1071946},{"ts":"2026-11-21T05:42:41.288455","total":1084818,"with_detail":1071953},{"ts":"2026-11-21T06:03:43.364424","total":1084929,"with_detail":1072044},{"ts":"2026-11-21T06:20:04.041931","total":1084963,"with_detail":1072078},{"ts":"2026-11-21T06:44:05.878571","total":1084977,"with_detail":1072098},{"ts":"2026-11-21T07:01:08.125298","total":1085029,"with_detail":1072150},{"ts":"2026-11-21T07:20:32.018454","total":1085046,"with_detail":1072167},{"ts":"2026-11-21T07:39:35.352902","total":1085053,"with_detail":1072172},{"ts":"2026-11-21T08:08:34.453170","total":1085257,"with_detail":1072384},{"ts":"2026-11-21T08:23:46.081993","total":1085268,"with_detail":1072384},{"ts":"2026-11-21T08:39:10.718365","total":1085295,"with_detail":1072411},{"ts":"2026-11-21T09:02:15.810267","total":1085392,"with_detail":1072504},{"ts":"2026-11-21T09:19:39.347062","total":1085404,"with_detail":1072508},{"ts":"2026-11-21T09:35:18.745784","total":1085405,"with_detail":1072509},{"ts":"2026-11-21T09:54:44.575209","total":1085425,"with_detail":1072529},{"ts":"2026-11-21T10:15:23.715603","total":1085433,"with_detail":1072534},{"ts":"2026-11-21T10:35:15.558036","total":1085462,"with_detail":1072562},{"ts":"2026-11-21T10:52:47.754253","total":1085474,"with_detail":1072573},{"ts":"2026-11-21T11:11:33.860797","total":1085474,"with_detail":1072573},{"ts":"2026-11-21T11:33:06.757542","total":1085477,"with_detail":1072575},{"ts":"2026-11-21T11:52:35.606625","total":1085517,"with_detail":1072603},{"ts":"2026-11-21T14:14:05.264515","total":1085522,"with_detail":1072603},{"ts":"2026-11-21T14:30:33.757287","total":1085614,"with_detail":1072695},{"ts":"2026-11-21T14:51:41.800763","total":1085618,"with_detail":1072698},{"ts":"2026-11-21T15:17:15.026207","total":1085691,"with_detail":1072769},{"ts":"2026-11-21T15:37:37.875161","total":1085699,"with_detail":1072776},{"ts":"2026-11-21T16:01:06.776805","total":1085734,"with_detail":1072807},{"ts":"2026-11-21T16:17:02.469879","total":1085734,"with_detail":1072807},{"ts":"2026-11-21T16:41:26.088629","total":1085738,"with_detail":1072809},{"ts":"2026-11-21T17:03:04.814500","total":1085750,"with_detail":1072821},{"ts":"2026-11-21T17:18:32.998357","total":1085750,"with_detail":1072821},{"ts":"2026-11-21T17:37:06.246441","total":1085764,"with_detail":1072821},{"ts":"2026-11-21T18:05:18.144693","total":1085806,"with_detail":1072865},{"ts":"2026-11-21T18:26:54.422150","total":1085835,"with_detail":1072894},{"ts":"2026-11-21T18:52:10.715092","total":1085862,"with_detail":1072894},{"ts":"2026-11-21T19:12:15.465718","total":1085876,"with_detail":1072908},{"ts":"2026-11-21T19:33:18.767898","total":1085904,"with_detail":1072936},{"ts":"2026-11-21T19:49:24.811331","total":1085941,"with_detail":1072973},{"ts":"2026-11-21T20:05:35.909620","total":1085979,"with_detail":1073011},{"ts":"2026-11-21T20:22:06.751094","total":1085979,"with_detail":1073011},{"ts":"2026-11-21T20:37:36.411200","total":1086033,"with_detail":1073045},{"ts":"2026-11-21T20:55:18.533581","total":1086033,"with_detail":1073045},{"ts":"2026-11-21T21:14:17.266956","total":1086033,"with_detail":1073045},{"ts":"2026-11-21T21:30:52.266771","total":1086048,"with_detail":1073060},{"ts":"2026-11-21T21:50:12.399406","total":1086069,"with_detail":1073081},{"ts":"2026-11-21T22:05:17.854674","total":1086133,"with_detail":1073145},{"ts":"2026-11-21T22:21:16.508408","total":1086186,"with_detail":1073198},{"ts":"2026-11-21T22:39:15.750886","total":1086186,"with_detail":1073198},{"ts":"2026-11-21T22:55:41.819345","total":1086216,"with_detail":1073228},{"ts":"2026-11-21T23:16:51.204148","total":1086244,"with_detail":1073256},{"ts":"2026-11-21T23:32:24.753131","total":1086244,"with_detail":1073256},{"ts":"2026-11-21T23:47:45.813478","total":1086283,"with_detail":1073295},{"ts":"2026-11-22T00:03:29.463263","total":1086284,"with_detail":1073296},{"ts":"2026-11-22T00:19:17.829681","total":1086284,"with_detail":1073296},{"ts":"2026-11-22T00:38:13.812160","total":1086284,"with_detail":1073296},{"ts":"2026-11-22T00:54:07.182937","total":1086296,"with_detail":1073308},{"ts":"2026-11-22T01:11:35.415057","total":1086296,"with_detail":1073308},{"ts":"2026-11-22T01:28:33.449402","total":1086317,"with_detail":1073329},{"ts":"2026-11-22T01:44:40.585698","total":1086363,"with_detail":1073375},{"ts":"2026-11-22T01:59:56.145215","total":1086363,"with_detail":1073375},{"ts":"2026-11-22T02:19:55.471878","total":1086372,"with_detail":1073384},{"ts":"2026-11-22T02:38:09.685916","total":1086381,"with_detail":1073393},{"ts":"2026-11-22T02:54:19.494973","total":1086381,"with_detail":1073393},{"ts":"2026-11-22T03:12:51.033687","total":1086381,"with_detail":1073393},{"ts":"2026-11-22T03:31:38.020999","total":1086382,"with_detail":1073393},{"ts":"2026-11-22T03:48:10.728599","total":1086383,"with_detail":1073394},{"ts":"2026-11-22T04:03:20.079970","total":1086383,"with_detail":1073633},{"ts":"2026-11-22T04:08:24.722757","total":1086383,"with_detail":1073633},{"ts":"2026-11-22T04:28:52.820258","total":1086384,"with_detail":1073633},{"ts":"2026-11-22T04:48:15.088172","total":1086408,"with_detail":1073657},{"ts":"2026-11-22T05:06:44.820679","total":1086413,"with_detail":1073662},{"ts":"2026-11-22T05:24:32.194877","total":1086413,"with_detail":1073662},{"ts":"2026-11-22T05:42:10.437185","total":1086444,"with_detail":1073662},{"ts":"2026-11-22T05:57:26.204775","total":1086449,"with_detail":1073667},{"ts":"2026-11-22T06:14:11.304239","total":1086480,"with_detail":1073698},{"ts":"2026-11-22T06:34:34.385142","total":1086480,"with_detail":1073699},{"ts":"2026-11-22T06:54:55.923059","total":1086480,"with_detail":1073699},{"ts":"2026-11-22T07:11:57.956803","total":1086482,"with_detail":1073701},{"ts":"2026-11-22T07:31:10.663685","total":1086499,"with_detail":1073718},{"ts":"2026-11-22T07:47:25.520384","total":1086529,"with_detail":1073748},{"ts":"2026-11-22T08:04:57.274196","total":1086560,"with_detail":1073779},{"ts":"2026-11-22T08:24:45.813341","total":1086749,"with_detail":1073940},{"ts":"2026-11-22T08:42:07.984913","total":1086763,"with_detail":1073954},{"ts":"2026-11-22T08:51:30.819387","total":1086769,"with_detail":1073954},{"ts":"2026-11-22T08:52:24.285914","total":1086769,"with_detail":1073954},{"ts":"2026-11-22T08:53:05.746320","total":1086769,"with_detail":1073954},{"ts":"2026-11-22T09:14:13.242752","total":1086792,"with_detail":1073989},{"ts":"2026-11-22T09:29:44.224769","total":1086800,"with_detail":1073997},{"ts":"2026-11-22T09:49:31.209477","total":1086836,"with_detail":1074028},{"ts":"2026-11-22T10:05:12.084085","total":1086857,"with_detail":1074049},{"ts":"2026-11-22T10:24:40.493038","total":1086858,"with_detail":1074049},{"ts":"2026-11-22T10:41:18.239428","total":1086860,"with_detail":1074049},{"ts":"2026-11-22T10:59:08.831559","total":1086860,"with_detail":1074049},{"ts":"2026-11-22T11:14:20.139933","total":1086861,"with_detail":1074050},{"ts":"2026-11-22T11:31:51.850385","total":1086861,"with_detail":1074050},{"ts":"2026-11-22T11:52:58.976949","total":1086861,"with_detail":1074050},{"ts":"2026-11-22T12:09:00.699344","total":1086862,"with_detail":1074050},{"ts":"2026-11-22T12:30:59.548174","total":1086886,"with_detail":1074074},{"ts":"2026-11-22T12:50:02.649223","total":1086901,"with_detail":1074089},{"ts":"2026-11-22T13:06:34.911771","total":1086895,"with_detail":1074081},{"ts":"2026-11-22T13:22:09.096866","total":1086894,"with_detail":1074080},{"ts":"2026-11-22T13:43:30.619067","total":1086898,"with_detail":1074084},{"ts":"2026-11-22T14:01:03.922213","total":1086898,"with_detail":1074085},{"ts":"2026-11-22T14:17:55.112622","total":1086901,"with_detail":1074085},{"ts":"2026-11-22T14:33:49.876931","total":1086914,"with_detail":1074094},{"ts":"2026-11-22T14:51:44.357594","total":1086918,"with_detail":1074098},{"ts":"2026-11-22T15:11:40.884793","total":1086929,"with_detail":1074098},{"ts":"2026-11-22T15:32:31.759127","total":1086930,"with_detail":1074098},{"ts":"2026-11-22T15:50:03.105209","total":1086932,"with_detail":1074100}]},"sites":[{"site_id":1,"site_name":"非凡资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:01.461769Z","last_probe_error":null,"last_probe_latency_ms":1056},"last_crawl_at":"2026-11-22T14:42:54.819691Z","total":82247,"with_detail":82247,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"http://api.ffzyapi.com/api.php/provide/vod/"},{"site_id":2,"site_name":"360资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:03.516574Z","last_probe_error":null,"last_probe_latency_ms":1539},"last_crawl_at":"2026-11-22T02:50:10.072100Z","total":45942,"with_detail":45942,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://360zy.com/api.php/provide/vod/"},{"site_id":3,"site_name":"牛牛资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:00.967894Z","last_probe_error":null,"last_probe_latency_ms":1003},"last_crawl_at":"2026-11-22T14:51:42.166357Z","total":125197,"with_detail":125197,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":["038311f662fa4ef1b189811c6cc20051"],"base_url":"https://api.niuniuzy.me/api.php/provide/vod"},{"site_id":4,"site_name":"最大资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:04.069970Z","last_probe_error":null,"last_probe_latency_ms":554},"last_crawl_at":"2026-11-22T13:35:40.321782Z","total":126211,"with_detail":126211,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://api.zuidapi.com/api.php/provide/vod"},{"site_id":5,"site_name":"百度云资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:02.603311Z","last_probe_error":null,"last_probe_latency_ms":1144},"last_crawl_at":"2026-11-22T11:07:37.653161Z","total":49794,"with_detail":49794,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://api.apibdzy.com/api.php/provide/vod"},{"site_id":6,"site_name":"暴风资源","enabled":false,"health":{"failure_count":263,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:22:59.365565Z","last_probe_error":"site=暴风资源 请求重试后仍失败：","last_probe_latency_ms":5027},"last_crawl_at":"2026-11-15T23:55:52.032419Z","total":145330,"with_detail":145330,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":null,"active_job_ids":[],"base_url":"https://bfzyapi.com/api.php/provide/vod"},{"site_id":7,"site_name":"极速资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:54.960267Z","last_probe_error":null,"last_probe_latency_ms":623},"last_crawl_at":"2026-11-22T15:59:22.946790Z","total":67677,"with_detail":67674,"without_detail":3,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://jszyapi.com/api.php/provide/vod"},{"site_id":8,"site_name":"天涯资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:56.307052Z","last_probe_error":null,"last_probe_latency_ms":1970},"last_crawl_at":"2026-11-22T15:21:12.742650Z","total":41233,"with_detail":41233,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://tyyszy.com/api.php/provide/vod"},{"site_id":9,"site_name":"无尽资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:03.656764Z","last_probe_error":null,"last_probe_latency_ms":2690},"last_crawl_at":"2026-11-22T01:03:41.544844Z","total":43139,"with_detail":43139,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://api.wujinapi.com/api.php/provide/vod"},{"site_id":10,"site_name":"魔都资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:03.524911Z","last_probe_error":null,"last_probe_latency_ms":925},"last_crawl_at":"2026-11-22T01:59:54.119282Z","total":15015,"with_detail":15015,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://www.mdzyapi.com/api.php/provide/vod"},{"site_id":11,"site_name":"电影天堂","enabled":false,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:23:00.164179Z","last_probe_error":"site=电影天堂 请求重试后仍失败：","last_probe_latency_ms":5010},"last_crawl_at":"2026-11-15T23:59:06.272303Z","total":15711,"with_detail":15711,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":null,"active_job_ids":[],"base_url":"http://caiji.dyttzyapi.com/api.php/provide/vod"},{"site_id":14,"site_name":"光速资源","enabled":true,"health":{"failure_count":1,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:55.152466Z","last_probe_error":null,"last_probe_latency_ms":812},"last_crawl_at":"2026-11-22T15:11:38.700223Z","total":12305,"with_detail":12305,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://api.guangsuapi.com/api.php/provide/vod"},{"site_id":15,"site_name":"虎牙资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:55.712998Z","last_probe_error":null,"last_probe_latency_ms":1370},"last_crawl_at":"2026-11-22T15:40:58.024031Z","total":12014,"with_detail":12009,"without_detail":5,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://www.huyaapi.com/api.php/provide/vod"},{"site_id":16,"site_name":"新浪资源","enabled":false,"health":{"failure_count":1,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:23:00.723975Z","last_probe_error":"site=新浪资源 请求重试后仍失败：","last_probe_latency_ms":5006},"last_crawl_at":"2026-11-16T00:13:40.776281Z","total":24534,"with_detail":24528,"without_detail":6,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":null,"active_job_ids":[],"base_url":"http://api.xinlangapi.com/xinlangapi.php/provide/vod"},{"site_id":17,"site_name":"量子资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:22:59.964907Z","last_probe_error":"site=量子资源 请求重试后仍失败：","last_probe_latency_ms":5005},"last_crawl_at":"2026-11-16T00:16:57.901978Z","total":17989,"with_detail":17989,"without_detail":0,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"active_job_ids":[],"base_url":"https://cj.lziapi.com/api.php/provide/vod"},{"site_id":18,"site_name":"海豚资源","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:59.809018Z","last_probe_error":null,"last_probe_latency_ms":3501},"last_crawl_at":"2026-11-22T15:32:29.572078Z","total":21297,"with_detail":21297,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://hhzyapi.com/api.php/provide/vod"},{"site_id":19,"site_name":"鲸鱼资源","enabled":true,"health":{"failure_count":16,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:01.976935Z","last_probe_error":null,"last_probe_latency_ms":1256},"last_crawl_at":"2026-11-22T14:58:47.764625Z","total":13667,"with_detail":13650,"without_detail":17,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://jyzyapi.com/provide/vod"},{"site_id":21,"site_name":"无尽ME","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:22:59.711660Z","last_probe_error":null,"last_probe_latency_ms":345},"last_crawl_at":"2026-11-22T15:23:54.997405Z","total":71338,"with_detail":58566,"without_detail":12772,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://api.wujinapi.me/api.php/provide/vod"},{"site_id":22,"site_name":"天涯海角","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":true,"last_probe_at":"2026-11-22T14:23:00.401311Z","last_probe_error":null,"last_probe_latency_ms":686},"last_crawl_at":"2026-11-22T15:50:01.006086Z","total":69956,"with_detail":69956,"without_detail":0,"next_check_at":"2026-11-22T16:00:43.941081Z","last_check_status":"updated","active_job_ids":[],"base_url":"https://tyyszyapi.com/api.php/provide/vod"},{"site_id":23,"site_name":"新浪HTTPS","enabled":true,"health":{"failure_count":14,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:23:04.812339Z","last_probe_error":"site=新浪HTTPS 请求重试后仍失败：","last_probe_latency_ms":5004},"last_crawl_at":null,"total":49871,"with_detail":49842,"without_detail":29,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"active_job_ids":[],"base_url":"https://api.xinlangapi.com/xinlangapi.php/provide/vod"},{"site_id":24,"site_name":"乐子HTTP","enabled":true,"health":{"failure_count":0,"recovery_count":0,"last_probe_ok":false,"last_probe_at":"2026-11-22T14:23:05.180908Z","last_probe_error":"site=乐子HTTP 请求重试后仍失败：","last_probe_latency_ms":5017},"last_crawl_at":"2026-11-15T23:13:48.346438Z","total":36465,"with_detail":36465,"without_detail":0,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"active_job_ids":[],"base_url":"http://cj.lziapi.com/api.php/provide/vod"}],"jobs":[{"id":"038311f662fa4ef1b189811c6cc20051","kind":"crawl.incremental","state":"running","trigger":"scheduled","site_id":3,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T15:59:23.191088Z","finished_at":null,"error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"b220c243217a403f8f77ad5caefb96f2","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":7,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:50:03.505306Z","finished_at":"2026-11-22T15:59:23.182292Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"7c3fb20abeb544fa8a3153b35ad1b77e","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":22,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:41:01.979584Z","finished_at":"2026-11-22T15:50:03.490108Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"669fda62e29a45db9063dc6d8fe9c0af","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":15,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:32:31.963391Z","finished_at":"2026-11-22T15:41:01.970800Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"865b0ca343b64b21b261f2ac1b885475","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":18,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:23:55.624887Z","finished_at":"2026-11-22T15:32:31.955394Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"d58aa7d0945a4660b6eea3f2fbe894cd","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":21,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:21:12.892956Z","finished_at":"2026-11-22T15:23:55.595208Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"d7bc466d7d5a4d73a791835f02819629","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":8,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:11:41.080000Z","finished_at":"2026-11-22T15:21:12.885156Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"d2fd1a69b8e4486ca323fd90aee079f9","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":14,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T15:09:45.186526Z","finished_at":"2026-11-22T15:11:41.071876Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"014d04a5f6224270b42f45ba04f1349d","kind":"crawl.full","state":"done","trigger":"startup","site_id":null,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T15:08:41.159005Z","finished_at":"2026-11-22T15:08:42.446166Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"deea31d7b24a47a3b5b5ad444fe77c59","kind":"crawl.incremental","state":"interrupted","trigger":"scheduled","site_id":9,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T14:58:50.274966Z","finished_at":"2026-11-22T15:08:40.684680Z","error":"服务重启，任务中断","cancel_requested":false,"fill":null,"cleanup":null},{"id":"d6f34532d9fb4a628689f63790804cec","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":19,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:51:45.679737Z","finished_at":"2026-11-22T14:58:50.268059Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"6254ae2b7a064aae8ea827bcbb29ff69","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":3,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:42:55.031775Z","finished_at":"2026-11-22T14:51:45.590552Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"2e0d31eac3a44aa39b7c82a1de9d42f0","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":1,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:38:58.470040Z","finished_at":"2026-11-22T14:42:55.024486Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"1e2376fc60694cedb8ca489efb675323","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":22,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:33:50.006192Z","finished_at":"2026-11-22T14:38:58.461566Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"4eb84ca1e4204b50914f3aa30fcecffa","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":21,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:31:42.710010Z","finished_at":"2026-11-22T14:33:49.998260Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"f38f5c5c3a214cc4b628b65e1671eba6","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":8,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:26:47.943479Z","finished_at":"2026-11-22T14:31:42.700101Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"b362f77f854846c3b5af3c264229ad54","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":18,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:24:22.164272Z","finished_at":"2026-11-22T14:26:47.935819Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"53a519797a5d4224b1cc59db164b5dec","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":15,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:19:29.566863Z","finished_at":"2026-11-22T14:24:22.157587Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"9c022f4bbfbd48d0ab8ec8c8b11b1a38","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":14,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:17:55.683971Z","finished_at":"2026-11-22T14:19:29.560225Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"45380dabdd4146f7ab0b6bc3d95155e9","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":7,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:10:21.056849Z","finished_at":"2026-11-22T14:17:55.634722Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"d8bc6ca561c84cd9b1c898ea440a20d6","kind":"crawl.full","state":"done","trigger":"startup","site_id":null,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T14:09:13.406320Z","finished_at":"2026-11-22T14:09:14.694567Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"3c9a42df6bdd4872af676afbea6ae078","kind":"crawl.incremental","state":"interrupted","trigger":"scheduled","site_id":7,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T14:02:47.326733Z","finished_at":"2026-11-22T14:09:12.932272Z","error":"服务重启，任务中断","cancel_requested":false,"fill":null,"cleanup":null},{"id":"eb700a9ce14a4484bd03719ee59953b7","kind":"detail.fill","state":"done","trigger":"manual","site_id":8,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T14:01:00.279471Z","finished_at":"2026-11-22T14:01:03.933244Z","error":null,"cancel_requested":false,"fill":{"state":"done","filled":1,"failed":0,"skipped":0,"total_sites":1,"completed_sites":1},"cleanup":null},{"id":"f53e2c06c8dc49b59be4789a0cba1895","kind":"cache.cleanup","state":"cancelled","trigger":"manual","site_id":null,"progress_completed":6000,"progress_total":911871,"created_at":"2026-11-22T13:55:27.663923Z","finished_at":"2026-11-22T13:58:12.689539Z","error":null,"cancel_requested":true,"fill":null,"cleanup":{"checked":6000,"deleted":0,"pending":7}},{"id":"76f867866d3b42c886494227ddd19814","kind":"crawl.incremental","state":"done","trigger":"scheduled","site_id":8,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T13:52:21.538992Z","finished_at":"2026-11-22T14:02:47.315544Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null},{"id":"818286338ea543bca7913a6d0605c272","kind":"crawl.incremental","state":"cancelled","trigger":"scheduled","site_id":15,"progress_completed":1,"progress_total":1,"created_at":"2026-11-22T13:49:35.558241Z","finished_at":"2026-11-22T13:52:21.530235Z","error":null,"cancel_requested":true,"fill":null,"cleanup":null},{"id":"68fe9a463d6943aebe7269fcea18a932","kind":"crawl.full","state":"done","trigger":"startup","site_id":null,"progress_completed":0,"progress_total":0,"created_at":"2026-11-22T13:48:27.893054Z","finished_at":"2026-11-22T13:48:29.341025Z","error":null,"cancel_requested":false,"fill":null,"cleanup":null}],"logs":[{"timestamp":"2026-11-22T15:59:00.527144","site_id":7,"site_name":"极速资源","category":"动作片","page":16,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":476},{"timestamp":"2026-11-22T15:59:01.002072","site_id":7,"site_name":"极速资源","category":"动作片","page":17,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":470},{"timestamp":"2026-11-22T15:59:01.494507","site_id":7,"site_name":"极速资源","category":"动作片","page":18,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":488},{"timestamp":"2026-11-22T15:59:13.316684","site_id":7,"site_name":"极速资源","category":"动作片","page":19,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":11816},{"timestamp":"2026-11-22T15:59:16.339011","site_id":7,"site_name":"极速资源","category":"动作片","page":20,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":3017},{"timestamp":"2026-11-22T15:59:16.931891","site_id":7,"site_name":"极速资源","category":"动作片","page":21,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":588},{"timestamp":"2026-11-22T15:59:18.768100","site_id":7,"site_name":"极速资源","category":"动作片","page":22,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":1831},{"timestamp":"2026-11-22T15:59:19.360550","site_id":7,"site_name":"极速资源","category":"动作片","page":23,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":587},{"timestamp":"2026-11-22T15:59:19.769984","site_id":7,"site_name":"极速资源","category":"动作片","page":24,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":405},{"timestamp":"2026-11-22T15:59:20.160115","site_id":7,"site_name":"极速资源","category":"动作片","page":25,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":385},{"timestamp":"2026-11-22T15:59:20.529610","site_id":7,"site_name":"极速资源","category":"动作片","page":26,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":365},{"timestamp":"2026-11-22T15:59:20.917980","site_id":7,"site_name":"极速资源","category":"动作片","page":27,"crawl_type":"incremental","items_count":20,"new_count":0,"update_count":0,"duration_ms":384}],"health":{"1":{"site_id":1,"availability_24h":100.0,"latest_probe":{"id":18526,"site_id":1,"ok":true,"error":null,"latency_ms":1056,"created_at":"2026-11-22T14:23:01.461769"},"auto_disabled_at":null,"recent_logs":[{"id":18526,"site_id":1,"ok":true,"error":null,"latency_ms":1056,"created_at":"2026-11-22T14:23:01.461769"},{"id":18507,"site_id":1,"ok":true,"error":null,"latency_ms":434,"created_at":"2026-11-22T13:38:05.995289"},{"id":18486,"site_id":1,"ok":true,"error":null,"latency_ms":898,"created_at":"2026-11-22T13:27:47.736353"},{"id":18465,"site_id":1,"ok":true,"error":null,"latency_ms":1877,"created_at":"2026-11-22T13:17:29.529138"},{"id":18444,"site_id":1,"ok":true,"error":null,"latency_ms":419,"created_at":"2026-11-22T13:07:11.318766"},{"id":18423,"site_id":1,"ok":true,"error":null,"latency_ms":473,"created_at":"2026-11-22T12:56:53.129123"}]},"2":{"site_id":2,"availability_24h":98.5,"latest_probe":{"id":18529,"site_id":2,"ok":true,"error":null,"latency_ms":1539,"created_at":"2026-11-22T14:23:03.516574"},"auto_disabled_at":null,"recent_logs":[{"id":18529,"site_id":2,"ok":true,"error":null,"latency_ms":1539,"created_at":"2026-11-22T14:23:03.516574"},{"id":18511,"site_id":2,"ok":true,"error":null,"latency_ms":2430,"created_at":"2026-11-22T13:38:05.995296"},{"id":18490,"site_id":2,"ok":true,"error":null,"latency_ms":1015,"created_at":"2026-11-22T13:27:47.736359"},{"id":18469,"site_id":2,"ok":true,"error":null,"latency_ms":1338,"created_at":"2026-11-22T13:17:29.529145"},{"id":18448,"site_id":2,"ok":true,"error":null,"latency_ms":1501,"created_at":"2026-11-22T13:07:11.318774"},{"id":18427,"site_id":2,"ok":true,"error":null,"latency_ms":1630,"created_at":"2026-11-22T12:56:53.129131"}]},"3":{"site_id":3,"availability_24h":100.0,"latest_probe":{"id":18525,"site_id":3,"ok":true,"error":null,"latency_ms":1003,"created_at":"2026-11-22T14:23:00.967894"},"auto_disabled_at":null,"recent_logs":[{"id":18525,"site_id":3,"ok":true,"error":null,"latency_ms":1003,"created_at":"2026-11-22T14:23:00.967894"},{"id":18505,"site_id":3,"ok":true,"error":null,"latency_ms":1504,"created_at":"2026-11-22T13:38:05.995285"},{"id":18484,"site_id":3,"ok":true,"error":null,"latency_ms":1068,"created_at":"2026-11-22T13:27:47.736349"},{"id":18463,"site_id":3,"ok":true,"error":null,"latency_ms":1343,"created_at":"2026-11-22T13:17:29.529134"},{"id":18442,"site_id":3,"ok":true,"error":null,"latency_ms":1167,"created_at":"2026-11-22T13:07:11.318762"},{"id":18421,"site_id":3,"ok":true,"error":null,"latency_ms":552,"created_at":"2026-11-22T12:56:53.129120"}]},"4":{"site_id":4,"availability_24h":100.0,"latest_probe":{"id":18532,"site_id":4,"ok":true,"error":null,"latency_ms":554,"created_at":"2026-11-22T14:23:04.069970"},"auto_disabled_at":null,"recent_logs":[{"id":18532,"site_id":4,"ok":true,"error":null,"latency_ms":554,"created_at":"2026-11-22T14:23:04.069970"},{"id":18513,"site_id":4,"ok":true,"error":null,"latency_ms":607,"created_at":"2026-11-22T13:38:05.995300"},{"id":18492,"site_id":4,"ok":true,"error":null,"latency_ms":832,"created_at":"2026-11-22T13:27:47.736362"},{"id":18471,"site_id":4,"ok":true,"error":null,"latency_ms":1362,"created_at":"2026-11-22T13:17:29.529148"},{"id":18450,"site_id":4,"ok":true,"error":null,"latency_ms":1785,"created_at":"2026-11-22T13:07:11.318778"},{"id":18429,"site_id":4,"ok":true,"error":null,"latency_ms":852,"created_at":"2026-11-22T12:56:53.129134"}]},"5":{"site_id":5,"availability_24h":98.5,"latest_probe":{"id":18528,"site_id":5,"ok":true,"error":null,"latency_ms":1144,"created_at":"2026-11-22T14:23:02.603311"},"auto_disabled_at":null,"recent_logs":[{"id":18528,"site_id":5,"ok":true,"error":null,"latency_ms":1144,"created_at":"2026-11-22T14:23:02.603311"},{"id":18510,"site_id":5,"ok":true,"error":null,"latency_ms":1464,"created_at":"2026-11-22T13:38:05.995294"},{"id":18489,"site_id":5,"ok":true,"error":null,"latency_ms":673,"created_at":"2026-11-22T13:27:47.736357"},{"id":18468,"site_id":5,"ok":true,"error":null,"latency_ms":683,"created_at":"2026-11-22T13:17:29.529143"},{"id":18447,"site_id":5,"ok":true,"error":null,"latency_ms":1307,"created_at":"2026-11-22T13:07:11.318772"},{"id":18426,"site_id":5,"ok":true,"error":null,"latency_ms":1403,"created_at":"2026-11-22T12:56:53.129129"}]},"6":{"site_id":6,"availability_24h":0.0,"latest_probe":{"id":18518,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":5027,"created_at":"2026-11-22T14:22:59.365565"},"auto_disabled_at":"2026-11-20T17:46:16.756705","recent_logs":[{"id":18518,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":5027,"created_at":"2026-11-22T14:22:59.365565"},{"id":18495,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":18116,"created_at":"2026-11-22T13:38:05.995268"},{"id":18474,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":18115,"created_at":"2026-11-22T13:27:47.736332"},{"id":18453,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":18116,"created_at":"2026-11-22T13:17:29.529116"},{"id":18432,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":18108,"created_at":"2026-11-22T13:07:11.318743"},{"id":18411,"site_id":6,"ok":false,"error":"site=暴风资源 请求重试后仍失败：","latency_ms":18090,"created_at":"2026-11-22T12:56:53.129099"}]},"7":{"site_id":7,"availability_24h":100.0,"latest_probe":{"id":18514,"site_id":7,"ok":true,"error":null,"latency_ms":623,"created_at":"2026-11-22T14:22:54.960267"},"auto_disabled_at":null,"recent_logs":[{"id":18514,"site_id":7,"ok":true,"error":null,"latency_ms":623,"created_at":"2026-11-22T14:22:54.960267"},{"id":18493,"site_id":7,"ok":true,"error":null,"latency_ms":878,"created_at":"2026-11-22T13:38:05.995257"},{"id":18472,"site_id":7,"ok":true,"error":null,"latency_ms":713,"created_at":"2026-11-22T13:27:47.736322"},{"id":18451,"site_id":7,"ok":true,"error":null,"latency_ms":654,"created_at":"2026-11-22T13:17:29.529105"},{"id":18430,"site_id":7,"ok":true,"error":null,"latency_ms":865,"created_at":"2026-11-22T13:07:11.318731"},{"id":18409,"site_id":7,"ok":true,"error":null,"latency_ms":599,"created_at":"2026-11-22T12:56:53.129088"}]},"8":{"site_id":8,"availability_24h":100.0,"latest_probe":{"id":18517,"site_id":8,"ok":true,"error":null,"latency_ms":1970,"created_at":"2026-11-22T14:22:56.307052"},"auto_disabled_at":null,"recent_logs":[{"id":18517,"site_id":8,"ok":true,"error":null,"latency_ms":1970,"created_at":"2026-11-22T14:22:56.307052"},{"id":18494,"site_id":8,"ok":true,"error":null,"latency_ms":788,"created_at":"2026-11-22T13:38:05.995265"},{"id":18473,"site_id":8,"ok":true,"error":null,"latency_ms":970,"created_at":"2026-11-22T13:27:47.736330"},{"id":18452,"site_id":8,"ok":true,"error":null,"latency_ms":1289,"created_at":"2026-11-22T13:17:29.529113"},{"id":18431,"site_id":8,"ok":true,"error":null,"latency_ms":1161,"created_at":"2026-11-22T13:07:11.318740"},{"id":18410,"site_id":8,"ok":true,"error":null,"latency_ms":1220,"created_at":"2026-11-22T12:56:53.129097"}]},"9":{"site_id":9,"availability_24h":100.0,"latest_probe":{"id":18531,"site_id":9,"ok":true,"error":null,"latency_ms":2690,"created_at":"2026-11-22T14:23:03.656764"},"auto_disabled_at":null,"recent_logs":[{"id":18531,"site_id":9,"ok":true,"error":null,"latency_ms":2690,"created_at":"2026-11-22T14:23:03.656764"},{"id":18509,"site_id":9,"ok":true,"error":null,"latency_ms":624,"created_at":"2026-11-22T13:38:05.995293"},{"id":18488,"site_id":9,"ok":true,"error":null,"latency_ms":1076,"created_at":"2026-11-22T13:27:47.736356"},{"id":18467,"site_id":9,"ok":true,"error":null,"latency_ms":849,"created_at":"2026-11-22T13:17:29.529142"},{"id":18446,"site_id":9,"ok":true,"error":null,"latency_ms":621,"created_at":"2026-11-22T13:07:11.318770"},{"id":18425,"site_id":9,"ok":true,"error":null,"latency_ms":598,"created_at":"2026-11-22T12:56:53.129127"}]},"10":{"site_id":10,"availability_24h":100.0,"latest_probe":{"id":18530,"site_id":10,"ok":true,"error":null,"latency_ms":925,"created_at":"2026-11-22T14:23:03.524911"},"auto_disabled_at":null,"recent_logs":[{"id":18530,"site_id":10,"ok":true,"error":null,"latency_ms":925,"created_at":"2026-11-22T14:23:03.524911"},{"id":18512,"site_id":10,"ok":true,"error":null,"latency_ms":1502,"created_at":"2026-11-22T13:38:05.995298"},{"id":18491,"site_id":10,"ok":true,"error":null,"latency_ms":2166,"created_at":"2026-11-22T13:27:47.736361"},{"id":18470,"site_id":10,"ok":true,"error":null,"latency_ms":1102,"created_at":"2026-11-22T13:17:29.529147"},{"id":18449,"site_id":10,"ok":true,"error":null,"latency_ms":1357,"created_at":"2026-11-22T13:07:11.318776"},{"id":18428,"site_id":10,"ok":true,"error":null,"latency_ms":2078,"created_at":"2026-11-22T12:56:53.129132"}]},"11":{"site_id":11,"availability_24h":0.0,"latest_probe":{"id":18522,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":5010,"created_at":"2026-11-22T14:23:00.164179"},"auto_disabled_at":"2026-11-20T17:46:16.997764","recent_logs":[{"id":18522,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":5010,"created_at":"2026-11-22T14:23:00.164179"},{"id":18500,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":18110,"created_at":"2026-11-22T13:38:05.995277"},{"id":18479,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":18107,"created_at":"2026-11-22T13:27:47.736341"},{"id":18458,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":18109,"created_at":"2026-11-22T13:17:29.529125"},{"id":18437,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":18100,"created_at":"2026-11-22T13:07:11.318752"},{"id":18416,"site_id":11,"ok":false,"error":"site=电影天堂 请求重试后仍失败：","latency_ms":18082,"created_at":"2026-11-22T12:56:53.129110"}]},"14":{"site_id":14,"availability_24h":99.2,"latest_probe":{"id":18515,"site_id":14,"ok":true,"error":null,"latency_ms":812,"created_at":"2026-11-22T14:22:55.152466"},"auto_disabled_at":null,"recent_logs":[{"id":18515,"site_id":14,"ok":true,"error":null,"latency_ms":812,"created_at":"2026-11-22T14:22:55.152466"},{"id":18496,"site_id":14,"ok":true,"error":null,"latency_ms":839,"created_at":"2026-11-22T13:38:05.995269"},{"id":18475,"site_id":14,"ok":true,"error":null,"latency_ms":667,"created_at":"2026-11-22T13:27:47.736334"},{"id":18454,"site_id":14,"ok":true,"error":null,"latency_ms":657,"created_at":"2026-11-22T13:17:29.529117"},{"id":18433,"site_id":14,"ok":true,"error":null,"latency_ms":865,"created_at":"2026-11-22T13:07:11.318745"},{"id":18412,"site_id":14,"ok":true,"error":null,"latency_ms":612,"created_at":"2026-11-22T12:56:53.129101"}]},"15":{"site_id":15,"availability_24h":99.2,"latest_probe":{"id":18516,"site_id":15,"ok":true,"error":null,"latency_ms":1370,"created_at":"2026-11-22T14:22:55.712998"},"auto_disabled_at":null,"recent_logs":[{"id":18516,"site_id":15,"ok":true,"error":null,"latency_ms":1370,"created_at":"2026-11-22T14:22:55.712998"},{"id":18497,"site_id":15,"ok":true,"error":null,"latency_ms":1085,"created_at":"2026-11-22T13:38:05.995271"},{"id":18476,"site_id":15,"ok":true,"error":null,"latency_ms":1023,"created_at":"2026-11-22T13:27:47.736335"},{"id":18455,"site_id":15,"ok":true,"error":null,"latency_ms":3021,"created_at":"2026-11-22T13:17:29.529119"},{"id":18434,"site_id":15,"ok":true,"error":null,"latency_ms":1324,"created_at":"2026-11-22T13:07:11.318747"},{"id":18413,"site_id":15,"ok":true,"error":null,"latency_ms":2322,"created_at":"2026-11-22T12:56:53.129103"}]},"16":{"site_id":16,"availability_24h":0.0,"latest_probe":{"id":18524,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":5006,"created_at":"2026-11-22T14:23:00.723975"},"auto_disabled_at":"2026-11-22T14:00:32.607390","recent_logs":[{"id":18524,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":5006,"created_at":"2026-11-22T14:23:00.723975"},{"id":18498,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":18112,"created_at":"2026-11-22T13:38:05.995273"},{"id":18477,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":18110,"created_at":"2026-11-22T13:27:47.736337"},{"id":18456,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":18111,"created_at":"2026-11-22T13:17:29.529121"},{"id":18435,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":18103,"created_at":"2026-11-22T13:07:11.318748"},{"id":18414,"site_id":16,"ok":false,"error":"site=新浪资源 请求重试后仍失败：","latency_ms":18085,"created_at":"2026-11-22T12:56:53.129106"}]},"17":{"site_id":17,"availability_24h":0.0,"latest_probe":{"id":18521,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":5005,"created_at":"2026-11-22T14:22:59.964907"},"auto_disabled_at":null,"recent_logs":[{"id":18521,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":5005,"created_at":"2026-11-22T14:22:59.964907"},{"id":18499,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":18111,"created_at":"2026-11-22T13:38:05.995275"},{"id":18478,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":18109,"created_at":"2026-11-22T13:27:47.736339"},{"id":18457,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":18110,"created_at":"2026-11-22T13:17:29.529123"},{"id":18436,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":18101,"created_at":"2026-11-22T13:07:11.318750"},{"id":18415,"site_id":17,"ok":false,"error":"site=量子资源 请求重试后仍失败：","latency_ms":18082,"created_at":"2026-11-22T12:56:53.129108"}]},"18":{"site_id":18,"availability_24h":100.0,"latest_probe":{"id":18520,"site_id":18,"ok":true,"error":null,"latency_ms":3501,"created_at":"2026-11-22T14:22:59.809018"},"auto_disabled_at":null,"recent_logs":[{"id":18520,"site_id":18,"ok":true,"error":null,"latency_ms":3501,"created_at":"2026-11-22T14:22:59.809018"},{"id":18501,"site_id":18,"ok":true,"error":null,"latency_ms":1555,"created_at":"2026-11-22T13:38:05.995278"},{"id":18480,"site_id":18,"ok":true,"error":null,"latency_ms":384,"created_at":"2026-11-22T13:27:47.736342"},{"id":18459,"site_id":18,"ok":true,"error":null,"latency_ms":348,"created_at":"2026-11-22T13:17:29.529126"},{"id":18438,"site_id":18,"ok":true,"error":null,"latency_ms":1518,"created_at":"2026-11-22T13:07:11.318754"},{"id":18417,"site_id":18,"ok":true,"error":null,"latency_ms":2072,"created_at":"2026-11-22T12:56:53.129112"}]},"19":{"site_id":19,"availability_24h":99.2,"latest_probe":{"id":18527,"site_id":19,"ok":true,"error":null,"latency_ms":1256,"created_at":"2026-11-22T14:23:01.976935"},"auto_disabled_at":null,"recent_logs":[{"id":18527,"site_id":19,"ok":true,"error":null,"latency_ms":1256,"created_at":"2026-11-22T14:23:01.976935"},{"id":18508,"site_id":19,"ok":true,"error":null,"latency_ms":335,"created_at":"2026-11-22T13:38:05.995291"},{"id":18487,"site_id":19,"ok":true,"error":null,"latency_ms":565,"created_at":"2026-11-22T13:27:47.736354"},{"id":18466,"site_id":19,"ok":true,"error":null,"latency_ms":620,"created_at":"2026-11-22T13:17:29.529140"},{"id":18445,"site_id":19,"ok":true,"error":null,"latency_ms":587,"created_at":"2026-11-22T13:07:11.318768"},{"id":18424,"site_id":19,"ok":true,"error":null,"latency_ms":579,"created_at":"2026-11-22T12:56:53.129125"}]},"21":{"site_id":21,"availability_24h":100.0,"latest_probe":{"id":18519,"site_id":21,"ok":true,"error":null,"latency_ms":345,"created_at":"2026-11-22T14:22:59.711660"},"auto_disabled_at":null,"recent_logs":[{"id":18519,"site_id":21,"ok":true,"error":null,"latency_ms":345,"created_at":"2026-11-22T14:22:59.711660"},{"id":18502,"site_id":21,"ok":true,"error":null,"latency_ms":1633,"created_at":"2026-11-22T13:38:05.995280"},{"id":18481,"site_id":21,"ok":true,"error":null,"latency_ms":1811,"created_at":"2026-11-22T13:27:47.736344"},{"id":18460,"site_id":21,"ok":true,"error":null,"latency_ms":562,"created_at":"2026-11-22T13:17:29.529128"},{"id":18439,"site_id":21,"ok":true,"error":null,"latency_ms":1544,"created_at":"2026-11-22T13:07:11.318756"},{"id":18418,"site_id":21,"ok":true,"error":null,"latency_ms":840,"created_at":"2026-11-22T12:56:53.129114"}]},"22":{"site_id":22,"availability_24h":100.0,"latest_probe":{"id":18523,"site_id":22,"ok":true,"error":null,"latency_ms":686,"created_at":"2026-11-22T14:23:00.401311"},"auto_disabled_at":null,"recent_logs":[{"id":18523,"site_id":22,"ok":true,"error":null,"latency_ms":686,"created_at":"2026-11-22T14:23:00.401311"},{"id":18503,"site_id":22,"ok":true,"error":null,"latency_ms":1538,"created_at":"2026-11-22T13:38:05.995282"},{"id":18482,"site_id":22,"ok":true,"error":null,"latency_ms":1460,"created_at":"2026-11-22T13:27:47.736346"},{"id":18461,"site_id":22,"ok":true,"error":null,"latency_ms":582,"created_at":"2026-11-22T13:17:29.529130"},{"id":18440,"site_id":22,"ok":true,"error":null,"latency_ms":1022,"created_at":"2026-11-22T13:07:11.318758"},{"id":18419,"site_id":22,"ok":true,"error":null,"latency_ms":617,"created_at":"2026-11-22T12:56:53.129115"}]},"23":{"site_id":23,"availability_24h":0.0,"latest_probe":{"id":18533,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":5004,"created_at":"2026-11-22T14:23:04.812339"},"auto_disabled_at":null,"recent_logs":[{"id":18533,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":5004,"created_at":"2026-11-22T14:23:04.812339"},{"id":18504,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":18104,"created_at":"2026-11-22T13:38:05.995284"},{"id":18483,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":18099,"created_at":"2026-11-22T13:27:47.736347"},{"id":18462,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":18103,"created_at":"2026-11-22T13:17:29.529132"},{"id":18441,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":18093,"created_at":"2026-11-22T13:07:11.318760"},{"id":18420,"site_id":23,"ok":false,"error":"site=新浪HTTPS 请求重试后仍失败：","latency_ms":18074,"created_at":"2026-11-22T12:56:53.129118"}]},"24":{"site_id":24,"availability_24h":0.0,"latest_probe":{"id":18534,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":5017,"created_at":"2026-11-22T14:23:05.180908"},"auto_disabled_at":null,"recent_logs":[{"id":18534,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":5017,"created_at":"2026-11-22T14:23:05.180908"},{"id":18506,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":18101,"created_at":"2026-11-22T13:38:05.995287"},{"id":18485,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":18095,"created_at":"2026-11-22T13:27:47.736351"},{"id":18464,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":18100,"created_at":"2026-11-22T13:17:29.529136"},{"id":18443,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":18090,"created_at":"2026-11-22T13:07:11.318764"},{"id":18422,"site_id":24,"ok":false,"error":"site=乐子HTTP 请求重试后仍失败：","latency_ms":18069,"created_at":"2026-11-22T12:56:53.129122"}]}},"schedules":{"health_interval_seconds":600,"fill_next_run_at":"2026-11-22T20:00:00Z","sites":{"7":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"8":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"14":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"15":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"17":{"next_health_at":null,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"last_error":null},"18":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"21":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"22":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"23":{"next_health_at":null,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"last_error":null},"3":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"24":{"next_health_at":null,"next_check_at":"2026-11-22T15:09:11.789018Z","last_check_status":null,"last_error":null},"1":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"19":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"9":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"5":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"2":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"10":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"4":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":"2026-11-22T16:02:14.928703Z","last_check_status":"updated","last_error":null},"16":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":null,"last_check_status":null,"last_error":null},"6":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":null,"last_check_status":null,"last_error":null},"11":{"next_health_at":"2026-11-22T16:00:43.941081Z","next_check_at":null,"last_check_status":null,"last_error":null}}}};
+
+/* ---------- 环境与状态 ---------- */
+const PARAMS = new URLSearchParams(location.search);
+const PLATFORM = PARAMS.get('platform') === 'mobile' ? 'mobile' : 'desktop';
+const THEME = PARAMS.get('theme') === 'light' ? 'light' : 'cinema';
+const INITIAL_STATE = PARAMS.get('state') || 'default';
+const INITIAL_SITE = Number(PARAMS.get('site') || 21);
+const NOW = new Date(DATA.generatedAt);
+const IS_MOBILE = PLATFORM === 'mobile';
+document.documentElement.dataset.theme = THEME;
+
+const fmt = new Intl.NumberFormat('zh-CN');
+const ACTIVE = new Set(['queued', 'running']);
+
+const state = {
+  filter: 'all',
+  sort: 'attention',
+  tasksOpen: INITIAL_STATE === 'tasks',
+  logsOpen: INITIAL_STATE === 'logs',
+  trendOpen: false,
+  sheetSiteId: INITIAL_STATE === 'sheet' ? INITIAL_SITE : null,
+  editing: false,
+  schedOpen: false,
+  loading: INITIAL_STATE === 'loading',
+  error: INITIAL_STATE === 'error',
+  empty: INITIAL_STATE === 'empty',
+  refreshedAt: DATA.stats.computed_at,
+  speed: (() => { try { return localStorage.getItem('ht-cleanup-speed') || 'eco'; } catch { return 'eco'; } })(),
+};
+
+/* ---------- 基础工具 ---------- */
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+function parseTime(value) {
+  if (!value) return null;
+  if (typeof value === 'number') {
+    const ms = value > 1e12 ? value : value * 1000;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  let s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s += 'Z';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function hm(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function hms(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+function fmtShort(value) {
+  const d = parseTime(value);
+  if (!d) return '—';
+  if (d.toDateString() === NOW.toDateString()) return hm(d);
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${hm(d)}`;
+}
+function fmtFull(value) {
+  const d = parseTime(value);
+  if (!d) return '—';
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hms(d)}`;
+}
+function fmtClock(value) {
+  const d = parseTime(value);
+  return d ? hms(d) : '—';
+}
+function fmtDateTimeShort(value) {
+  const d = parseTime(value);
+  if (!d) return '—';
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${hm(d)}`;
+}
+function fmtNumber(n) { return fmt.format(Number(n || 0)); }
+function pct(site) {
+  if (!site.total) return null;
+  return (site.with_detail / site.total) * 100;
+}
+function rateText(site) {
+  const pending = site.without_detail || 0;
+  if (!site.total) return '—';
+  const r = pct(site);
+  if (pending <= 0) return '100%';
+  if (r > 99.9) return `${(Math.floor(r * 100) / 100).toFixed(2)}%`;
+  return `${r.toFixed(1)}%`;
+}
+function progressWidth(site) {
+  const r = pct(site);
+  if (r == null) return 0;
+  return Math.min(100, r);
+}
+function isActive(job) { return job && ACTIVE.has(job.state); }
+function siteById(id) { return DATA.sites.find((s) => s.site_id === Number(id)); }
+function activeJobFor(site) {
+  return DATA.jobs.find((j) => isActive(j) && j.site_id === site.site_id);
+}
+function globalActive(kind) {
+  return DATA.jobs.find((j) => isActive(j) && j.kind === kind && j.site_id == null);
+}
+function siteJobs(site) {
+  return DATA.jobs.filter((j) => j.site_id === site.site_id).sort((a, b) => (parseTime(b.created_at) || 0) - (parseTime(a.created_at) || 0));
+}
+
+/* ---------- 文案与语义 ---------- */
+const KIND = {
+  'crawl.full': '全量刮削',
+  'crawl.incremental': '增量刮削',
+  'detail.fill': 'videolist 补全',
+  'cache.cleanup': '失效资源清理',
+  'site.discover': '站点探测',
+};
+const STATE_LABEL = {
+  queued: '排队中', running: '运行中', done: '完成', partial: '部分完成',
+  failed: '失败', skipped: '已跳过', cancelled: '已取消', interrupted: '已中断',
+};
+const TRIGGER = { manual: '手动', scheduled: '定时', startup: '启动', lifecycle: '生命周期' };
+const FILL_SITE_STATE = { pending: '等待', running: '进行中', done: '完成', partial: '部分完成', blocked: '受阻', failed: '失败' };
+
+function kindLabel(kind) { return KIND[kind] || kind; }
+function siteLabel(site) { return site ? site.site_name : '全部站点'; }
+function stateTone(s) {
+  if (s === 'done') return 'ok';
+  if (s === 'queued' || s === 'running') return 'ok fill';
+  if (s === 'failed') return 'bad';
+  return 'warn';
+}
+function stateLabel(s) {
+  if (s === 'interrupted') return '已中断（服务重启）';
+  return STATE_LABEL[s] || s;
+}
+function healthOf(site) {
+  if (!site.enabled) return { tone: 'muted', text: '已禁用' };
+  const h = site.health;
+  if (!h) return { tone: 'muted', text: '未探测' };
+  if (h.last_probe_ok === true) {
+    return { tone: 'ok', text: h.last_probe_latency_ms != null ? `正常 ${h.last_probe_latency_ms}ms` : '正常' };
+  }
+  if (h.last_probe_ok === false) return { tone: 'bad', text: '异常' };
+  return { tone: 'muted', text: '未探测' };
+}
+function nextText(value) {
+  const d = parseTime(value);
+  if (!d) return '下次 —';
+  if (d < NOW) return '待检查';
+  return `下次 ${fmtShort(value)}`;
+}
+function cardMeta(site) {
+  const job = activeJobFor(site);
+  if (job) return { active: true, text: `任务中 · ${kindLabel(job.kind)}` };
+  if (!site.last_crawl_at) return { active: false, text: '无刮削记录' };
+  if (!site.enabled) return { active: false, text: `上次 ${fmtShort(site.last_crawl_at)}` };
+  return { active: false, text: `最近 ${fmtShort(site.last_crawl_at)} · ${nextText(site.next_check_at)}` };
+}
+
+/* ---------- 排序与筛选 ---------- */
+function attentionBucket(site) {
+  if (activeJobFor(site)) return 0;
+  if (!site.enabled) return 5;
+  const h = site.health;
+  if (h && h.last_probe_ok === false) return 1;
+  if (!site.last_crawl_at) return 2;
+  if ((site.without_detail || 0) > 0) return 3;
+  return 4;
+}
+function byName(a, b) { return a.site_name.localeCompare(b.site_name, 'zh-CN'); }
+function sortSites(list) {
+  const arr = [...list];
+  arr.sort((a, b) => {
+    if (state.sort === 'name') return byName(a, b);
+    if (state.sort === 'pending') return (b.without_detail || 0) - (a.without_detail || 0) || (b.total || 0) - (a.total || 0);
+    if (state.sort === 'total') return (b.total || 0) - (a.total || 0);
+    if (state.sort === 'recent') {
+      const ta = parseTime(a.last_crawl_at)?.getTime() || 0;
+      const tb = parseTime(b.last_crawl_at)?.getTime() || 0;
+      return tb - ta || byName(a, b);
+    }
+    const ba = attentionBucket(a), bb = attentionBucket(b);
+    if (ba !== bb) return ba - bb;
+    if (ba === 0) {
+      const ja = activeJobFor(a), jb = activeJobFor(b);
+      return (parseTime(ja?.created_at)?.getTime() || 0) - (parseTime(jb?.created_at)?.getTime() || 0);
+    }
+    if (ba === 1) {
+      const fa = a.health?.failure_count || 0, fb = b.health?.failure_count || 0;
+      if (fa !== fb) return fb - fa;
+      return (parseTime(a.health?.last_probe_at)?.getTime() || 0) - (parseTime(b.health?.last_probe_at)?.getTime() || 0);
+    }
+    if (ba === 2) return b.site_id - a.site_id;
+    if (ba === 3) return (pct(a) || 0) - (pct(b) || 0) || (b.without_detail || 0) - (a.without_detail || 0);
+    return byName(a, b);
+  });
+  return arr;
+}
+function visibleSites() {
+  let list = DATA.sites;
+  if (state.loading || state.error) return [];
+  if (state.empty) return [];
+  if (state.filter === 'attention') list = list.filter((s) => attentionBucket(s) <= 3);
+  else if (state.filter === 'active') list = list.filter((s) => Boolean(activeJobFor(s)));
+  else if (state.filter === 'disabled') list = list.filter((s) => !s.enabled);
+  return sortSites(list);
+}
+function filterCounts() {
+  return {
+    all: DATA.sites.length,
+    attention: DATA.sites.filter((s) => attentionBucket(s) <= 3).length,
+    active: DATA.sites.filter((s) => Boolean(activeJobFor(s))).length,
+    disabled: DATA.sites.filter((s) => !s.enabled).length,
+  };
+}
+
+/* ---------- SVG 图标 ---------- */
+const I = {
+  chev: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>',
+  search: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  close: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  activity: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+  radar: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="12" x2="20" y2="4"/></svg>',
+  download: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  more: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+  server: '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+  x: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+  user: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  search22: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  download22: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+};
+function chev(cls) { return `<span class="chev ${cls || ''}">${I.chev}</span>`; }
+
+/* ---------- 概览 ---------- */
+function statHTML() {
+  if (state.loading) {
+    return `<section class="stat-strip" aria-label="数据概览" aria-busy="true">
+      ${[0,1,2,3].map(() => `<div class="stat-cell"><div class="skeleton skeleton-line" style="width:52px"></div><div class="skeleton skeleton-value" style="margin-top:8px;width:120px"></div></div>`).join('')}
+    </section>`;
+  }
+  if (state.error) {
+    return `<div class="stat-error" role="alert"><strong>统计加载失败</strong><span style="color:var(--text-secondary)">·</span><button class="text-btn" type="button" data-retry>重试</button></div>`;
+  }
+  const v = state.empty ? { total: 0, with_detail: 0, without_detail: 0, aggregated_count: 0 } : DATA.stats;
+  const danger = v.without_detail > 0;
+  return `<section class="stat-strip" aria-label="数据概览">
+    <div class="stat-cell"><span class="stat-label">已收录</span><span class="stat-value">${fmtNumber(v.total)}</span></div>
+    <div class="stat-cell"><span class="stat-label">已补全</span><span class="stat-value">${fmtNumber(v.with_detail)}</span></div>
+    <div class="stat-cell"><span class="stat-label">未补全</span><span class="stat-value${danger ? ' is-danger' : ''}">${fmtNumber(v.without_detail)}</span></div>
+    <div class="stat-cell"><span class="stat-label">已聚合</span><span class="stat-value">${fmtNumber(v.aggregated_count)}</span></div>
+  </section>`;
+}
+
+/* ---------- 7 天趋势 ---------- */
+function trendPoints() {
+  const map = new Map();
+  for (const p of DATA.stats.history || []) {
+    const d = parseTime(p.ts);
+    if (!d) continue;
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const prev = map.get(key);
+    if (!prev || d > prev.d) map.set(key, { d, total: p.total, detail: p.with_detail });
+  }
+  return [...map.values()].sort((a, b) => a.d - b.d).slice(-7);
+}
+function trendSummary() {
+  const pts = trendPoints();
+  if (pts.length < 2) return null;
+  const a = pts[0], b = pts[pts.length - 1];
+  return { total: b.total - a.total, detail: b.detail - a.detail, pts };
+}
+function fmtAxis(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1e3) return Math.round(v / 1e3) + 'k';
+  return String(Math.round(v));
+}
+function chartHTML(pts) {
+  const W = 1000, H = 220, pl = 52, pr = 14, pt = 14, pb = 30;
+  const max = Math.max(1, ...pts.map((p) => p.total), ...pts.map((p) => p.detail)) * 1.04;
+  const n = pts.length;
+  const x = (i) => pl + (n <= 1 ? 0 : i * (W - pl - pr) / (n - 1));
+  const y = (v) => pt + (1 - v / max) * (H - pt - pb);
+  const line = (key) => pts.map((p, i) => `${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ');
+  const area = `${pl},${H - pb} ${line('total')} ${x(n - 1)},${H - pb}`;
+  const grid = [0, 0.5, 1].map((r) => {
+    const yy = pt + (1 - r) * (H - pt - pb);
+    const val = (max * r) / 1.04;
+    return `<line x1="${pl}" y1="${yy}" x2="${W - pr}" y2="${yy}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 5"/><text x="${pl - 10}" y="${yy + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${fmtAxis(val)}</text>`;
+  }).join('');
+  const labels = pts.map((p, i) => `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${p.d.getMonth() + 1}-${pad(p.d.getDate())}</text>`).join('');
+  return `<svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="7 天收录与补全趋势">
+    ${grid}
+    <polygon points="${area}" fill="var(--primary-dim)" stroke="none"/>
+    <polyline points="${line('total')}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline points="${line('detail')}" fill="none" stroke="var(--text-secondary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${labels}
+  </svg>`;
+}
+function trendHTML() {
+  if (state.error) return '';
+  if (state.loading) {
+    return `<div class="trend-row" style="cursor:default"><span class="chev" style="opacity:.3">${I.chev}</span><span class="trend-title">7 天趋势</span><span class="trend-summary">数据加载中…</span></div>`;
+  }
+  const summary = state.empty ? null : trendSummary();
+  const text = summary ? `收录 +${fmtNumber(summary.total)} · 补全 +${fmtNumber(summary.detail)}` : '数据积累中';
+  return `<button class="trend-row" type="button" data-toggle="trend" aria-expanded="${state.trendOpen}">
+      <span class="chev">${I.chev}</span>
+      <span class="trend-title">7 天趋势</span>
+      <span class="trend-summary">${text}</span>
+      <span class="trend-hint">${summary ? `${summary.pts.length} 个快照` : ''}</span>
+    </button>
+    <div class="trend-body" id="trend-body" ${state.trendOpen ? '' : 'hidden'}>
+      ${summary ? `<div class="legend"><span><i class="legend-dot"></i>总已收录</span><span><i class="legend-dot alt"></i>总已补全</span></div>${chartHTML(summary.pts)}` : `<div class="trend-empty">数据积累中，需至少两个历史快照</div>`}
+    </div>`;
+}
+
+/* ---------- 全局操作 ---------- */
+function actionsHTML() {
+  const disabled = state.loading || state.error || state.empty;
+  const full = globalActive('crawl.full');
+  const fill = globalActive('detail.fill');
+  const cleanup = globalActive('cache.cleanup');
+  const title = disabled ? '请先添加采集站' : '';
+  return `<div class="ops-actions">
+    <button class="btn btn-primary" type="button" data-action="fill" ${disabled || fill ? 'disabled' : ''} title="${disabled ? title : ''}">${fill ? '全站补全中…' : '全站补全 videolist'}</button>
+    <button class="btn" type="button" data-action="crawl" ${disabled || full ? 'disabled' : ''} title="${disabled ? title : ''}">${full ? '全量刮削中…' : '全量刮削'}</button>
+    <button class="btn btn-danger" type="button" data-action="cleanup" ${disabled || cleanup ? 'disabled' : ''} title="${disabled ? title : ''}">${cleanup ? '清理进行中…' : '清除失效资源'}</button>
+    <div class="speed"><span>清理速度</span>
+      <select class="select" data-speed aria-label="清理速度" ${disabled || cleanup ? 'disabled' : ''}>
+        <option value="eco" ${state.speed === 'eco' ? 'selected' : ''}>省流</option>
+        <option value="normal" ${state.speed === 'normal' ? 'selected' : ''}>标准</option>
+        <option value="fast" ${state.speed === 'fast' ? 'selected' : ''}>快速</option>
+      </select>
+    </div>
+  </div>`;
+}
+
+/* ---------- 活动任务条 ---------- */
+function activeHTML() {
+  if (state.loading || state.error || state.empty) return '';
+  const active = DATA.jobs.filter(isActive).sort((a, b) => (parseTime(a.created_at) || 0) - (parseTime(b.created_at) || 0)).slice(0, 2);
+  if (!active.length) return '';
+  return `<div role="status" aria-live="polite">${active.map((job, index) => {
+    const site = job.site_id ? siteById(job.site_id) : null;
+    const total = job.progress_total || 0;
+    const done = job.progress_completed || 0;
+    const known = total > 0;
+    return `<div class="active-strip" style="margin:0 0 ${index === active.length - 1 ? 20 : 8}px">
+      <span class="dot"></span>
+      <div class="active-main">
+        <span class="active-title">${kindLabel(job.kind)} · ${siteLabel(site)}</span>
+        <span class="active-meta">${TRIGGER[job.trigger] || ''} · ${fmtShort(job.created_at)} 开始${known ? ` · ${done} / ${total}` : ' · 扫描中'}</span>
+      </div>
+      ${known ? `<span class="active-num">${done} / ${total}</span>` : ''}
+      <div class="active-bar ${known ? '' : 'indeterminate'}"><i style="${known ? `width:${Math.min(100, done / total * 100)}%` : ''}"></i></div>
+      <button class="btn btn-sm" type="button" data-cancel-job="${esc(job.id)}">取消</button>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+/* ---------- 站点工具条 / 卡片 ---------- */
+function chipsHTML(disabled) {
+  const counts = disabled ? { all: 0, attention: 0, active: 0, disabled: 0 } : filterCounts();
+  const defs = [['all', '全部'], ['attention', '需关注'], ['active', '任务中'], ['disabled', '已禁用']];
+  return defs.map(([key, label]) => `<button class="chip" type="button" data-filter="${key}" aria-pressed="${state.filter === key}" ${disabled ? 'disabled' : ''}>${label}<span class="n">${counts[key]}</span></button>`).join('');
+}
+function sortSelectHTML(disabled) {
+  const options = [['attention', '需关注优先'], ['pending', '待补全'], ['total', '收录量'], ['recent', '最近刮削'], ['name', '名称']];
+  return `<label class="sort"><span>排序</span><select class="select" data-sort aria-label="站点排序" ${disabled ? 'disabled' : ''}>${options.map(([v, l]) => `<option value="${v}" ${state.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+}
+function toolbarHTML() {
+  const disabled = state.loading || state.error || state.empty;
+  const count = state.loading || state.error ? '—' : (state.empty ? 0 : DATA.sites.length);
+  return `<div class="site-toolbar">
+    <div class="site-heading">
+      <span class="site-title">采集站</span>
+      <span class="site-count">${count}</span>
+      <div class="filters" role="group" aria-label="筛选站点">${chipsHTML(disabled)}</div>
+    </div>
+    <div class="site-tools">
+      ${sortSelectHTML(disabled)}
+      <button class="tool-btn" type="button" data-tool="probe" ${disabled ? 'disabled' : ''}><span class="ico">${I.activity}</span>批量检测</button>
+      <button class="tool-btn" type="button" data-tool="sniff" ${disabled ? 'disabled' : ''}><span class="ico">${I.radar}</span>批量嗅探</button>
+      <button class="tool-btn" type="button" data-tool="import" ${disabled ? 'disabled' : ''}><span class="ico">${I.upload}</span>导入</button>
+      <button class="tool-btn" type="button" data-tool="export" ${disabled ? 'disabled' : ''}><span class="ico">${I.download}</span>导出</button>
+      <button class="btn btn-sm add-site" type="button" data-action="add-site" ${disabled ? 'disabled' : ''}><span class="ico" style="display:flex;color:var(--text-secondary)">${I.plus}</span>添加站点</button>
+    </div>
+  </div>`;
+}
+function cardHTML(site) {
+  const h = healthOf(site);
+  const meta = cardMeta(site);
+  const width = progressWidth(site);
+  const rate = rateText(site);
+  const pending = site.without_detail || 0;
+  return `<article class="site-card" data-site-id="${site.site_id}">
+    <button class="site-card__open" type="button" data-site-id="${site.site_id}" aria-label="打开 ${esc(site.site_name)} 的站点运维"></button>
+    <div class="site-card__content">
+      <div class="card-top">
+        <span class="dot ${h.tone}"></span>
+        <span class="card-name">${esc(site.site_name)}</span>
+        <span class="card-health ${h.tone}" title="${esc(site.health?.last_probe_error || '')}">${esc(h.text)}</span>
+      </div>
+      <div class="card-mid">
+        <span class="pending">待补全 <b class="${pending > 0 ? 'is-danger' : ''}">${fmtNumber(pending)}</b><span class="total">/ ${fmtNumber(site.total)}</span></span>
+        <span class="rate">${rate}</span>
+      </div>
+      <div class="progress"><i style="width:${width}%"></i></div>
+      <div class="card-meta ${meta.active ? 'is-active' : ''}">${esc(meta.text)}</div>
+    </div>
+  </article>`;
+}
+function cardsHTML() {
+  if (state.loading) {
+    return [0,1,2,3,4,5,6,7].map(() => `<div class="skeleton-card">
+      <div class="skeleton skeleton-line" style="width:58%"></div>
+      <div class="skeleton skeleton-line" style="width:82%;margin-top:6px"></div>
+      <div class="skeleton skeleton-bar" style="margin-top:auto"></div>
+      <div class="skeleton skeleton-line" style="width:42%;margin-top:6px"></div>
+    </div>`).join('');
+  }
+  if (state.error || state.empty) return '';
+  const sites = visibleSites();
+  if (!sites.length) return `<div class="filter-empty">没有符合筛选的站点 <button class="text-btn" type="button" data-filter="all">查看全部</button></div>`;
+  return sites.map(cardHTML).join('');
+}
+function emptyBlockHTML() {
+  return `<div class="empty-block">
+    <span class="icon">${I.server}</span>
+    <div class="empty-title">还没有采集站</div>
+    <div class="empty-copy">添加一个 AppleCMS 资源站后，这里会显示它的健康、补全进度与最近刮削。</div>
+    <div class="empty-actions">
+      <button class="btn btn-primary" type="button" data-action="add-site">添加站点</button>
+      <button class="btn" type="button" data-tool="sniff">批量嗅探</button>
+    </div>
+  </div>`;
+}
+function sitesSectionHTML() {
+  let body;
+  if (state.error) body = `<div class="error-block"><strong>站点状态加载失败</strong><span>总览接口没有返回数据</span><button class="text-btn" type="button" data-retry>重试</button></div>`;
+  else if (state.empty) body = emptyBlockHTML();
+  else if (state.loading) body = `<div class="site-grid">${cardsHTML()}</div>`;
+  else body = `<div class="site-grid" data-site-grid>${cardsHTML()}</div>`;
+  return `<section aria-label="采集站">${toolbarHTML()}${body}</section>`;
+}
+
+/* ---------- 任务记录 ---------- */
+function taskBrief(job) {
+  if (job.kind === 'detail.fill' && job.fill) {
+    const parts = [`已补 ${fmtNumber(job.fill.filled)}`];
+    if (job.fill.failed > 0) parts.push(`失败 ${fmtNumber(job.fill.failed)}`);
+    if (job.fill.skipped > 0) parts.push(`跳过 ${fmtNumber(job.fill.skipped)}`);
+    return parts.join(' · ');
+  }
+  if (job.kind === 'cache.cleanup' && job.cleanup) {
+    const parts = [`检查 ${fmtNumber(job.cleanup.checked)}`];
+    if (job.cleanup.deleted > 0) parts.push(`删除 ${fmtNumber(job.cleanup.deleted)}`);
+    if (job.cleanup.pending > 0) parts.push(`待确认 ${fmtNumber(job.cleanup.pending)}`);
+    return parts.join(' · ');
+  }
+  if (job.state === 'interrupted') return '服务重启，任务中断';
+  if (job.kind === 'crawl.full' && job.state === 'done') return '全部站点完成';
+  return '';
+}
+function activeJobCard(job) {
+  const site = job.site_id ? siteById(job.site_id) : null;
+  const total = job.progress_total || 0;
+  const done = job.progress_completed || 0;
+  const known = total > 0;
+  return `<div class="job-card">
+    <div class="job-head">
+      <span class="job-kind">${kindLabel(job.kind)}</span>
+      <span class="job-site">${siteLabel(site)}</span>
+      <span class="state-chip ${stateTone(job.state)}">${stateLabel(job.state)}</span>
+      <span class="job-trigger">${TRIGGER[job.trigger] || ''}</span>
+    </div>
+    <div class="job-track ${known ? '' : 'indeterminate'}"><i style="${known ? `width:${Math.min(100, done / total * 100)}%` : ''}"></i></div>
+    <div class="job-meta">${known ? `<b>${done} / ${total}</b>` : '<b>扫描中</b>'}<span>发起于 ${fmtFull(job.created_at)}</span></div>
+    ${job.error ? `<div class="job-error">${esc(job.error)}</div>` : ''}
+    <button class="job-cancel" type="button" data-cancel-job="${esc(job.id)}">取消</button>
+  </div>`;
+}
+function taskRow(job, mobile) {
+  const site = job.site_id ? siteById(job.site_id) : null;
+  const brief = taskBrief(job);
+  if (mobile) {
+    return `<div class="task-row is-mobile">
+      <div>
+        <div class="task-name">${kindLabel(job.kind)}${site ? `<span class="site">${esc(site.site_name)}</span>` : ''}</div>
+        ${brief ? `<div class="task-brief">${esc(brief)}</div>` : ''}
+      </div>
+      <span class="state-chip ${stateTone(job.state)}">${stateLabel(job.state)}</span>
+      <span class="task-time">${fmtShort(job.created_at)}</span>
+    </div>`;
+  }
+  return `<div class="task-row">
+    <div class="task-name">${kindLabel(job.kind)}${site ? `<span class="site">${esc(site.site_name)}</span>` : ''}</div>
+    <span><span class="state-chip ${stateTone(job.state)}">${stateLabel(job.state)}</span></span>
+    <span style="font-size:12px;color:var(--text-muted)">${TRIGGER[job.trigger] || ''}</span>
+    <span class="task-brief">${esc(brief) || '—'}</span>
+    <span class="task-time">${fmtShort(job.created_at)}</span>
+  </div>`;
+}
+function tasksHTML() {
+  const emptyLike = state.loading || state.error || state.empty;
+  const active = emptyLike ? [] : DATA.jobs.filter(isActive).sort((a, b) => (parseTime(a.created_at) || 0) - (parseTime(b.created_at) || 0));
+  const manual = emptyLike ? [] : DATA.jobs.filter((j) => !isActive(j) && j.trigger !== 'scheduled').sort((a, b) => (parseTime(b.created_at) || 0) - (parseTime(a.created_at) || 0)).slice(0, 4);
+  const sched = emptyLike ? [] : DATA.jobs.filter((j) => j.trigger === 'scheduled');
+  const counts = sched.reduce((map, job) => { map[job.state] = (map[job.state] || 0) + 1; return map; }, {});
+  const latest = sched.length ? sched.reduce((a, b) => ((parseTime(a.created_at) || 0) > (parseTime(b.created_at) || 0) ? a : b)) : null;
+  const bits = [
+    counts.done ? `成功 ${counts.done}` : '',
+    counts.interrupted ? `中断 ${counts.interrupted}` : '',
+    counts.cancelled ? `已取消 ${counts.cancelled}` : '',
+    counts.failed ? `失败 ${counts.failed}` : '',
+    counts.running ? `运行中 ${counts.running}` : '',
+  ].filter(Boolean);
+  const countText = state.loading || state.error ? '—' : (state.empty ? 0 : DATA.jobs.length);
+  let body;
+  if (state.loading) {
+    body = [0, 1, 2].map(() => `<div class="skeleton-card" style="min-height:58px;padding:12px;margin-bottom:8px"><div class="skeleton skeleton-line" style="width:58%"></div><div class="skeleton skeleton-line" style="width:80%;margin-top:8px"></div></div>`).join('');
+  } else if (state.error) {
+    body = `<div class="task-empty">任务记录加载失败 <button class="text-btn" type="button" data-retry>重试</button></div>`;
+  } else if (state.empty) {
+    body = `<div class="task-empty">暂无任务记录，从上方发起刮削、补全或清理</div>`;
+  } else if (!DATA.jobs.length) {
+    body = `<div class="task-empty">暂无任务记录，从上方发起刮削、补全或清理</div>`;
+  } else {
+    body = `
+      ${active.length ? `<div class="task-group"><div class="task-group-title">进行中</div>${active.map(activeJobCard).join('')}</div>` : ''}
+      ${manual.length ? `<div class="task-group"><div class="task-group-title">手动 / 启动 / 生命周期</div>${manual.map((job) => taskRow(job, IS_MOBILE)).join('')}</div>` : ''}
+      ${sched.length ? `<div class="task-group"><div class="task-group-title">定时</div>
+        <div class="task-summary">
+          <b>定时增量 · ${sched.length} 条</b>
+          ${bits.map((text) => `<span class="${text.startsWith('成功') ? 'ok' : text.startsWith('中断') || text.startsWith('已取消') ? 'warn' : text === '失败' ? 'bad' : ''}">${text}</span>`).join('')}
+          <span>最近 ${latest ? fmtShort(latest.created_at) : '—'}</span>
+          <button class="text-btn" type="button" data-toggle-sched>${state.schedOpen ? '收起' : '展开'}</button>
+        </div>
+        <div data-sched-list ${state.schedOpen ? '' : 'hidden'} style="margin-top:8px">
+          ${sched.sort((a, b) => (parseTime(b.created_at) || 0) - (parseTime(a.created_at) || 0)).slice(0, 6).map((job) => taskRow(job, IS_MOBILE)).join('')}
+        </div>
+      </div>` : ''}
+    `;
+  }
+  return `<section class="section" data-section="tasks">
+    <button class="section-toggle" type="button" data-toggle="tasks" aria-expanded="${state.tasksOpen}">
+      <span class="chev">${I.chev}</span>
+      <span class="section-title">任务记录</span>
+      ${active.length ? `<span class="state-chip ok fill">进行中 ${active.length}</span>` : ''}
+      ${state.loading ? '<span class="section-count">加载中</span>' : state.error ? '<span class="section-count">加载失败</span>' : `<span class="section-count">最近 ${countText} 条</span>`}
+      <span class="section-right">${state.loading || state.error ? '—' : `${fmtShort(DATA.generatedAt)} 更新`}</span>
+    </button>
+    <div class="section-body" ${state.tasksOpen ? '' : 'hidden'}>${body}</div>
+  </section>`;
+}
+
+/* ---------- 刮削日志 ---------- */
+function logsHTML() {
+  const logs = state.loading || state.error || state.empty ? [] : DATA.logs;
+  const last = logs[0] ? fmtClock(logs[0].timestamp) : '—';
+  const countText = state.loading ? '加载中' : state.error ? '加载失败' : state.empty ? '暂无记录' : `最近 ${logs.length} 条`;
+  let body;
+  if (state.loading) {
+    body = [0, 1, 2].map(() => `<div class="skeleton-card" style="min-height:46px;padding:12px;margin-bottom:6px"><div class="skeleton skeleton-line" style="width:78%"></div></div>`).join('');
+  } else if (state.error) {
+    body = `<div class="task-empty">刮削日志加载失败 <button class="text-btn" type="button" data-retry>重试</button></div>`;
+  } else if (!logs.length) {
+    body = `<div class="task-empty">暂无刮削记录</div>`;
+  } else if (IS_MOBILE) {
+    body = `<div class="log-mobile">${logs.map((log) => `<div class="log-mobile-row">
+      <div class="log-mobile-main">
+        <div>${esc(log.site_name)} · ${esc(log.category)}</div>
+        <div class="log-mobile-nums">${log.crawl_type === 'full' ? '全量' : '增量'} · 处理 ${log.items_count} · 新增 <span class="new">${log.new_count}</span> · 更新 ${log.update_count} · ${log.duration_ms}ms</div>
+      </div>
+      <span class="log-mobile-time">${fmtClock(log.timestamp)}</span>
+    </div>`).join('')}</div>`;
+  } else {
+    body = `<table class="log-table">
+      <thead><tr><th>时间</th><th>站点</th><th>分类</th><th class="num">页</th><th>类型</th><th class="num">处理</th><th class="num">新增</th><th class="num">更新</th><th class="num">耗时</th></tr></thead>
+      <tbody>${logs.map((log) => `<tr>
+        <td class="muted">${fmtClock(log.timestamp)}</td>
+        <td>${esc(log.site_name)}</td>
+        <td class="muted">${esc(log.category)}</td>
+        <td class="num">${log.page}</td>
+        <td>${log.crawl_type === 'full' ? '全量' : '增量'}</td>
+        <td class="num">${log.items_count}</td>
+        <td class="num ${log.new_count > 0 ? 'new' : 'muted'}">${log.new_count}</td>
+        <td class="num ${log.update_count > 0 ? 'upd' : 'muted'}">${log.update_count}</td>
+        <td class="num muted">${log.duration_ms}ms</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  }
+  return `<section class="section" data-section="logs">
+    <button class="section-toggle" type="button" data-toggle="logs" aria-expanded="${state.logsOpen}">
+      <span class="chev">${I.chev}</span>
+      <span class="section-title">刮削日志</span>
+      <span class="section-count">${countText}</span>
+      <span class="section-right">${last}</span>
+    </button>
+    <div class="section-body" ${state.logsOpen ? '' : 'hidden'}>${body}</div>
+  </section>`;
+}
+
+/* ---------- 页面组装 ---------- */
+function pageSubHTML() {
+  if (state.loading) return '正在加载统计…';
+  if (state.error) return '数据暂不可用';
+  return `统计于 <span class="js-stamp">${fmtShort(state.refreshedAt)}</span>`;
+}
+function contentHTML() {
+  return `<div class="ops-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">运维</h1>
+        <div class="page-sub">${pageSubHTML()}</div>
+      </div>
+      <div class="page-header-actions">
+        <button class="icon-btn" type="button" data-refresh aria-label="刷新统计" title="刷新统计">${I.refresh}</button>
+      </div>
+    </div>
+    ${statHTML()}
+    ${trendHTML()}
+    ${actionsHTML()}
+    ${activeHTML()}
+    ${sitesSectionHTML()}
+    ${tasksHTML()}
+    ${logsHTML()}
+  </div>`;
+}
+function desktopHTML() {
+  const theme = document.documentElement.dataset.theme;
+  const themeIcon = theme === 'light' ? I.moon : I.sun;
+  const themeLabel = theme === 'light' ? '切换到深色主题' : '切换到浅色主题';
+  return `<header class="top-nav">
+    <div class="top-nav-left">
+      <span class="nav-brand">Home Theater</span>
+      <nav class="nav-links" aria-label="主导航">
+        <button class="nav-link" type="button">首页</button>
+        <button class="nav-link" type="button">收藏</button>
+        <button class="nav-link active" type="button" aria-current="page">运维</button>
+        <button class="nav-link" type="button">最近</button>
+        <button class="nav-link" type="button">下载</button>
+        <button class="nav-link" type="button">设置</button>
+      </nav>
+    </div>
+    <div class="nav-search" role="search">
+      <span class="ico">${I.search}</span>
+      <input type="search" placeholder="搜索片名、演员、..." aria-label="搜索">
+    </div>
+    <div class="top-nav-right">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="${themeLabel}" title="${themeLabel}">${themeIcon}</button>
+    </div>
+  </header>
+  <main>${contentHTML()}</main>`;
+}
+
+/* ---------- 移动端 ---------- */
+function mobileStatsHTML() {
+  if (state.loading) {
+    return `<div class="mobile-stat-strip" aria-busy="true">${[0,1,2,3].map(() => `<div class="mobile-stat-cell"><div class="skeleton skeleton-line" style="width:44px"></div><div class="skeleton skeleton-line" style="width:92px;height:22px;margin-top:4px"></div></div>`).join('')}</div>`;
+  }
+  if (state.error) {
+    return `<div class="stat-error" role="alert" style="min-height:72px"><strong>统计加载失败</strong><button class="text-btn" type="button" data-retry>重试</button></div>`;
+  }
+  const v = state.empty ? { total: 0, with_detail: 0, without_detail: 0, aggregated_count: 0 } : DATA.stats;
+  const danger = v.without_detail > 0;
+  return `<div class="mobile-stat-strip">
+    <div class="mobile-stat-cell"><span class="mobile-stat-label">已收录</span><span class="mobile-stat-value">${fmtNumber(v.total)}</span></div>
+    <div class="mobile-stat-cell"><span class="mobile-stat-label">已补全</span><span class="mobile-stat-value">${fmtNumber(v.with_detail)}</span></div>
+    <div class="mobile-stat-cell"><span class="mobile-stat-label">未补全</span><span class="mobile-stat-value${danger ? ' is-danger' : ''}">${fmtNumber(v.without_detail)}</span></div>
+    <div class="mobile-stat-cell"><span class="mobile-stat-label">已聚合</span><span class="mobile-stat-value">${fmtNumber(v.aggregated_count)}</span></div>
+  </div>`;
+}
+function mobileActionsHTML() {
+  const disabled = state.loading || state.error || state.empty;
+  const full = globalActive('crawl.full');
+  const fill = globalActive('detail.fill');
+  const cleanup = globalActive('cache.cleanup');
+  return `<div class="mobile-actions">
+    <button class="btn btn-primary span2" type="button" data-action="fill" ${disabled || fill ? 'disabled' : ''}>${fill ? '全站补全中…' : '全站补全 videolist'}</button>
+    <button class="btn" type="button" data-action="crawl" ${disabled || full ? 'disabled' : ''}>${full ? '全量刮削中…' : '全量刮削'}</button>
+    <button class="btn btn-danger" type="button" data-action="cleanup" ${disabled || cleanup ? 'disabled' : ''}>${cleanup ? '清理进行中…' : '清除失效资源'}</button>
+    <div class="mobile-speed"><span>清理速度</span>
+      <select class="select" data-speed aria-label="清理速度" ${disabled || cleanup ? 'disabled' : ''}>
+        <option value="eco" ${state.speed === 'eco' ? 'selected' : ''}>省流</option>
+        <option value="normal" ${state.speed === 'normal' ? 'selected' : ''}>标准</option>
+        <option value="fast" ${state.speed === 'fast' ? 'selected' : ''}>快速</option>
+      </select>
+    </div>
+  </div>`;
+}
+function mobileSitesHTML() {
+  const disabled = state.loading || state.error || state.empty;
+  const count = state.loading || state.error ? '—' : (state.empty ? 0 : DATA.sites.length);
+  if (state.error) {
+    return `${mobileToolbarHTML('—')}<div class="error-block" style="margin-top:8px"><strong>站点状态加载失败</strong><button class="text-btn" type="button" data-retry>重试</button></div>`;
+  }
+  if (state.empty) {
+    return `${mobileToolbarHTML('0')}${emptyBlockHTML()}`;
+  }
+  if (state.loading) {
+    return `${mobileToolbarHTML('—')}<div class="mobile-grid">${cardsHTML()}</div>`;
+  }
+  return `${mobileToolbarHTML(String(count))}
+    <div class="mobile-filters" role="group" aria-label="筛选站点">${chipsHTML(false)}</div>
+    <div class="mobile-grid" data-site-grid>${cardsHTML()}</div>`;
+}
+function mobileToolbarHTML(count) {
+  const disabled = state.loading || state.error || state.empty;
+  return `<div class="mobile-toolbar">
+    <div class="site-heading"><span class="site-title">采集站</span><span class="site-count">${count}</span></div>
+    <div class="tools">
+      ${disabled ? '' : sortSelectHTML(false)}
+      <button class="icon-btn" type="button" data-action="add-site" aria-label="添加站点" title="添加站点" ${disabled ? 'disabled' : ''}>${I.plus}</button>
+      <button class="icon-btn" type="button" data-more aria-label="更多站点操作" title="更多站点操作" ${disabled ? 'disabled' : ''}>${I.more}</button>
+    </div>
+  </div>`;
+}
+function mobileNavHTML() {
+  const item = (icon, label, active) => `<button class="mobile-nav-item${active ? ' active' : ''}" type="button" ${active ? 'aria-current="page"' : ''}>${icon}<span class="mobile-nav-label">${label}</span></button>`;
+  return `<nav class="mobile-nav" aria-label="底部导航">
+    ${item(I.home, '首页', false)}
+    ${item(I.search22, '搜索', false)}
+    ${item(I.heart, '收藏', false)}
+    ${item(I.download22, '下载', false)}
+    ${item(I.grid, '运维', true)}
+    ${item(I.user, '我的', false)}
+  </nav>`;
+}
+function mobileHTML() {
+  return `<div class="mobile-app">
+    <div class="mobile-page">
+      <div class="mobile-head">
+        <div>
+          <h1 class="mobile-title">运维</h1>
+          <div class="mobile-sub">${pageSubHTML()}</div>
+        </div>
+        <button class="icon-btn" type="button" data-refresh aria-label="刷新统计" title="刷新统计">${I.refresh}</button>
+      </div>
+      ${mobileStatsHTML()}
+      ${trendHTML()}
+      ${mobileActionsHTML()}
+      ${activeHTML()}
+      ${mobileSitesHTML()}
+      ${tasksHTML()}
+      ${logsHTML()}
+    </div>
+    ${mobileNavHTML()}
+  </div>`;
+}
+
+/* ---------- 渲染入口 ---------- */
+function render() {
+  document.documentElement.dataset.theme = document.documentElement.dataset.theme || 'cinema';
+  document.getElementById('root').innerHTML = IS_MOBILE ? mobileHTML() : desktopHTML();
+  if (state.sheetSiteId) renderSheet();
+  else {
+    const sheetRoot = document.getElementById('sheet-root');
+    if (sheetRoot) sheetRoot.innerHTML = '';
+  }
+  document.body.style.overflow = state.sheetSiteId ? 'hidden' : '';
+}
+function renderCards() {
+  const grid = document.querySelector('[data-site-grid]');
+  if (!grid) return;
+  grid.innerHTML = cardsHTML();
+  document.querySelectorAll('[data-filter]').forEach((btn) => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.filter === state.filter));
+  });
+}
+
+/* ---------- 单站弹层 ---------- */
+function renderSheet() {
+  const root = document.getElementById('sheet-root');
+  const site = siteById(state.sheetSiteId);
+  if (!site) {
+    root.innerHTML = '';
+    state.sheetSiteId = null;
+    document.body.style.overflow = '';
+    return;
+  }
+  const detail = DATA.health[site.site_id] || {};
+  const health = healthOf(site);
+  const job = activeJobFor(site);
+  const fillBusy = Boolean((job && job.kind === 'detail.fill') || globalActive('detail.fill'));
+  const crawlBusy = Boolean(job && job.kind === 'crawl.incremental');
+  const disabled = !site.enabled;
+  const pending = site.without_detail || 0;
+  const latest = detail.latest_probe || (site.health ? {
+    ok: site.health.last_probe_ok,
+    latency_ms: site.health.last_probe_latency_ms,
+    error: site.health.last_probe_error,
+    created_at: site.health.last_probe_at,
+  } : null);
+  const latestOk = latest && latest.ok === true;
+  const latestBad = latest && latest.ok === false;
+  const availability = detail.availability_24h != null
+    ? `${Number(detail.availability_24h).toFixed(1).replace(/\.0$/, '')}%`
+    : '—';
+  const recent = (detail.recent_logs || []).slice(0, 5);
+  const jobs = siteJobs(site).slice(0, 5);
+  const primaryFill = !disabled && pending > 0;
+  const primaryCrawl = !disabled && pending === 0;
+  const deleteBlocked = Boolean(job);
+  const editPanel = state.editing ? `<div class="edit-panel">
+    <div class="field"><label for="edit-name">站点名称</label><input class="input" id="edit-name" value="${esc(site.site_name)}"></div>
+    <div class="field"><label for="edit-url">站点地址</label><input class="input" id="edit-url" value="${esc(site.base_url || '')}"></div>
+    <div class="edit-actions"><button class="btn btn-primary" type="button" data-save-edit>保存</button><button class="btn" type="button" data-cancel-edit>取消</button></div>
+  </div>` : '';
+
+  root.innerHTML = `<div class="sheet-layer ${IS_MOBILE ? 'is-mobile' : ''}">
+    <div class="sheet-scrim" data-close-sheet></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      ${IS_MOBILE ? '<div class="sheet-handle" aria-hidden="true"></div>' : ''}
+      <div class="sheet-head">
+        <div style="min-width:0;flex:1">
+          <div class="sheet-title-row">
+            <h2 class="sheet-title" id="sheet-title">${esc(site.site_name)}</h2>
+            <span class="card-health ${health.tone}">${esc(health.text)}</span>
+          </div>
+          <div class="sheet-url" title="${esc(site.base_url || '')}">${esc(site.base_url || '地址未记录')}</div>
+        </div>
+        <button class="icon-btn sheet-close" type="button" data-close-sheet aria-label="关闭">${I.close}</button>
+      </div>
+      <div class="sheet-body">
+        ${editPanel}
+        <div class="sheet-section">
+          <h3 class="sheet-h">健康</h3>
+          <div class="kv"><span class="k">最新探测</span><span class="v ${latestOk ? 'ok' : latestBad ? 'bad' : 'muted'}">${latest ? (latestOk ? (latest.latency_ms != null ? `正常 · ${latest.latency_ms}ms` : '正常') : latestBad ? '异常' : '无记录') : '无记录'}</span></div>
+          ${latestBad && latest.error ? `<div style="font-size:12px;color:var(--danger);line-height:1.6;margin-top:-2px">${esc(latest.error)}</div>` : ''}
+          <div class="kv"><span class="k">24h 可用率</span><span class="v">${availability}</span></div>
+          ${!site.enabled && detail.auto_disabled_at ? `<div class="warn-box">自动禁用于 ${fmtFull(detail.auto_disabled_at)}。建议先探测确认站点恢复，再启用。</div>` : ''}
+        </div>
+        <div class="sheet-section">
+          <h3 class="sheet-h">数据</h3>
+          <div class="data-grid">
+            <div class="data-cell"><span class="k">已收录</span><span class="v">${fmtNumber(site.total)}</span></div>
+            <div class="data-cell"><span class="k">已补全</span><span class="v">${fmtNumber(site.with_detail)}</span></div>
+            <div class="data-cell"><span class="k">未补全</span><span class="v" style="${pending > 0 ? 'color:var(--danger)' : ''}">${fmtNumber(pending)}</span></div>
+            <div class="data-cell"><span class="k">补全率</span><span class="v">${rateText(site)}</span></div>
+          </div>
+        </div>
+        <div class="sheet-section">
+          <h3 class="sheet-h">操作</h3>
+          <div class="actions-grid">
+            <button class="btn ${primaryFill ? 'btn-primary' : ''}" type="button" data-action="fill" ${disabled || fillBusy ? 'disabled' : ''}>${fillBusy ? '补全中…' : '单站补全'}</button>
+            <button class="btn ${primaryCrawl && !crawlBusy ? 'btn-primary' : ''}" type="button" data-action="crawl" ${disabled || crawlBusy ? 'disabled' : ''}>${crawlBusy ? '刮削中…' : '增量刮削'}</button>
+            <button class="btn" type="button" data-action="probe">立即探测</button>
+            <button class="btn" type="button" data-action="edit">编辑</button>
+            <button class="btn span2 ${disabled ? 'btn-primary' : ''}" type="button" data-action="toggle">${disabled ? '启用站点' : '禁用站点'}</button>
+          </div>
+          ${disabled ? `<div class="sheet-hint">站点已禁用，启用后才能刮削或补全。</div>` : ''}
+        </div>
+        <div class="sheet-section">
+          <h3 class="sheet-h">本站任务</h3>
+          ${jobs.length ? `<div class="history">${jobs.map((item) => `<div class="history-row">
+            <span class="time">${fmtShort(item.created_at)}</span>
+            <span class="grow">${kindLabel(item.kind)}${item.trigger ? ` · ${TRIGGER[item.trigger] || ''}` : ''}</span>
+            <span class="state-chip ${stateTone(item.state)}">${STATE_LABEL[item.state] || item.state}</span>
+          </div>`).join('')}</div>` : '<div class="empty-line">暂无任务记录</div>'}
+        </div>
+        <div class="sheet-section">
+          <h3 class="sheet-h">探测历史</h3>
+          ${recent.length ? `<div class="history">${recent.map((log) => `<div class="history-row">
+            <span class="time">${fmtShort(log.created_at)}</span>
+            <span class="ico ${log.ok ? 'ok' : 'bad'}">${log.ok ? I.check : I.x}</span>
+            <span class="grow">${log.ok ? '正常' : esc(log.error || '异常')}</span>
+            <span class="muted">${log.ok && log.latency_ms != null ? `${log.latency_ms}ms` : ''}</span>
+          </div>`).join('')}</div>` : '<div class="empty-line">暂无探测记录</div>'}
+        </div>
+        <div class="sheet-section danger-zone">
+          <div class="danger-label">危险区</div>
+          <button class="btn btn-danger" type="button" data-action="delete" style="width:100%" ${deleteBlocked ? 'disabled' : ''}>删除站点</button>
+          ${deleteBlocked ? `<div class="sheet-hint">本站任务运行中，完成后可删除。</div>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  if (state.editing) requestAnimationFrame(() => document.getElementById('edit-name')?.focus());
+}
+
+let lastFocus = null;
+let dialogFocus = null;
+let actionFocus = null;
+let confirmAction = null;
+
+function openSheet(id) {
+  if (!siteById(id)) return;
+  lastFocus = document.activeElement;
+  state.sheetSiteId = Number(id);
+  state.editing = false;
+  renderSheet();
+  document.body.style.overflow = 'hidden';
+  syncURL();
+  requestAnimationFrame(() => document.querySelector('.sheet [data-close-sheet]')?.focus());
+}
+function closeSheet() {
+  if (!state.sheetSiteId) return;
+  state.sheetSiteId = null;
+  state.editing = false;
+  document.getElementById('sheet-root').innerHTML = '';
+  document.body.style.overflow = '';
+  lastFocus?.focus?.();
+  lastFocus = null;
+  syncURL();
+}
+function syncURL() {
+  const params = new URLSearchParams(location.search);
+  params.set('theme', document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  if (IS_MOBILE) params.set('platform', 'mobile');
+  else params.delete('platform');
+  const st = state.sheetSiteId ? 'sheet' : state.tasksOpen ? 'tasks' : state.logsOpen ? 'logs' : 'default';
+  if (st === 'default') params.delete('state'); else params.set('state', st);
+  if (state.sheetSiteId) params.set('site', String(state.sheetSiteId)); else params.delete('site');
+  history.replaceState(null, '', location.pathname + '?' + params.toString());
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.dataset.theme === 'light' ? 'cinema' : 'light';
+  root.dataset.theme = next;
+  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+    btn.innerHTML = next === 'light' ? I.moon : I.sun;
+    const label = next === 'light' ? '切换到深色主题' : '切换到浅色主题';
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+  });
+  syncURL();
+}
+
+/* ---------- 确认弹窗 / 操作表 / Toast ---------- */
+function openConfirm({ title, message, confirmText = '确认', danger = false, onConfirm }) {
+  confirmAction = onConfirm;
+  dialogFocus = document.activeElement;
+  document.getElementById('dialog-root').innerHTML = `<div class="dialog-layer" role="presentation">
+    <div class="dialog-scrim" data-cancel-dialog></div>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <h2 id="dialog-title">${esc(title)}</h2>
+      <p>${esc(message)}</p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" data-cancel-dialog>取消</button>
+        <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" type="button" data-confirm>${esc(confirmText)}</button>
+      </div>
+    </div>
+  </div>`;
+  requestAnimationFrame(() => document.querySelector('[data-confirm]')?.focus());
+}
+function closeConfirm() {
+  document.getElementById('dialog-root').innerHTML = '';
+  const el = dialogFocus;
+  dialogFocus = null;
+  confirmAction = null;
+  el?.focus?.();
+}
+function handleConfirm() {
+  const fn = confirmAction;
+  closeConfirm();
+  if (typeof fn === 'function') fn();
+}
+function openActions() {
+  actionFocus = document.activeElement;
+  document.getElementById('action-root').innerHTML = `<div class="action-sheet-layer">
+    <div class="action-sheet-scrim" data-close-actions></div>
+    <div class="action-sheet" role="dialog" aria-modal="true" aria-label="更多站点操作">
+      <button class="action-item" type="button" data-tool="probe"><span class="ico">${I.activity}</span>批量检测</button>
+      <button class="action-item" type="button" data-tool="sniff"><span class="ico">${I.radar}</span>批量嗅探</button>
+      <button class="action-item" type="button" data-tool="import"><span class="ico">${I.upload}</span>导入站点</button>
+      <button class="action-item" type="button" data-tool="export"><span class="ico">${I.download}</span>导出站点</button>
+    </div>
+  </div>`;
+  requestAnimationFrame(() => document.querySelector('.action-sheet .action-item')?.focus());
+}
+function closeActions() {
+  document.getElementById('action-root').innerHTML = '';
+  const el = actionFocus;
+  actionFocus = null;
+  el?.focus?.();
+}
+function showToast(message, tone = 'info') {
+  const root = document.getElementById('toast-root');
+  if (!root) return;
+  const el = document.createElement('div');
+  el.className = `toast ${tone}`;
+  el.setAttribute('role', 'status');
+  el.textContent = message;
+  root.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+/* ---------- 动作 ---------- */
+function requestCancel(jobId) {
+  const job = DATA.jobs.find((item) => item.id === jobId);
+  if (!job) return;
+  openConfirm({
+    title: '取消任务',
+    message: `确定要取消「${kindLabel(job.kind)}」吗？任务会在当前批次结束后停止。`,
+    confirmText: '取消任务',
+    onConfirm: () => {
+      job.state = 'cancelled';
+      job.cancel_requested = true;
+      job.finished_at = new Date().toISOString();
+      render();
+      showToast('已请求取消，任务会在当前批次结束后停止');
+    },
+  });
+}
+function deleteSite(site) {
+  openConfirm({
+    title: '删除站点',
+    message: `确定要删除「${site.site_name}」吗？该站点的缓存数据将一并清理。`,
+    confirmText: '删除站点',
+    danger: true,
+    onConfirm: () => {
+      DATA.sites = DATA.sites.filter((item) => item.site_id !== site.site_id);
+      DATA.jobs = DATA.jobs.filter((item) => item.site_id !== site.site_id);
+      delete DATA.health[site.site_id];
+      state.sheetSiteId = null;
+      state.editing = false;
+      document.getElementById('sheet-root').innerHTML = '';
+      document.body.style.overflow = '';
+      render();
+      syncURL();
+      showToast('站点已删除（示意）', 'success');
+    },
+  });
+}
+function probeSite(site) {
+  const now = new Date().toISOString();
+  site.health = site.health || {};
+  site.health.last_probe_ok = true;
+  site.health.last_probe_latency_ms = 345;
+  site.health.last_probe_at = now;
+  site.health.last_probe_error = null;
+  const detail = DATA.health[site.site_id] || (DATA.health[site.site_id] = { recent_logs: [] });
+  detail.latest_probe = { ok: true, latency_ms: 345, error: null, created_at: now };
+  detail.recent_logs = [{ ok: true, latency_ms: 345, error: null, created_at: now }, ...(detail.recent_logs || [])].slice(0, 6);
+  render();
+  showToast('探测完成：正常 · 345ms（示意）', 'success');
+}
+function toggleSite(site) {
+  site.enabled = !site.enabled;
+  render();
+  showToast(site.enabled ? '站点已启用' : '站点已禁用', site.enabled ? 'success' : 'info');
+}
+function saveEdit(site) {
+  const name = document.getElementById('edit-name')?.value.trim();
+  const url = document.getElementById('edit-url')?.value.trim();
+  if (!name || !url) {
+    showToast('名称和地址不能为空', 'danger');
+    return;
+  }
+  site.site_name = name;
+  site.base_url = url;
+  state.editing = false;
+  render();
+  showToast('站点已更新（示意）', 'success');
+}
+function refreshStats() {
+  state.refreshedAt = new Date().toISOString();
+  document.querySelectorAll('.js-stamp').forEach((el) => { el.textContent = fmtShort(state.refreshedAt); });
+  showToast('统计已刷新（示意）', 'success');
+}
+
+/* ---------- 事件 ---------- */
+const CLICKABLE = '[data-theme-toggle],[data-refresh],[data-filter],[data-tool],[data-action],[data-site-id],[data-close-sheet],[data-save-edit],[data-cancel-edit],[data-cancel-job],[data-toggle],[data-toggle-sched],[data-cancel-dialog],[data-confirm],[data-close-actions],[data-more],[data-retry]';
+
+document.addEventListener('click', (event) => {
+  const target = event.target.closest(CLICKABLE);
+  if (!target) return;
+
+  if (target.hasAttribute('data-site-id')) {
+    event.preventDefault();
+    openSheet(target.getAttribute('data-site-id'));
+    return;
+  }
+  if (target.hasAttribute('data-close-sheet')) { closeSheet(); return; }
+  if (target.hasAttribute('data-close-actions')) { closeActions(); return; }
+  if (target.hasAttribute('data-cancel-dialog')) { closeConfirm(); return; }
+  if (target.hasAttribute('data-confirm')) { handleConfirm(); return; }
+  if (target.hasAttribute('data-theme-toggle')) { toggleTheme(); return; }
+  if (target.hasAttribute('data-refresh')) { refreshStats(); return; }
+  if (target.hasAttribute('data-more')) { openActions(); return; }
+  if (target.hasAttribute('data-toggle')) {
+    const key = target.dataset.toggle;
+    if (key === 'tasks') {
+      state.tasksOpen = !state.tasksOpen;
+      target.setAttribute('aria-expanded', String(state.tasksOpen));
+      target.parentElement.querySelector('.section-body').hidden = !state.tasksOpen;
+      syncURL();
+    } else if (key === 'logs') {
+      state.logsOpen = !state.logsOpen;
+      target.setAttribute('aria-expanded', String(state.logsOpen));
+      target.parentElement.querySelector('.section-body').hidden = !state.logsOpen;
+      syncURL();
+    } else if (key === 'trend') {
+      state.trendOpen = !state.trendOpen;
+      target.setAttribute('aria-expanded', String(state.trendOpen));
+      const body = document.getElementById('trend-body');
+      if (body) body.hidden = !state.trendOpen;
+    }
+    return;
+  }
+  if (target.hasAttribute('data-toggle-sched')) {
+    state.schedOpen = !state.schedOpen;
+    const list = document.querySelector('[data-sched-list]');
+    if (list) list.hidden = !state.schedOpen;
+    target.textContent = state.schedOpen ? '收起' : '展开';
+    return;
+  }
+  if (target.hasAttribute('data-filter')) {
+    state.filter = target.dataset.filter;
+    renderCards();
+    return;
+  }
+  if (target.hasAttribute('data-cancel-job')) {
+    requestCancel(target.getAttribute('data-cancel-job'));
+    return;
+  }
+  if (target.hasAttribute('data-save-edit')) {
+    const site = siteById(state.sheetSiteId);
+    if (site) saveEdit(site);
+    return;
+  }
+  if (target.hasAttribute('data-cancel-edit')) {
+    state.editing = false;
+    renderSheet();
+    return;
+  }
+  if (target.hasAttribute('data-tool')) {
+    const tool = target.dataset.tool;
+    closeActions();
+    const labels = { probe: '批量检测已开始（示意）', sniff: '打开批量嗅探（示意）', import: '打开站点导入（示意）', export: '站点配置已导出（示意）' };
+    showToast(labels[tool] || '操作已触发（示意）', tool === 'export' ? 'success' : 'info');
+    return;
+  }
+  if (target.hasAttribute('data-retry')) {
+    state.loading = false;
+    state.error = false;
+    state.empty = false;
+    render();
+    syncURL();
+    return;
+  }
+  if (target.hasAttribute('data-action')) {
+    const action = target.dataset.action;
+    const inSheet = Boolean(target.closest('.sheet'));
+    const site = state.sheetSiteId ? siteById(state.sheetSiteId) : null;
+    if (action === 'add-site') { showToast('打开添加站点（示意）'); return; }
+    if (action === 'fill') {
+      showToast(inSheet ? '已启动单站 videolist 补全（示意）' : '已启动全站 videolist 补全（示意）', 'success');
+      return;
+    }
+    if (action === 'crawl') {
+      if (inSheet) { showToast('已启动增量刮削（示意）', 'success'); return; }
+      openConfirm({
+        title: '全量刮削',
+        message: '确定要重新全量刮削吗？这会遍历所有站点的所有分类，预计耗时 20–40 分钟。',
+        confirmText: '开始刮削',
+        onConfirm: () => showToast('全量刮削已启动（示意）', 'success'),
+      });
+      return;
+    }
+    if (action === 'cleanup') {
+      openConfirm({
+        title: '清除失效资源',
+        message: '确定要清除失效资源吗？会后台扫完全部站点的缓存，连续两轮都没被资源站返回的条目才会删除，整个过程可能需要约 1 小时。',
+        confirmText: '开始清理',
+        danger: true,
+        onConfirm: () => showToast('失效资源清理已启动（示意）', 'success'),
+      });
+      return;
+    }
+    if (!site) return;
+    if (action === 'probe') { probeSite(site); return; }
+    if (action === 'edit') { state.editing = true; renderSheet(); return; }
+    if (action === 'toggle') { toggleSite(site); return; }
+    if (action === 'delete') { deleteSite(site); return; }
+  }
+});
+
+document.addEventListener('change', (event) => {
+  const sort = event.target.closest('[data-sort]');
+  if (sort) { state.sort = sort.value; renderCards(); return; }
+  const speed = event.target.closest('[data-speed]');
+  if (speed) {
+    state.speed = speed.value;
+    try { localStorage.setItem('ht-cleanup-speed', state.speed); } catch (e) {}
+  }
+});
+
+function focusables(root) {
+  return [...root.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+    .filter((el) => el.getClientRects().length > 0);
+}
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (document.querySelector('.dialog-layer')) { closeConfirm(); return; }
+    if (document.querySelector('.action-sheet-layer')) { closeActions(); return; }
+    if (state.sheetSiteId) { closeSheet(); return; }
+  }
+  if (event.key !== 'Tab') return;
+  const layer = document.querySelector('.dialog') || document.querySelector('.sheet') || document.querySelector('.action-sheet');
+  if (!layer) return;
+  const list = focusables(layer);
+  if (!list.length) return;
+  const first = list[0];
+  const last = list[list.length - 1];
+  if (!layer.contains(document.activeElement)) {
+    event.preventDefault();
+    first.focus();
+    return;
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
+/* ---------- 启动 ---------- */
+render();
+</script>
+</body>
+</html>
