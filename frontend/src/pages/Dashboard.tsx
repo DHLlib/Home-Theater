@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fillMissingVideolist, getCrawlerStats } from "../api/videos";
-import { toastError, toastSuccess } from "../utils/toast";
-import type { CrawlerStatsResponse, HistoryPoint, SiteStat } from "../types";
+import {
+  fillMissingVideolist,
+  getCrawlerStats,
+  getFillVideolistStatus,
+} from "../api/videos";
+import { toast, toastError, toastSuccess } from "../utils/toast";
+import type {
+  CrawlerStatsResponse,
+  FillSiteState,
+  FillState,
+  FillStatus,
+  HistoryPoint,
+  SiteStat,
+} from "../types";
 import "./Dashboard.css";
 
 const CACHE_KEY = "dashboard_stats_cache_v3";
@@ -35,6 +46,187 @@ function fmtAxis(v: number): string {
   if (v === 0) return "0";
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   return (v / 1000).toFixed(0) + "k";
+}
+
+/* ---------- 补全任务状态 ---------- */
+
+/** 终态：到达后轮询停止、按钮恢复 */
+const FILL_TERMINAL_STATES: FillState[] = ["done", "partial", "failed", "interrupted"];
+
+export function isFillTerminal(state: FillState): boolean {
+  return FILL_TERMINAL_STATES.includes(state);
+}
+
+/** started_at / finished_at 兼容 epoch 秒、epoch 毫秒与 ISO 字符串 */
+function fmtTime(v: number | string | null): string {
+  if (v == null) return "";
+  const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("zh-CN");
+}
+
+function toDate(v: number | string | null): Date | null {
+  if (v == null) return null;
+  const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** 把秒数写成「12 分钟 / 1 小时 20 分」（与 Settings 的 formatDuration 一致） */
+function fmtDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} 秒`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
+}
+
+const FILL_SITE_STATE_LABEL: Record<FillSiteState, string> = {
+  pending: "等待",
+  running: "进行中",
+  done: "完成",
+  partial: "部分完成",
+  blocked: "受阻",
+  failed: "失败",
+};
+
+const FILL_SITE_STATE_TONE: Record<FillSiteState, "ok" | "warn" | "bad" | "muted"> = {
+  pending: "muted",
+  running: "ok",
+  done: "ok",
+  partial: "warn",
+  blocked: "warn",
+  failed: "bad",
+};
+
+/** 失败原因：顶层 error 为空时（旧状态/异常状态）从第一个带错误的站点兜底 */
+export function fillFailureReason(status: FillStatus): string {
+  if (status.error) return status.error;
+  const site = status.sites.find((s) => s.error);
+  return site ? `${site.site_name}：${site.error}` : "未知错误";
+}
+
+/* ---------- 补全进度面板 ---------- */
+function FillProgressPanel({ status }: { status: FillStatus }) {
+  const running = status.state === "running";
+  const percent =
+    status.total_sites > 0
+      ? Math.min(100, Math.round((status.completed_sites / status.total_sites) * 100))
+      : 0;
+  const startedAt = toDate(status.started_at);
+  const elapsedSeconds = startedAt
+    ? Math.max(0, (Date.now() - startedAt.getTime()) / 1000)
+    : null;
+
+  const summary = (() => {
+    switch (status.state) {
+      case "done":
+        return `补全完成：补齐 ${fmt(status.filled)} 条，跳过 ${fmt(status.skipped)} 条`;
+      case "partial":
+        return `部分完成：补齐 ${fmt(status.filled)} 条，失败 ${fmt(status.failed)} 条——有站点受阻或未跑完，可稍后重试`;
+      case "failed":
+        return `补全失败：${fillFailureReason(status)}`;
+      case "interrupted":
+        return `补全任务被中断（后端重启），已补 ${fmt(status.filled)} 条，可重新发起`;
+      default:
+        return "";
+    }
+  })();
+
+  return (
+    <section className="fill-progress" aria-live="polite">
+      <div className="fill-progress-head">
+        <span className="fill-progress-title">
+          {running ? "正在补全 videolist" : "上次补全结果"}
+        </span>
+        {running && (
+          <span className="fill-progress-chip is-ok">进行中</span>
+        )}
+        {!running && status.state !== "idle" && (
+          <span
+            className={`fill-progress-chip ${
+              status.state === "done"
+                ? "is-ok"
+                : status.state === "partial" || status.state === "interrupted"
+                  ? "is-warn"
+                  : "is-bad"
+            }`}
+          >
+            {status.state === "done"
+              ? "完成"
+              : status.state === "partial"
+                ? "部分完成"
+                : status.state === "interrupted"
+                  ? "已中断"
+                  : "失败"}
+          </span>
+        )}
+      </div>
+
+      <div className="fill-progress-body">
+        <div className="fill-progress-track">
+          <i style={{ width: `${percent}%` }} />
+        </div>
+        <div className="fill-progress-meta">
+          <b>{percent}%</b>
+          <span>
+            站点 {status.completed_sites} / {status.total_sites || "…"}
+          </span>
+          {running && status.current_site_name && (
+            <span className="fill-progress-site">
+              正在补全 {status.current_site_name}
+            </span>
+          )}
+          <span>已补 {fmt(status.filled)}</span>
+          {status.failed > 0 && (
+            <span className="is-danger">失败 {fmt(status.failed)}</span>
+          )}
+          {status.skipped > 0 && <span>跳过 {fmt(status.skipped)}</span>}
+          {running && elapsedSeconds != null && elapsedSeconds >= 1 && (
+            <span>已运行 {fmtDuration(elapsedSeconds)}</span>
+          )}
+          {!running && status.finished_at != null && (
+            <span>结束于 {fmtTime(status.finished_at)}</span>
+          )}
+        </div>
+      </div>
+
+      {summary && (
+        <div
+          className={`fill-progress-summary ${
+            status.state === "done"
+              ? "is-ok"
+              : status.state === "partial" || status.state === "interrupted"
+                ? "is-warn"
+                : "is-bad"
+          }`}
+        >
+          {summary}
+        </div>
+      )}
+
+      {status.sites.length > 0 && (
+        <ul className="fill-site-list">
+          {status.sites.map((s) => (
+            <li key={s.site_id} className="fill-site-row">
+              <span className="fill-site-name">{s.site_name}</span>
+              <span
+                className={`fill-progress-chip is-${FILL_SITE_STATE_TONE[s.state]}`}
+              >
+                {FILL_SITE_STATE_LABEL[s.state]}
+              </span>
+              <span className="fill-site-nums">
+                缺 {fmt(s.missing)} · 补 {fmt(s.filled)}
+                {s.failed > 0 && ` · 失败 ${fmt(s.failed)}`}
+                {s.skipped > 0 && ` · 跳过 ${fmt(s.skipped)}`}
+              </span>
+              {s.error && <span className="fill-site-error">{s.error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 /* ---------- Skeleton ---------- */
@@ -239,12 +431,13 @@ function SiteTable({
   data,
   total,
   onFill,
-  fillLoadingSiteId,
+  fillActive,
 }: {
   data: SiteStat[];
   total: number;
   onFill?: (siteId: number) => void;
-  fillLoadingSiteId?: number | null;
+  /** 有补全任务在跑时，全站与单站入口都禁用（后端一次只跑一个任务） */
+  fillActive?: boolean;
 }) {
   return (
     <div className="site-table-section">
@@ -271,7 +464,6 @@ function SiteTable({
               const completionRate = s.count > 0 ? (s.with_detail / s.count) * 100 : 0;
               const share = total > 0 ? (s.count / total) * 100 : 0;
               const color = completionRate >= 80 ? "var(--primary)" : completionRate >= 50 ? "var(--text-secondary)" : "var(--danger)";
-              const isFilling = fillLoadingSiteId === s.site_id;
               return (
                 <tr key={s.site_id}>
                   <td data-label="站点">{s.site_name}</td>
@@ -288,7 +480,7 @@ function SiteTable({
                         type="button"
                         className="btn"
                         onClick={() => onFill(s.site_id)}
-                        disabled={isFilling}
+                        disabled={fillActive}
                         style={{
                           minHeight: 28,
                           padding: "0 10px",
@@ -296,7 +488,7 @@ function SiteTable({
                           borderRadius: 6,
                         }}
                       >
-                        {isFilling ? "补全中…" : "补全"}
+                        {fillActive ? "补全中…" : "补全"}
                       </button>
                     )}
                   </td>
@@ -314,8 +506,10 @@ function SiteTable({
 export default function Dashboard() {
   const [stats, setStats] = useState<CrawlerStatsResponse | null>(() => loadCache());
   const [loading, setLoading] = useState(!loadCache());
-  const [fillLoading, setFillLoading] = useState(false);
-  const [fillLoadingSiteId, setFillLoadingSiteId] = useState<number | null>(null);
+  const [fillStatus, setFillStatus] = useState<FillStatus | null>(null);
+  const [fillStarting, setFillStarting] = useState(false);
+  const fillTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fillWasRunning = useRef(false);
 
   const refreshStats = () => {
     getCrawlerStats().then(res => { setStats(res); saveCache(res); }).catch(() => {});
@@ -333,25 +527,79 @@ export default function Dashboard() {
     }
   }, []);
 
-  const handleFill = async (siteId?: number) => {
-    if (siteId != null) {
-      setFillLoadingSiteId(siteId);
-    } else {
-      setFillLoading(true);
+  /* ---- 补全任务：启动后轮询真实进度，终态才恢复按钮并刷新统计 ---- */
+
+  const stopFillPolling = () => {
+    if (fillTimerRef.current) {
+      clearInterval(fillTimerRef.current);
+      fillTimerRef.current = null;
     }
+  };
+
+  const applyFillStatus = (status: FillStatus) => {
+    setFillStatus(status);
+    const wasRunning = fillWasRunning.current;
+    fillWasRunning.current = status.state === "running";
+    if (status.state === "running") {
+      startFillPolling();
+      return;
+    }
+    stopFillPolling();
+    if (!wasRunning || !isFillTerminal(status.state)) return;
+    // 终态：刷新看板统计（任务本身可能跑 8–10 分钟，不再固定 3 秒刷新）
+    refreshStats();
+    if (status.state === "done") {
+      toastSuccess(`补全完成：补齐 ${fmt(status.filled)} 条，跳过 ${fmt(status.skipped)} 条`);
+    } else if (status.state === "partial") {
+      toast("info", `补全部分完成：补齐 ${fmt(status.filled)} 条，失败 ${fmt(status.failed)} 条，有站点受阻`);
+    } else if (status.state === "interrupted") {
+      toastError(`补全任务被中断（后端重启），已补 ${fmt(status.filled)} 条，可重新发起`);
+    } else {
+      toastError(`补全失败：${fillFailureReason(status)}`);
+    }
+  };
+
+  const startFillPolling = () => {
+    if (fillTimerRef.current) return;
+    fillTimerRef.current = setInterval(() => {
+      getFillVideolistStatus()
+        .then(applyFillStatus)
+        .catch(() => {
+          // 单次失败忽略，下一轮继续；后端重启后状态会变成 interrupted
+        });
+    }, 2500);
+  };
+
+  // 页面卸载停止轮询
+  useEffect(() => stopFillPolling, []);
+
+  // 进入页面时如果任务还在跑（例如从别的页面切回来），直接接管进度
+  useEffect(() => {
+    getFillVideolistStatus()
+      .then((status) => {
+        applyFillStatus(status);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fillActive = fillStarting || fillStatus?.state === "running";
+
+  const handleFill = async (siteId?: number) => {
+    if (fillActive) return;
+    setFillStarting(true);
     try {
       const res = await fillMissingVideolist(siteId);
-      toastSuccess(res.message);
-      // 后台任务，稍后刷新看板
-      setTimeout(() => refreshStats(), 3000);
+      if (res.started) {
+        toastSuccess(res.message);
+      } else {
+        toast("info", res.message || "已有补全任务在运行");
+      }
+      applyFillStatus(res.status);
     } catch (e: any) {
       toastError(`启动失败：${e?.message || String(e)}`);
     } finally {
-      if (siteId != null) {
-        setFillLoadingSiteId((prev) => (prev === siteId ? null : prev));
-      } else {
-        setFillLoading(false);
-      }
+      setFillStarting(false);
     }
   };
 
@@ -374,11 +622,16 @@ export default function Dashboard() {
           type="button"
           className="btn btn-primary"
           onClick={() => handleFill()}
-          disabled={fillLoading}
+          disabled={fillActive}
         >
-          {fillLoading ? "批量补全中…" : "批量补全 videolist"}
+          {fillActive ? "批量补全中…" : "批量补全 videolist"}
         </button>
       </div>
+
+      {/* 补全任务进度：running 时每 2.5 秒轮询真实状态，终态保留结果摘要 */}
+      {fillStatus && fillStatus.state !== "idle" && (
+        <FillProgressPanel status={fillStatus} />
+      )}
 
       {/* 汇总条 */}
       {loading ? (
@@ -404,7 +657,7 @@ export default function Dashboard() {
           <div style={{ height: 260, marginTop: 16 }}><SkeletonBar w="100%" h={260} /></div>
         </div>
       ) : stats && sortedBySite.length > 0 ? (
-        <div style={{ marginBottom: 16 }}><SiteTable data={sortedBySite} total={stats.total} onFill={handleFill} fillLoadingSiteId={fillLoadingSiteId} /></div>
+        <div style={{ marginBottom: 16 }}><SiteTable data={sortedBySite} total={stats.total} onFill={handleFill} fillActive={fillActive} /></div>
       ) : null}
     </div>
   );

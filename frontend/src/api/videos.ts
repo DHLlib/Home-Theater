@@ -5,6 +5,7 @@ import type {
   CrawlerStatsResponse,
   DetailRequest,
   DetailResponse,
+  FillStatus,
   FillVideolistResponse,
   HomeSectionsResponse,
 } from "../types";
@@ -207,3 +208,6 @@ export const triggerFullCrawl = () =>
 
 export const fillMissingVideolist = (siteId?: number) =>
   post<FillVideolistResponse>("/api/videos/crawler/fill-videolist", { site_id: siteId ?? null });
+
+export const getFillVideolistStatus = () =>
+  get<FillStatus>("/api/videos/crawler/fill-videolist/status", 15000);

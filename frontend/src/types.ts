@@ -345,18 +345,56 @@ export interface CrawlerStatsResponse {
   computed_at: string | null;
 }
 
-export interface FillVideolistSiteResult {
+export type FillSiteState =
+  | "pending"
+  | "running"
+  | "done"
+  | "partial"
+  | "blocked"
+  | "failed";
+
+export interface FillSiteStatus {
   site_id: number;
   site_name: string;
+  state: FillSiteState;
   missing: number;
   filled: number;
   failed: number;
+  skipped: number;
+  error: string | null;
+}
+
+export type FillState =
+  | "idle"
+  | "running"
+  | "done"
+  | "partial"
+  | "failed"
+  | "interrupted";
+
+export interface FillStatus {
+  state: FillState;
+  current_site_id: number | null;
+  current_site_name: string | null;
+  completed_sites: number;
+  total_sites: number;
+  missing: number;
+  filled: number;
+  failed: number;
+  skipped: number;
+  /** 后端按 epoch 秒或 ISO 字符串返回，两者都要兼容 */
+  started_at: number | string | null;
+  finished_at: number | string | null;
+  error: string | null;
+  sites: FillSiteStatus[];
 }
 
 export interface FillVideolistResponse {
   message: string;
   site_id: number | null;
-  results: FillVideolistSiteResult[];
+  /** false = 已有任务在运行，本次没有启动新任务 */
+  started: boolean;
+  status: FillStatus;
 }
 
 export interface BatchProbeItem {
