@@ -20,6 +20,7 @@ import {
   type CleanupSpeed,
   type CleanupStatus,
 } from "../api/videos";
+import { ApiError } from "../api/client";
 import { onSseEvent } from "../api/sse";
 import { toastSuccess, toastError } from "../utils/toast";
 import AliasSettings from "../components/category-settings/AliasSettings";
@@ -268,6 +269,15 @@ export default function Settings() {
   /* ---- batch detect existing sites state ---- */
   const [batchDetectLoading, setBatchDetectLoading] = useState(false);
   const [showBatchDetectDialog, setShowBatchDetectDialog] = useState(false);
+  const [probeProgress, setProbeProgress] = useState({ done: 0, total: 0 });
+  const probeAbortRef = useRef<AbortController | null>(null);
+
+  // 离开设置页时取消进行中的批量检测流
+  useEffect(() => {
+    return () => {
+      probeAbortRef.current?.abort();
+    };
+  }, []);
 
   /* ---- import / export state ---- */
   const [exporting, setExporting] = useState(false);
@@ -439,17 +449,36 @@ export default function Settings() {
 
   const confirmBatchDetect = () => {
     setShowBatchDetectDialog(false);
+    probeAbortRef.current?.abort();
+    const controller = new AbortController();
+    probeAbortRef.current = controller;
+    setProbeResults({});
+    setProbeProgress({ done: 0, total: sites.length });
     setBatchDetectLoading(true);
-    probeSitesBatch()
-      .then((results) => {
-        const next: Record<number, ProbeResult> = {};
-        results.forEach((r: SiteProbeResult) => {
-          next[r.site_id] = { ok: r.ok, latency_ms: r.latency_ms, error: r.error };
-        });
-        setProbeResults((prev) => ({ ...prev, ...next }));
+    probeSitesBatch(
+      null,
+      (r) => {
+        setProbeResults((prev) => ({
+          ...prev,
+          [r.site_id]: { ok: r.ok, latency_ms: r.latency_ms, error: r.error },
+        }));
+        setProbeProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+      },
+      controller.signal
+    )
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof ApiError) {
+          toastError(`批量检测失败：${err.detail}`);
+        } else {
+          toastError("批量检测中断，已保留完成的结果，可重新检测");
+        }
       })
-      .catch(() => alert("批量检测失败"))
-      .finally(() => setBatchDetectLoading(false));
+      .finally(() => {
+        if (probeAbortRef.current === controller) {
+          setBatchDetectLoading(false);
+        }
+      });
   };
 
   const handleExportSites = () => {
@@ -533,6 +562,13 @@ export default function Settings() {
   return (
     <div className="col settings-form" style={{ gap: 20 }}>
       <style>{`
+        .site-management-actions {
+          flex-wrap: wrap;
+        }
+        .site-management-actions .btn {
+          flex-shrink: 0;
+          white-space: nowrap;
+        }
         @media (max-width: 767px) {
           .settings-tab-bar .tab-label {
             display: none;
@@ -665,7 +701,14 @@ export default function Settings() {
                   style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
                 >
                   {batchDetectLoading ? (
-                    <span style={{ color: "var(--text-muted)" }}>检测中...</span>
+                    <span
+                      style={{
+                        color: "var(--text-muted)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      检测中 {probeProgress.done}/{probeProgress.total}
+                    </span>
                   ) : (
                     <>
                       <ActivityIcon size={14} />

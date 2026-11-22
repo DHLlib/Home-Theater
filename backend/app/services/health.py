@@ -20,8 +20,17 @@ class ProbeResult:
     error: str | None
 
 
-async def probe(site_id: int, base_url: str, name: str = "", timeout: float = 5.0) -> ProbeResult:
-    async with SourceClient(site_id=site_id, base_url=base_url, name=name, timeout=timeout) as client:
+async def probe(
+    site_id: int,
+    base_url: str,
+    name: str = "",
+    timeout: float = 5.0,
+    max_attempts: int = RETRY_MAX_ATTEMPTS,
+) -> ProbeResult:
+    async with SourceClient(
+        site_id=site_id, base_url=base_url, name=name,
+        timeout=timeout, max_attempts=max_attempts,
+    ) as client:
         started = time.perf_counter()
         items = None
         try:

@@ -2,17 +2,19 @@ import logging
 
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_db
+from app.db import async_session_factory, get_db
 from app.errors import ApiError, ErrorCode, site_not_found
 from app.models import Site, SystemCategory, SiteProbeLog, SiteCategoryMapping, _utcnow
 import asyncio
+import json
 
 import app.services.scheduler as scheduler_module
 
-from app.constants import BATCH_PROBE_LIMIT, BATCH_PROBE_CONCURRENCY
+from app.constants import BATCH_PROBE_LIMIT, BATCH_PROBE_CONCURRENCY, BATCH_PROBE_TIMEOUT
 from app.schemas import (
     CategoryMapping, CategoryMappingWithPid, CategoryGroup, SiteCategoriesOut,
     SiteCategoriesFetchOut, SiteCategoriesUpdate,
@@ -34,6 +36,28 @@ router = APIRouter(prefix="/sites", tags=["sites"])
 logger = logging.getLogger(__name__)
 
 _SEM = asyncio.Semaphore(BATCH_PROBE_CONCURRENCY)
+
+
+async def _persist_probe_log(
+    site_id: int, ok: bool, error: str | None, latency_ms: int | None
+) -> None:
+    """把交互探测结果写入健康日志（独立 session；只记录，不触发自动禁用计数）。
+
+    写日志失败不能影响探测响应/流式输出，异常收敛为 warning。
+    """
+    try:
+        async with async_session_factory() as session:
+            session.add(
+                SiteProbeLog(
+                    site_id=site_id,
+                    ok=ok,
+                    error=error,
+                    response_time_ms=latency_ms,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.warning("写入站点探测日志失败 site_id=%d", site_id, exc_info=True)
 
 
 @router.get("")
@@ -68,29 +92,83 @@ async def probe_sites_batch(
     req: ProbeSitesBatchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """批量检测已有资源站连通性。不传 site_ids 时检测全部站点。"""
+    """批量检测已有资源站连通性（NDJSON 流式，每站完成立即返回一行）。
+
+    不传 site_ids 时检测全部站点；空站点集合返回空流。
+    """
     site_ids = req.site_ids
     if site_ids:
         result = await db.execute(select(Site).where(Site.id.in_(site_ids)))
     else:
         result = await db.execute(select(Site))
-    db_sites = result.scalars().all()
+    # 查询后立即记录普通值，流式生成器里不使用请求 db session
+    site_infos = [(s.id, s.name, s.base_url) for s in result.scalars().all()]
+    logger.info("probe_sites_batch count=%d", len(site_infos))
+    return StreamingResponse(
+        _probe_batch_stream(site_infos),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "Content-Encoding": "identity",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
-    async def _probe_one(site: Site) -> SiteProbeResult:
+
+async def _probe_one_bounded(site_id: int, name: str, url: str) -> dict:
+    """单站检测：信号量限流 + 有界总超时；异常隔离为 ok=false，取消继续抛出。
+
+    无论 ok 与否都把结果写入健康日志（独立 session，不计入自动禁用），
+    持久化失败不影响流式输出。
+    """
+    try:
         async with _SEM:
-            r = await health_probe(site_id=site.id, base_url=site.base_url, name=site.name)
-        return SiteProbeResult(
-            site_id=site.id,
-            site_name=site.name,
-            url=site.base_url,
-            ok=r.ok,
-            latency_ms=r.latency_ms,
-            error=r.error,
-        )
+            r = await asyncio.wait_for(
+                health_probe(
+                    site_id=site_id, base_url=url, name=name,
+                    max_attempts=1,
+                ),
+                timeout=BATCH_PROBE_TIMEOUT,
+            )
+        payload = SiteProbeResult(
+            site_id=site_id, site_name=name, url=url,
+            ok=r.ok, latency_ms=r.latency_ms, error=r.error,
+        ).model_dump()
+    except asyncio.CancelledError:
+        raise
+    except asyncio.TimeoutError:
+        payload = SiteProbeResult(
+            site_id=site_id, site_name=name, url=url,
+            ok=False, latency_ms=None, error="检测超时",
+        ).model_dump()
+    except Exception:
+        logger.exception("site_probe_failed site_id=%d name=%s", site_id, name)
+        payload = SiteProbeResult(
+            site_id=site_id, site_name=name, url=url,
+            ok=False, latency_ms=None, error="检测失败",
+        ).model_dump()
+    await _persist_probe_log(
+        site_id, payload["ok"], payload["error"], payload["latency_ms"]
+    )
+    return payload
 
-    results = await asyncio.gather(*[_probe_one(site) for site in db_sites])
-    logger.info("probe_sites_batch count=%d ok=%d", len(results), sum(1 for r in results if r.ok))
-    return results
+
+async def _probe_batch_stream(site_infos: list[tuple[int, str, str]]):
+    """按完成顺序逐站 yield 一行 NDJSON；清理时取消并等待未完成任务。"""
+
+    async def _line(info: tuple[int, str, str]) -> str:
+        payload = await _probe_one_bounded(*info)
+        return json.dumps(payload, ensure_ascii=False) + "\n"
+
+    tasks = [asyncio.create_task(_line(info)) for info in site_infos]
+    try:
+        for future in asyncio.as_completed(tasks):
+            yield await future
+    finally:
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @router.patch("/{site_id}")
@@ -149,6 +227,8 @@ async def probe_site(site_id: int, db: AsyncSession = Depends(get_db)):
         name=db_site.name,
     )
     logger.info("site_probe site_id=%d name=%s ok=%s", db_site.id, db_site.name, result.ok)
+    # 无论 ok 与否都写入健康日志（只记录，不触发自动禁用计数）
+    await _persist_probe_log(db_site.id, result.ok, result.error, result.latency_ms)
     return result
 
 
