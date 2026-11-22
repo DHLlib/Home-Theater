@@ -10,7 +10,7 @@
 
 | AC | 状态 | 后端文件 | 前端文件 |
 |----|------|---------|---------|
-| AC-001 站点管理 | ✅ | `api/sites.py` | `pages/Settings.tsx` |
+| AC-001 站点管理 | ✅ | `api/sites.py` | `pages/Ops.tsx`、`components/ops/SiteOpsSheet.tsx` |
 | AC-002 分类映射 | ✅ | `api/sites.py`, `api/category_aliases.py` | `components/category-settings/AliasSettings.tsx` |
 | AC-003 首页聚合 | ✅ | `api/videos.py`, `services/aggregator.py` | `pages/Home.tsx` |
 | AC-004 视频搜索 | ✅ | `api/videos.py` | `pages/Home.tsx` |
@@ -22,14 +22,14 @@
 | AC-010 收藏管理 | ✅ | `api/favorites.py` | `pages/Favorites.tsx` |
 | AC-011 下载任务管理 | ✅ | `api/downloads.py` | `pages/Downloads.tsx` |
 | AC-012 断点续传下载 | ✅ | `services/downloader.py` | — |
-| AC-013 站点健康监控 | ✅ | `services/scheduler.py`, `services/health.py` | — |
+| AC-013 站点健康监控 | ✅ | `services/scheduler.py`, `services/health.py` | `pages/Ops.tsx`、`components/ops/SiteOpsSheet.tsx` |
 | AC-014 VideoCache | ✅ | `api/videos.py`, `models.py` | — |
 | AC-015 前端 IndexedDB 缓存 | ✅ | — | `utils/cache.ts` |
 | AC-016 SSE 推送 | ✅ | `api/sse.py`, `services/event_bus.py` | `api/sse.ts` |
 | AC-017 局域网部署 | ✅ | `main.py`, `config.py` | — |
-| AC-018 刮削日志 | ✅ | `services/crawler.py` | `pages/Settings.tsx` |
-| AC-019 刮削看板 | ✅ | `api/videos.py` | `pages/Settings.tsx` |
-| AC-020 手动触发刮削 | ✅ | `api/videos.py` | `pages/Settings.tsx` |
+| AC-018 刮削日志 | ✅ | `services/crawler.py` | `pages/Ops.tsx`、`components/ops/CrawlLogs.tsx` |
+| AC-019 刮削看板 | ✅ | `api/videos.py` | `pages/Ops.tsx`、`components/ops/TrendPanel.tsx` |
+| AC-020 手动触发刮削 | ✅ | `api/videos.py` | `pages/Ops.tsx`、`components/ops/TaskRecords.tsx` |
 | AC-021 移动端响应式 | ✅ | — | `mobile/`, `styles/global.css` |
 | AC-022 播放器手势控制 | ✅ | — | `components/VideoPlayer.tsx` |
 | AC-023 网络传输优化 | ✅ | `main.py`, `api/videos.py` | `utils/cache.ts` |
@@ -55,7 +55,7 @@
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
 | 性能与可观测 | `services/tls.py`、共享客户端池、`event_loop_lag`、`slow_request` | 见 §15 性能检查清单 |
-| 统一站点运维 | `services/maintenance.py`、`api/maintenance.py`、`hooks/useMaintenance.ts`、`MaintenanceCenter` | 全量/增量/补全/清理统一 job_id、去重、取消、进度与中断恢复；SSE + GET 快照；手动探测写健康日志但不改变自动禁用计数 |
+| 统一站点运维 | `services/maintenance.py`、`api/maintenance.py`、`hooks/useMaintenance.ts`、`pages/Ops.tsx`、`components/ops/*` | 全量/增量/补全/清理统一 job_id、去重、取消、进度与中断恢复；SSE + GET 快照；手动探测写健康日志但不改变自动禁用计数 |
 | videolist 批量补全进度 | `crawler.run_fill_job` + `detail.fill` 任务 | 手动与每日本地 04:00 定时共用协调器；`details.fill` 保留 FillStatus；403 单站熔断；取消与重启中断分别展示 |
 
 ---
@@ -161,12 +161,14 @@
 |------|------|------|
 | `/` | Home | 默认七父类分区 + 吸顶分类锚点；搜索/分类筛选复用完整聚合列表，详情弹窗 |
 | `/search` | Search | 搜索结果 |
-| `/dashboard` | Dashboard | 统计看板 |
+| `/ops` | Ops | 运维：概览、站点卡片/弹层、全局刮削/补全/清理、任务记录、刮削日志 |
 | `/favorites` | Favorites | 收藏 |
 | `/progress` | Progress | 最近播放 |
 | `/downloads` | Downloads | 下载任务，SSE 实时进度 |
-| `/settings` | Settings | 站点、分类别名、下载目录、缓存（`?tab=categories`） |
+| `/settings` | Settings | 分类别名、下载目录、缓存（`?tab=categories` / `?tab=download`） |
 | `/player` | Player | xgplayer 播放、进度恢复、换源 |
+
+`/dashboard`、`/settings?tab=sites`、`/settings?tab=logs` 均重定向到 `/ops`；移动端底栏新增「运维」，手机壳层 6 项（首页 / 搜索 / 收藏 / 下载 / 运维 / 我的）。
 
 移动端在 `frontend/src/mobile/` 下另有一套页面与路由，共用 `hooks/`、`api/`。
 
