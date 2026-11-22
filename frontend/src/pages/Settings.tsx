@@ -9,20 +9,17 @@ import {
   exportSites,
   importSites,
 } from "../api/sites";
-import {
-  cancelCleanupExpired,
-  getCleanupStatus,
-  startCleanupExpired,
-  getCrawlerLogs,
-  getCrawlerStats,
-  triggerFullCrawl,
-  triggerIncremental,
-  type CleanupSpeed,
-  type CleanupStatus,
-} from "../api/videos";
+import { getCrawlerLogs, getCrawlerStats } from "../api/videos";
 import { ApiError } from "../api/client";
 import { onSseEvent } from "../api/sse";
+import { useQueryClient } from "@tanstack/react-query";
 import { toastSuccess, toastError } from "../utils/toast";
+import {
+  findActiveJob,
+  MAINTENANCE_OVERVIEW_KEY,
+  useMaintenance,
+} from "../hooks/useMaintenance";
+import MaintenanceCenter from "../components/MaintenanceCenter";
 import AliasSettings from "../components/category-settings/AliasSettings";
 import CategoryStructure from "../components/category-settings/CategoryStructure";
 import CategoryWorkbench from "../components/category-settings/CategoryWorkbench";
@@ -31,7 +28,7 @@ import AddSiteDialog from "../components/AddSiteDialog";
 import BatchSniffDialog from "../components/BatchSniffDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DownloadSettings from "../components/DownloadSettings";
-import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site, SiteProbeResult } from "../types";
+import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site } from "../types";
 
 function CheckIcon({ size = 14 }: { size?: number }) {
   return (
@@ -109,16 +106,6 @@ function ServerIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-/** 把秒数写成「12 分钟 / 1 小时 20 分」 */
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} 秒`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
-}
-
 function FolderIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -175,32 +162,13 @@ function TagIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function TrashIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
 type TabKey = "sites" | "categories" | "download" | "logs";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载设置", icon: <FolderIcon size={14} /> },
-  { key: "logs", label: "刮削日志", icon: <ActivityIcon size={14} /> },
+  { key: "logs", label: "运维任务", icon: <ActivityIcon size={14} /> },
 ];
 
 const inputStyle: React.CSSProperties = {
@@ -240,22 +208,10 @@ export default function Settings() {
   const [crawlerLogs, setCrawlerLogs] = useState<CrawlerLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
-  const [triggeringFull, setTriggeringFull] = useState(false);
-  const [triggeringIncremental, setTriggeringIncremental] = useState<Record<number, boolean>>({});
-  const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
-  const [cleanupSpeed, setCleanupSpeed] = useState<CleanupSpeed>(() => {
-    const saved = localStorage.getItem("ht-cleanup-speed");
-    return saved === "normal" || saved === "fast" ? saved : "eco";
-  });
-  const [cleanupStarting, setCleanupStarting] = useState(false);
-  const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cleanupWasRunning = useRef(false);
-
-  useEffect(() => {
-    return () => {
-      if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
-    };
-  }, []);
+  const queryClient = useQueryClient();
+  // 统一运维任务：单站增量刮削也走 coordinator，状态以 jobs 快照为准
+  const { jobs: maintenanceJobs, startJob: startMaintenanceJob, startingKind } =
+    useMaintenance();
   const [drawerSite, setDrawerSite] = useState<Site | null>(null);
 
   /* ---- inline edit states ---- */
@@ -331,80 +287,6 @@ export default function Settings() {
     return () => unsubscribe();
   }, []);
 
-  /* ---- 清除失效资源：后台任务 + 进度轮询 ---- */
-  const stopCleanupPolling = () => {
-    if (cleanupTimerRef.current) {
-      clearInterval(cleanupTimerRef.current);
-      cleanupTimerRef.current = null;
-    }
-  };
-
-  const applyCleanupStatus = (status: CleanupStatus) => {
-    setCleanupStatus(status);
-    const wasRunning = cleanupWasRunning.current;
-    cleanupWasRunning.current = status.running;
-    if (status.running) return;
-    stopCleanupPolling();
-    if (!wasRunning) return;
-    if (status.error) {
-      toastError(`清理失败：${status.error}`);
-    } else if (status.dry_run) {
-      toastSuccess(
-        `演练完成：检查 ${status.checked} 条，待删除 ${status.deleted} 条（未真正删除）`
-      );
-    } else {
-      toastSuccess(
-        `清理完成：检查 ${status.checked} 条，删除 ${status.deleted} 条，待确认 ${status.pending} 条`
-      );
-    }
-  };
-
-  const startCleanupPolling = () => {
-    stopCleanupPolling();
-    cleanupTimerRef.current = setInterval(() => {
-      getCleanupStatus()
-        .then(applyCleanupStatus)
-        .catch(() => {
-          // 单次失败忽略，下一轮继续；后端重启后任务会变成 idle
-        });
-    }, 2000);
-  };
-
-  // 进入页面时如果任务还在跑，直接接管进度条
-  useEffect(() => {
-    getCleanupStatus()
-      .then((status) => {
-        applyCleanupStatus(status);
-        if (status.running) startCleanupPolling();
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleCleanupExpired = () => {
-    if (!confirm("确定要清除失效资源吗？会后台扫完全部站点的缓存，连续两轮都没被资源站返回的条目才会删除，整个过程可能需要约 1 小时。")) return;
-    if (cleanupStarting) return;
-    setCleanupStarting(true);
-
-    // ?cleanup_dry_run=1 时不真正删除，用于验证任务链路
-    const dryRun =
-      new URLSearchParams(window.location.search).get("cleanup_dry_run") === "1";
-    startCleanupExpired(undefined, dryRun, cleanupSpeed)
-      .then((status) => {
-        cleanupWasRunning.current = true;
-        applyCleanupStatus({ ...status, running: true });
-        startCleanupPolling();
-      })
-      .catch(() => toastError("启动清理任务失败"))
-      .finally(() => setCleanupStarting(false));
-  };
-
-  const handleCancelCleanup = () => {
-    cancelCleanupExpired()
-      .then(applyCleanupStatus)
-      .catch(() => toastError("停止清理失败"));
-  };
-
   /* ---- add site (inline) ---- */
   const handleAddSite = (name: string, base_url: string) => {
     createSite({ name, base_url, enabled: true, sort: 0 })
@@ -478,6 +360,8 @@ export default function Settings() {
         if (probeAbortRef.current === controller) {
           setBatchDetectLoading(false);
         }
+        // 手动探测会写健康日志，完成后刷新运维 overview 的站点健康
+        queryClient.invalidateQueries({ queryKey: MAINTENANCE_OVERVIEW_KEY });
       });
   };
 
@@ -659,7 +543,7 @@ export default function Settings() {
                 采集站管理
               </h3>
             </div>
-            <div className="row" style={{ gap: 4, alignItems: "center" }}>
+            <div className="row site-management-actions" style={{ gap: 4, alignItems: "center" }}>
               <button
                 className="btn"
                 onClick={handleExportSites}
@@ -922,24 +806,18 @@ export default function Settings() {
                         {s.enabled && (
                           <button
                             className="btn"
-                            disabled={triggeringIncremental[s.id]}
-                            onClick={() => {
-                              setTriggeringIncremental((prev) => ({
-                                ...prev,
-                                [s.id]: true,
-                              }));
-                              triggerIncremental(s.id)
-                                .then(() =>
-                                  alert(`站点 ${s.name} 增量更新已启动`)
+                            disabled={
+                              Boolean(
+                                findActiveJob(
+                                  maintenanceJobs,
+                                  "crawl.incremental",
+                                  s.id
                                 )
-                                .catch(() => alert("启动失败"))
-                                .finally(() =>
-                                  setTriggeringIncremental((prev) => ({
-                                    ...prev,
-                                    [s.id]: false,
-                                  }))
-                                );
-                            }}
+                              ) || startingKind === "crawl.incremental"
+                            }
+                            onClick={() =>
+                              startMaintenanceJob("crawl.incremental", s.id)
+                            }
                             title="增量刮削"
                             style={{
                               padding: "8px 14px",
@@ -948,9 +826,15 @@ export default function Settings() {
                             }}
                           >
                             <ActivityIcon size={12} />
-                            {triggeringIncremental[s.id]
-                              ? "启动中..."
-                              : "增量"}
+                            {findActiveJob(
+                              maintenanceJobs,
+                              "crawl.incremental",
+                              s.id
+                            )
+                              ? "刮削中…"
+                              : startingKind === "crawl.incremental"
+                                ? "启动中..."
+                                : "增量"}
                           </button>
                         )}
                         <button
@@ -1063,7 +947,7 @@ export default function Settings() {
       {/* 下载设置 */}
       {activeTab === "download" && <DownloadSettings />}
 
-      {/* 刮削日志 */}
+      {/* 运维任务 */}
       {activeTab === "logs" && (
         <section
           style={{
@@ -1095,7 +979,7 @@ export default function Settings() {
                   letterSpacing: 0.3,
                 }}
               >
-                刮削日志
+                运维任务
               </h3>
             </div>
             {crawlerStats?.last_updated_at && (
@@ -1111,113 +995,19 @@ export default function Settings() {
             )}
           </div>
 
-          {/* 手动触发刮削 */}
+          <MaintenanceCenter />
+
           <div
-            className="row"
             style={{
-              gap: 12,
-              marginBottom: 20,
-              flexWrap: "wrap",
-              alignItems: "center",
+              marginTop: 24,
+              marginBottom: 12,
+              fontSize: 13,
+              fontWeight: 600,
+              letterSpacing: "0.03em",
+              color: "var(--text-secondary)",
             }}
           >
-            <button
-              className="btn btn-primary"
-              disabled={triggeringFull}
-              onClick={() => {
-                if (!confirm("确定要重新全量刮削吗？这会遍历所有站点的所有分类，预计耗时 20-40 分钟。")) return;
-                setTriggeringFull(true);
-                triggerFullCrawl()
-                  .then(() => alert("全量刮削已启动"))
-                  .catch(() => alert("启动失败"))
-                  .finally(() => setTriggeringFull(false));
-              }}
-              style={{ gap: 6 }}
-            >
-              <ActivityIcon size={14} />
-              {triggeringFull ? "启动中..." : "重新全量刮削"}
-            </button>
-            <select
-              className="cleanup-speed"
-              value={cleanupSpeed}
-              disabled={Boolean(cleanupStatus?.running)}
-              onChange={(event) => {
-                const next = event.target.value as CleanupSpeed;
-                setCleanupSpeed(next);
-                try {
-                  localStorage.setItem("ht-cleanup-speed", next);
-                } catch {
-                  // 隐私模式下写入失败可忽略
-                }
-              }}
-              title="速度越慢，对资源站和自家带宽的压力越小"
-              aria-label="清理速度"
-            >
-              <option value="eco">省流</option>
-              <option value="normal">标准</option>
-              <option value="fast">快速</option>
-            </select>
-            {cleanupStatus?.running ? (
-              <div className="cleanup-progress">
-                <div className="cleanup-progress-track">
-                  <i style={{ width: `${Math.min(cleanupStatus.percent ?? 0, 100)}%` }} />
-                </div>
-                <div className="cleanup-progress-meta">
-                  <b>
-                    {(cleanupStatus.percent ?? 0) < 10
-                      ? (cleanupStatus.percent ?? 0).toFixed(1)
-                      : Math.round(cleanupStatus.percent ?? 0)}
-                    %
-                  </b>
-                  <span>
-                    {(cleanupStatus.total ?? 0) > 0
-                      ? `${cleanupStatus.checked.toLocaleString()} / ${(cleanupStatus.total ?? 0).toLocaleString()}`
-                      : "正在统计总量…"}
-                  </span>
-                  {cleanupStatus.speed && (
-                    <span>
-                      {cleanupStatus.speed === "eco"
-                        ? "省流"
-                        : cleanupStatus.speed === "normal"
-                        ? "标准"
-                        : "快速"}
-                      模式
-                    </span>
-                  )}
-                  {cleanupStatus.current_site && (
-                    <span className="cleanup-progress-site">
-                      正在检查 {cleanupStatus.current_site.name}
-                    </span>
-                  )}
-                  {cleanupStatus.deleted > 0 && (
-                    <span>已删 {cleanupStatus.deleted.toLocaleString()}</span>
-                  )}
-                  {cleanupStatus.pending > 0 && (
-                    <span>待确认 {cleanupStatus.pending.toLocaleString()}</span>
-                  )}
-                  {cleanupStatus.eta_seconds != null && cleanupStatus.eta_seconds > 0 && (
-                    <span>剩余约 {formatDuration(cleanupStatus.eta_seconds)}</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="cleanup-progress-stop"
-                  onClick={handleCancelCleanup}
-                >
-                  停止
-                </button>
-              </div>
-            ) : (
-              <button
-                className="btn"
-                disabled={cleanupStarting}
-                onClick={handleCleanupExpired}
-                style={{ gap: 6, color: "var(--danger)", borderColor: "var(--danger)" }}
-              >
-                <TrashIcon size={14} />
-                {cleanupStarting ? "启动中..." : "清除失效资源"}
-              </button>
-            )}
+            刮削日志
           </div>
 
           {logsLoading ? (

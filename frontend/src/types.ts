@@ -519,6 +519,90 @@ export interface TemplatePreviewResponse {
   preview: TemplatePreviewItem[];
 }
 
+// ===== 统一运维任务（maintenance coordinator）=====
+
+export type MaintenanceKind =
+  | "crawl.full"
+  | "crawl.incremental"
+  | "detail.fill"
+  | "cache.cleanup"
+  | "site.discover";
+
+export type MaintenanceState =
+  | "queued"
+  | "running"
+  | "done"
+  | "partial"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "interrupted";
+
+export type MaintenanceTrigger = "manual" | "scheduled" | "startup" | "lifecycle";
+
+export interface MaintenanceJob {
+  id: string;
+  kind: MaintenanceKind;
+  state: MaintenanceState;
+  trigger: MaintenanceTrigger;
+  site_id: number | null;
+  cancel_requested: boolean;
+  progress_completed: number;
+  progress_total: number;
+  /** detail.fill 任务含 details.fill（FillStatus），cache.cleanup 含 details.cleanup（CleanupStatus） */
+  details: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  /** true = 已有同类活动任务，本次提交被去重，返回的是原有任务 */
+  deduplicated?: boolean;
+}
+
+export interface MaintenanceProgressEvent {
+  job_id: string;
+  kind: MaintenanceKind;
+  state: MaintenanceState;
+  site_id: number | null;
+  trigger: MaintenanceTrigger;
+  progress_completed: number;
+  progress_total: number;
+  cancel_requested: boolean;
+}
+
+export interface SiteMaintenanceStatus {
+  site_id: number;
+  site_name: string;
+  enabled: boolean;
+  health: Record<string, unknown> | null;
+  last_crawl_at: string | null;
+  total: number;
+  with_detail: number;
+  without_detail: number;
+  next_check_at: string | null;
+  last_check_status: string | null;
+  active_job_ids: string[];
+}
+
+export interface SiteScheduleInfo {
+  next_health_at: string | null;
+  next_check_at: string | null;
+  last_check_status: string | null;
+  last_error: string | null;
+}
+
+export interface MaintenanceScheduleSnapshot {
+  health_interval_seconds: number;
+  fill_next_run_at: string | null;
+  sites: Record<string, SiteScheduleInfo>;
+}
+
+export interface MaintenanceOverview {
+  sites: SiteMaintenanceStatus[];
+  jobs: MaintenanceJob[];
+  schedules: MaintenanceScheduleSnapshot;
+}
+
 // ===== SystemCategory: 系统分类（父子层级）=====
 
 export interface SystemCategory {

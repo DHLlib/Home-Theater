@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  fillMissingVideolist,
-  getCrawlerStats,
-  getFillVideolistStatus,
-} from "../api/videos";
+import { getCrawlerStats } from "../api/videos";
 import { toast, toastError, toastSuccess } from "../utils/toast";
+import {
+  findActiveJob,
+  isJobActive,
+  useMaintenance,
+} from "../hooks/useMaintenance";
 import type {
   CrawlerStatsResponse,
   FillSiteState,
-  FillState,
   FillStatus,
   HistoryPoint,
+  MaintenanceJob,
   SiteStat,
 } from "../types";
 import "./Dashboard.css";
@@ -50,25 +51,18 @@ function fmtAxis(v: number): string {
 
 /* ---------- 补全任务状态 ---------- */
 
-/** 终态：到达后轮询停止、按钮恢复 */
-const FILL_TERMINAL_STATES: FillState[] = ["done", "partial", "failed", "interrupted"];
-
-export function isFillTerminal(state: FillState): boolean {
-  return FILL_TERMINAL_STATES.includes(state);
-}
-
-/** started_at / finished_at 兼容 epoch 秒、epoch 毫秒与 ISO 字符串 */
-function fmtTime(v: number | string | null): string {
-  if (v == null) return "";
-  const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("zh-CN");
-}
-
+/** 旧补全快照的无时区 ISO 也是 UTC；新快照显式带 Z。 */
 function toDate(v: number | string | null): Date | null {
   if (v == null) return null;
-  const d = typeof v === "number" ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+  const isNaiveIso = typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(v);
+  const d = typeof v === "number"
+    ? new Date(v > 1e12 ? v : v * 1000)
+    : new Date(isNaiveIso ? `${v}Z` : v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtTime(v: number | string | null): string {
+  return toDate(v)?.toLocaleString("zh-CN") ?? "";
 }
 
 /** 把秒数写成「12 分钟 / 1 小时 20 分」（与 Settings 的 formatDuration 一致） */
@@ -106,9 +100,54 @@ export function fillFailureReason(status: FillStatus): string {
   return site ? `${site.site_name}：${site.error}` : "未知错误";
 }
 
-/* ---------- 补全进度面板 ---------- */
-function FillProgressPanel({ status }: { status: FillStatus }) {
-  const running = status.state === "running";
+/* ---------- 补全进度面板（数据来自最新 detail.fill 任务的 details.fill） ---------- */
+function FillProgressPanel({ job }: { job: MaintenanceJob }) {
+  const status = job.details?.fill as FillStatus | undefined;
+  const active = isJobActive(job);
+
+  // details.fill 还没写入时（刚排队），先给通用进度
+  if (!status) {
+    const percent =
+      job.progress_total > 0
+        ? Math.min(100, Math.round((job.progress_completed / job.progress_total) * 100))
+        : 0;
+    return (
+      <section className="fill-progress" aria-live="polite">
+        <div className="fill-progress-head">
+          <span className="fill-progress-title">
+            {active ? "正在补全 videolist" : "上次补全结果"}
+          </span>
+          <span
+            className={`fill-progress-chip ${
+              active ? "is-ok" : job.state === "cancelled" ? "is-warn" : "is-bad"
+            }`}
+          >
+            {active ? "进行中" : job.state === "cancelled" ? "已取消" : "已结束"}
+          </span>
+        </div>
+        <div className="fill-progress-body">
+          <div className="fill-progress-track">
+            <i style={{ width: `${percent}%` }} />
+          </div>
+          <div className="fill-progress-meta">
+            <b>{percent}%</b>
+            {job.progress_total > 0 && (
+              <span>
+                站点 {job.progress_completed} / {job.progress_total}
+              </span>
+            )}
+          </div>
+        </div>
+        {job.error && (
+          <div className="fill-progress-summary is-bad">{job.error}</div>
+        )}
+      </section>
+    );
+  }
+
+  // 取消/中断是任务级状态：details.fill 里的旧状态不代表终态语义
+  const effectiveState = job.state === "cancelled" ? "cancelled" : status.state;
+  const running = active && status.state === "running";
   const percent =
     status.total_sites > 0
       ? Math.min(100, Math.round((status.completed_sites / status.total_sites) * 100))
@@ -119,7 +158,7 @@ function FillProgressPanel({ status }: { status: FillStatus }) {
     : null;
 
   const summary = (() => {
-    switch (status.state) {
+    switch (effectiveState) {
       case "done":
         return `补全完成：补齐 ${fmt(status.filled)} 条，跳过 ${fmt(status.skipped)} 条`;
       case "partial":
@@ -128,8 +167,38 @@ function FillProgressPanel({ status }: { status: FillStatus }) {
         return `补全失败：${fillFailureReason(status)}`;
       case "interrupted":
         return `补全任务被中断（后端重启），已补 ${fmt(status.filled)} 条，可重新发起`;
+      case "cancelled":
+        return `补全任务已取消，已补 ${fmt(status.filled)} 条，可重新发起`;
       default:
         return "";
+    }
+  })();
+
+  const chipClass = (() => {
+    switch (effectiveState) {
+      case "done":
+        return "is-ok";
+      case "partial":
+      case "interrupted":
+      case "cancelled":
+        return "is-warn";
+      default:
+        return "is-bad";
+    }
+  })();
+
+  const chipLabel = (() => {
+    switch (effectiveState) {
+      case "done":
+        return "完成";
+      case "partial":
+        return "部分完成";
+      case "interrupted":
+        return "已中断";
+      case "cancelled":
+        return "已取消";
+      default:
+        return "失败";
     }
   })();
 
@@ -142,24 +211,8 @@ function FillProgressPanel({ status }: { status: FillStatus }) {
         {running && (
           <span className="fill-progress-chip is-ok">进行中</span>
         )}
-        {!running && status.state !== "idle" && (
-          <span
-            className={`fill-progress-chip ${
-              status.state === "done"
-                ? "is-ok"
-                : status.state === "partial" || status.state === "interrupted"
-                  ? "is-warn"
-                  : "is-bad"
-            }`}
-          >
-            {status.state === "done"
-              ? "完成"
-              : status.state === "partial"
-                ? "部分完成"
-                : status.state === "interrupted"
-                  ? "已中断"
-                  : "失败"}
-          </span>
+        {!running && effectiveState !== "idle" && (
+          <span className={`fill-progress-chip ${chipClass}`}>{chipLabel}</span>
         )}
       </div>
 
@@ -194,9 +247,11 @@ function FillProgressPanel({ status }: { status: FillStatus }) {
       {summary && (
         <div
           className={`fill-progress-summary ${
-            status.state === "done"
+            effectiveState === "done"
               ? "is-ok"
-              : status.state === "partial" || status.state === "interrupted"
+              : effectiveState === "partial" ||
+                  effectiveState === "interrupted" ||
+                  effectiveState === "cancelled"
                 ? "is-warn"
                 : "is-bad"
           }`}
@@ -506,10 +561,12 @@ function SiteTable({
 export default function Dashboard() {
   const [stats, setStats] = useState<CrawlerStatsResponse | null>(() => loadCache());
   const [loading, setLoading] = useState(!loadCache());
-  const [fillStatus, setFillStatus] = useState<FillStatus | null>(null);
-  const [fillStarting, setFillStarting] = useState(false);
-  const fillTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fillWasRunning = useRef(false);
+  // 补全任务统一走 maintenance coordinator：状态以 jobs 快照为准，SSE + 低频轮询驱动
+  const {
+    jobs: maintenanceJobs,
+    startJob: startMaintenanceJob,
+    startingKind,
+  } = useMaintenance();
 
   const refreshStats = () => {
     getCrawlerStats().then(res => { setStats(res); saveCache(res); }).catch(() => {});
@@ -527,80 +584,59 @@ export default function Dashboard() {
     }
   }, []);
 
-  /* ---- 补全任务：启动后轮询真实进度，终态才恢复按钮并刷新统计 ---- */
+  /* ---- 补全任务：活动期禁用入口，进入终态时刷新统计并提示 ---- */
 
-  const stopFillPolling = () => {
-    if (fillTimerRef.current) {
-      clearInterval(fillTimerRef.current);
-      fillTimerRef.current = null;
-    }
-  };
+  const latestFillJob = useMemo(
+    () => maintenanceJobs?.find((j) => j.kind === "detail.fill"),
+    [maintenanceJobs]
+  );
+  const fillSnapshot = latestFillJob?.details?.fill as FillStatus | undefined;
+  const activeFillJob = findActiveJob(maintenanceJobs, "detail.fill");
+  const fillActive = Boolean(activeFillJob) || startingKind === "detail.fill";
 
-  const applyFillStatus = (status: FillStatus) => {
-    setFillStatus(status);
-    const wasRunning = fillWasRunning.current;
-    fillWasRunning.current = status.state === "running";
-    if (status.state === "running") {
-      startFillPolling();
+  // 任务从活动进入终态时刷新统计并提示；不跟踪首次渲染就已是终态的旧任务
+  const prevFillRef = useRef<{ id: string; active: boolean } | null>(null);
+  useEffect(() => {
+    const job = latestFillJob;
+    const prev = prevFillRef.current;
+    prevFillRef.current = job ? { id: job.id, active: isJobActive(job) } : null;
+    if (!job || !prev || prev.id !== job.id || !prev.active || isJobActive(job)) {
       return;
     }
-    stopFillPolling();
-    if (!wasRunning || !isFillTerminal(status.state)) return;
-    // 终态：刷新看板统计（任务本身可能跑 8–10 分钟，不再固定 3 秒刷新）
     refreshStats();
-    if (status.state === "done") {
-      toastSuccess(`补全完成：补齐 ${fmt(status.filled)} 条，跳过 ${fmt(status.skipped)} 条`);
-    } else if (status.state === "partial") {
-      toast("info", `补全部分完成：补齐 ${fmt(status.filled)} 条，失败 ${fmt(status.failed)} 条，有站点受阻`);
-    } else if (status.state === "interrupted") {
-      toastError(`补全任务被中断（后端重启），已补 ${fmt(status.filled)} 条，可重新发起`);
+    const fill = job.details?.fill as FillStatus | undefined;
+    if (job.state === "done") {
+      toastSuccess(
+        fill
+          ? `补全完成：补齐 ${fmt(fill.filled)} 条，跳过 ${fmt(fill.skipped)} 条`
+          : "补全完成"
+      );
+    } else if (job.state === "partial") {
+      toast(
+        "info",
+        fill
+          ? `补全部分完成：补齐 ${fmt(fill.filled)} 条，失败 ${fmt(fill.failed)} 条，有站点受阻`
+          : "补全部分完成"
+      );
+    } else if (job.state === "interrupted") {
+      toastError(
+        `补全任务被中断（后端重启），已补 ${fmt(fill?.filled ?? 0)} 条，可重新发起`
+      );
+    } else if (job.state === "cancelled") {
+      toast("info", `补全任务已取消，已补 ${fmt(fill?.filled ?? 0)} 条`);
+    } else if (job.state === "skipped") {
+      toast("info", job.error ? `补全未执行：${job.error}` : "补全未执行");
     } else {
-      toastError(`补全失败：${fillFailureReason(status)}`);
+      toastError(
+        `补全失败：${fill ? fillFailureReason(fill) : (job.error ?? "未知错误")}`
+      );
     }
-  };
-
-  const startFillPolling = () => {
-    if (fillTimerRef.current) return;
-    fillTimerRef.current = setInterval(() => {
-      getFillVideolistStatus()
-        .then(applyFillStatus)
-        .catch(() => {
-          // 单次失败忽略，下一轮继续；后端重启后状态会变成 interrupted
-        });
-    }, 2500);
-  };
-
-  // 页面卸载停止轮询
-  useEffect(() => stopFillPolling, []);
-
-  // 进入页面时如果任务还在跑（例如从别的页面切回来），直接接管进度
-  useEffect(() => {
-    getFillVideolistStatus()
-      .then((status) => {
-        applyFillStatus(status);
-      })
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [latestFillJob?.id, latestFillJob?.state]);
 
-  const fillActive = fillStarting || fillStatus?.state === "running";
-
-  const handleFill = async (siteId?: number) => {
+  const handleFill = (siteId?: number) => {
     if (fillActive) return;
-    setFillStarting(true);
-    try {
-      const res = await fillMissingVideolist(siteId);
-      if (res.started) {
-        toastSuccess(res.message);
-      } else {
-        toast("info", res.message || "已有补全任务在运行");
-      }
-      applyFillStatus(res.status);
-    } catch (e: any) {
-      toastError(`启动失败：${e?.message || String(e)}`);
-    } finally {
-      setFillStarting(false);
-    }
+    startMaintenanceJob("detail.fill", siteId ?? null);
   };
 
   const sortedBySite = useMemo(() => {
@@ -628,10 +664,12 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* 补全任务进度：running 时每 2.5 秒轮询真实状态，终态保留结果摘要 */}
-      {fillStatus && fillStatus.state !== "idle" && (
-        <FillProgressPanel status={fillStatus} />
-      )}
+      {/* 补全任务进度：活动期 SSE + 低频轮询刷新，终态保留结果摘要 */}
+      {latestFillJob &&
+        (isJobActive(latestFillJob) ||
+          (fillSnapshot && fillSnapshot.state !== "idle")) && (
+          <FillProgressPanel job={latestFillJob} />
+        )}
 
       {/* 汇总条 */}
       {loading ? (
