@@ -1,4 +1,4 @@
-import { createBrowserRouter, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
 import { lazyWithRetry } from "../utils/chunkReload";
 import MobileNav from "./components/MobileNav";
 import MobileHome from "./pages/MobileHome";
@@ -9,6 +9,7 @@ const MobileDownloads = lazyWithRetry(() => import("./pages/MobileDownloads"));
 const MobileMe = lazyWithRetry(() => import("./pages/MobileMe"));
 const MobileProgress = lazyWithRetry(() => import("./pages/MobileProgress"));
 const MobileSettings = lazyWithRetry(() => import("../pages/Settings"));
+const MobileOps = lazyWithRetry(() => import("../pages/Ops"));
 const MobileDetailView = lazyWithRetry(() => import("./components/MobileDetailView"));
 const Player = lazyWithRetry(() => import("../pages/Player"));
 
@@ -32,6 +33,8 @@ export const router = createBrowserRouter([
       { path: "search", element: <MobileSearch /> },
       { path: "favorites", element: <MobileFavorites /> },
       { path: "downloads", element: <MobileDownloads /> },
+      { path: "ops", element: <MobileOps /> },
+      { path: "dashboard", element: <Navigate to="/ops" replace /> },
       {
         path: "me",
         children: [

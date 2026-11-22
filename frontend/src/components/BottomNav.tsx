@@ -5,6 +5,7 @@ import {
   HomeIcon,
   SearchIcon,
   HeartIcon,
+  DownloadIcon,
   DashboardIcon,
   SettingsIcon,
 } from "./icons";
@@ -13,7 +14,8 @@ const TABS = [
   { to: "/", label: "首页", end: true, Icon: HomeIcon },
   { to: "/search", label: "搜索", end: true, Icon: SearchIcon },
   { to: "/favorites", label: "收藏", end: false, Icon: HeartIcon },
-  { to: "/dashboard", label: "看板", end: false, Icon: DashboardIcon },
+  { to: "/downloads", label: "下载", end: false, Icon: DownloadIcon },
+  { to: "/ops", label: "运维", end: false, Icon: DashboardIcon },
   { to: "/settings", label: "设置", end: false, Icon: SettingsIcon },
 ];
 

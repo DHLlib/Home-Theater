@@ -45,11 +45,23 @@ function UserIcon({ size = 22 }: { size?: number }) {
   );
 }
 
+function OpsIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
 const TABS = [
   { to: "/", label: "首页", icon: HomeIcon },
   { to: "/search", label: "搜索", icon: SearchIcon },
   { to: "/favorites", label: "收藏", icon: HeartIcon },
   { to: "/downloads", label: "下载", icon: DownloadIcon },
+  { to: "/ops", label: "运维", icon: OpsIcon },
   { to: "/me", label: "我的", icon: UserIcon },
 ];
 

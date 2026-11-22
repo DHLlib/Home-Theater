@@ -1,110 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import {
-  listSites,
-  createSite,
-  deleteSite,
-  updateSite,
-  probeSitesBatch,
-  exportSites,
-  importSites,
-} from "../api/sites";
-import { getCrawlerLogs, getCrawlerStats } from "../api/videos";
-import { ApiError } from "../api/client";
-import { onSseEvent } from "../api/sse";
-import { useQueryClient } from "@tanstack/react-query";
-import { toastSuccess, toastError } from "../utils/toast";
-import {
-  findActiveJob,
-  MAINTENANCE_OVERVIEW_KEY,
-  useMaintenance,
-} from "../hooks/useMaintenance";
-import MaintenanceCenter from "../components/MaintenanceCenter";
+import { useState } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
 import AliasSettings from "../components/category-settings/AliasSettings";
 import CategoryStructure from "../components/category-settings/CategoryStructure";
 import CategoryWorkbench from "../components/category-settings/CategoryWorkbench";
-import SiteHealthDrawer from "../components/SiteHealthDrawer";
-import AddSiteDialog from "../components/AddSiteDialog";
-import BatchSniffDialog from "../components/BatchSniffDialog";
-import ConfirmDialog from "../components/ConfirmDialog";
 import DownloadSettings from "../components/DownloadSettings";
-import type { CrawlerLog, CrawlerStatsResponse, ProbeResult, Site } from "../types";
-
-function CheckIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function XIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function ActivityIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  );
-}
-
-function ServerIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-      <line x1="6" y1="6" x2="6.01" y2="6" />
-      <line x1="6" y1="18" x2="6.01" y2="18" />
-    </svg>
-  );
-}
 
 function FolderIcon({ size = 16 }: { size?: number }) {
   return (
@@ -120,25 +19,6 @@ function FolderIcon({ size = 16 }: { size?: number }) {
       aria-hidden="true"
     >
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function PlusIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   );
 }
@@ -162,317 +42,39 @@ function TagIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-type TabKey = "sites" | "categories" | "download" | "logs";
+type TabKey = "categories" | "download";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-  { key: "sites", label: "采集站管理", icon: <ServerIcon size={14} /> },
   { key: "categories", label: "分类设置", icon: <TagIcon size={14} /> },
   { key: "download", label: "下载设置", icon: <FolderIcon size={14} /> },
-  { key: "logs", label: "运维任务", icon: <ActivityIcon size={14} /> },
 ];
 
-const inputStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 4,
-  border: "1px solid var(--glass-border)",
-  background: "var(--tint-soft)",
-  color: "var(--text-primary)",
-  fontSize: 14,
-  fontFamily: "inherit",
-  outline: "none",
-};
-
 export default function Settings() {
-  // 当前 tab 由 URL 决定（?tab=categories），便于分享链接与深链
+  // 当前 tab 由 URL 决定（?tab=categories / ?tab=download），便于分享与深链
   const [searchParams, setSearchParams] = useSearchParams();
-  // 分类映射只在桌面端配置：移动端复用了这个页面，需要按视口收口
-  const isMobileView =
-    typeof window !== "undefined" &&
-    (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
   const [categoryView, setCategoryView] = useState<
     "workbench" | "structure" | "advanced"
   >("workbench");
+
   const tabParam = searchParams.get("tab");
-  const activeTab: TabKey = TABS.some((t) => t.key === tabParam)
-    ? (tabParam as TabKey)
-    : "sites";
+  // 采集站与运维任务已迁到 /ops：旧深链直接重定向
+  if (tabParam === "sites" || tabParam === "logs") {
+    return <Navigate to="/ops" replace />;
+  }
+
+  const isMobileView =
+    typeof window !== "undefined" &&
+    (window.innerWidth < 768 ||
+      /Mobi|Android|iPhone/i.test(navigator.userAgent));
+  const activeTab: TabKey = tabParam === "download" ? "download" : "categories";
   const setActiveTab = (key: TabKey) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", key);
     setSearchParams(next, { replace: true });
   };
-  const [sites, setSites] = useState<Site[]>([]);
-  const [probeResults, setProbeResults] = useState<
-    Record<number, ProbeResult>
-  >({});
-  const [crawlerLogs, setCrawlerLogs] = useState<CrawlerLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [crawlerStats, setCrawlerStats] = useState<CrawlerStatsResponse | null>(null);
-  const queryClient = useQueryClient();
-  // 统一运维任务：单站增量刮削也走 coordinator，状态以 jobs 快照为准
-  const { jobs: maintenanceJobs, startJob: startMaintenanceJob, startingKind } =
-    useMaintenance();
-  const [drawerSite, setDrawerSite] = useState<Site | null>(null);
-
-  /* ---- inline edit states ---- */
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editUrl, setEditUrl] = useState("");
-  const [deletingSiteIds, setDeletingSiteIds] = useState<Set<number>>(new Set());
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [showBatchSniffDialog, setShowBatchSniffDialog] = useState(false);
-
-  /* ---- batch detect existing sites state ---- */
-  const [batchDetectLoading, setBatchDetectLoading] = useState(false);
-  const [showBatchDetectDialog, setShowBatchDetectDialog] = useState(false);
-  const [probeProgress, setProbeProgress] = useState({ done: 0, total: 0 });
-  const probeAbortRef = useRef<AbortController | null>(null);
-
-  // 离开设置页时取消进行中的批量检测流
-  useEffect(() => {
-    return () => {
-      probeAbortRef.current?.abort();
-    };
-  }, []);
-
-  /* ---- import / export state ---- */
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    listSites().then(setSites).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "logs") {
-      setLogsLoading(true);
-      getCrawlerLogs()
-        .then((res) => setCrawlerLogs(res.logs))
-        .catch(() => setCrawlerLogs([]))
-        .finally(() => setLogsLoading(false));
-
-      getCrawlerStats()
-        .then((res) => setCrawlerStats(res))
-        .catch(() => setCrawlerStats(null));
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    const unsubscribe = onSseEvent<{
-      site_id: number;
-      status: string;
-      progress: number;
-      message: string;
-    }>("site_delete_progress", (data) => {
-      if (!data || typeof data.site_id !== "number") return;
-      if (data.status === "completed") {
-        setDeletingSiteIds((prev) => {
-          const next = new Set(prev);
-          next.delete(data.site_id);
-          return next;
-        });
-        setSites((prev) => prev.filter((s) => s.id !== data.site_id));
-        toastSuccess(data.message || "站点删除完成");
-      } else if (data.status === "failed") {
-        setDeletingSiteIds((prev) => {
-          const next = new Set(prev);
-          next.delete(data.site_id);
-          return next;
-        });
-        toastError(data.message || "站点删除失败");
-        listSites().then(setSites).catch(() => {});
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  /* ---- add site (inline) ---- */
-  const handleAddSite = (name: string, base_url: string) => {
-    createSite({ name, base_url, enabled: true, sort: 0 })
-      .then((s) => {
-        setSites((prev) => [...prev, s]);
-        setShowAddDialog(false);
-      })
-      .catch(() => toastError("添加站点失败"));
-  };
-
-  /* ---- edit site (inline) ---- */
-  const startEdit = (site: Site) => {
-    setEditingId(site.id);
-    setEditName(site.name);
-    setEditUrl(site.base_url);
-  };
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditName("");
-    setEditUrl("");
-  };
-  const confirmEdit = (site: Site) => {
-    const name = editName.trim();
-    const base_url = editUrl.trim();
-    if (!name || !base_url) return;
-    if (name === site.name && base_url === site.base_url) {
-      cancelEdit();
-      return;
-    }
-    updateSite(site.id, { name, base_url })
-      .then(() => {
-        listSites().then(setSites).catch(() => {});
-        cancelEdit();
-      })
-      .catch(() => toastError("更新站点失败"));
-  };
-
-  const handleBatchDetect = () => {
-    if (sites.length === 0) return;
-    setShowBatchDetectDialog(true);
-  };
-
-  const confirmBatchDetect = () => {
-    setShowBatchDetectDialog(false);
-    probeAbortRef.current?.abort();
-    const controller = new AbortController();
-    probeAbortRef.current = controller;
-    setProbeResults({});
-    setProbeProgress({ done: 0, total: sites.length });
-    setBatchDetectLoading(true);
-    probeSitesBatch(
-      null,
-      (r) => {
-        setProbeResults((prev) => ({
-          ...prev,
-          [r.site_id]: { ok: r.ok, latency_ms: r.latency_ms, error: r.error },
-        }));
-        setProbeProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-      },
-      controller.signal
-    )
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof ApiError) {
-          toastError(`批量检测失败：${err.detail}`);
-        } else {
-          toastError("批量检测中断，已保留完成的结果，可重新检测");
-        }
-      })
-      .finally(() => {
-        if (probeAbortRef.current === controller) {
-          setBatchDetectLoading(false);
-        }
-        // 手动探测会写健康日志，完成后刷新运维 overview 的站点健康
-        queryClient.invalidateQueries({ queryKey: MAINTENANCE_OVERVIEW_KEY });
-      });
-  };
-
-  const handleExportSites = () => {
-    setExporting(true);
-    exportSites()
-      .then((data) => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `sites-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        toastSuccess("站点配置已导出");
-      })
-      .catch(() => toastError("导出站点失败"))
-      .finally(() => setExporting(false));
-  };
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!confirm("确定要导入所选文件吗？同名或同地址的站点将被跳过。")) {
-      e.target.value = "";
-      return;
-    }
-
-    setImporting(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        if (!Array.isArray(parsed.sites)) {
-          throw new Error("文件格式错误：缺少 sites 数组");
-        }
-        importSites(parsed.sites)
-          .then((res) => {
-            const parts: string[] = [];
-            if (res.created) parts.push(`新建 ${res.created} 个`);
-            if (res.updated) parts.push(`更新 ${res.updated} 个`);
-            if (res.skipped) parts.push(`跳过 ${res.skipped} 个`);
-            if (res.errors.length) parts.push(`失败 ${res.errors.length} 个`);
-            toastSuccess(parts.length ? parts.join("，") : "导入完成");
-            listSites().then(setSites).catch(() => {});
-          })
-          .catch(() => toastError("导入站点失败"))
-          .finally(() => setImporting(false));
-      } catch (err) {
-        toastError(err instanceof Error ? err.message : "文件解析失败");
-        setImporting(false);
-      }
-    };
-    reader.onerror = () => {
-      toastError("读取文件失败");
-      setImporting(false);
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
-
-  const rowBaseStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "12px 14px",
-    background: "var(--tint-soft)",
-    borderRadius: 4,
-    transition: "background-color 150ms ease, border-color 150ms ease",
-  };
 
   return (
     <div className="col settings-form" style={{ gap: 20 }}>
-      <style>{`
-        .site-management-actions {
-          flex-wrap: wrap;
-        }
-        .site-management-actions .btn {
-          flex-shrink: 0;
-          white-space: nowrap;
-        }
-        @media (max-width: 767px) {
-          .settings-tab-bar .tab-label {
-            display: none;
-          }
-          .site-row {
-            flex-wrap: wrap;
-            align-items: flex-start;
-          }
-          .site-row .site-info {
-            flex: 1;
-            min-width: 0;
-          }
-          .site-row .site-actions {
-            width: 100%;
-            justify-content: flex-end;
-            margin-top: 10px;
-          }
-        }
-      `}</style>
-
       {/* Tab 菜单 */}
       <div
         className="row settings-tab-bar"
@@ -484,14 +86,15 @@ export default function Settings() {
           gap: 4,
         }}
       >
-        {TABS.map((t) => {
-          const active = activeTab === t.key;
+        {TABS.map((tab) => {
+          const active = activeTab === tab.key;
           return (
             <button
-              key={t.key}
-              data-tab={t.key}
+              key={tab.key}
+              data-tab={tab.key}
+              type="button"
               className={active ? "btn btn-primary" : "btn"}
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => setActiveTab(tab.key)}
               style={{
                 flex: 1,
                 justifyContent: "center",
@@ -501,388 +104,12 @@ export default function Settings() {
                 minHeight: 40,
               }}
             >
-              {t.icon}
-              <span className="tab-label">{t.label}</span>
+              {tab.icon}
+              <span className="tab-label">{tab.label}</span>
             </button>
           );
         })}
       </div>
-
-      {/* 采集站管理 */}
-      {activeTab === "sites" && (
-        <section
-          style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: 10,
-            padding: 20,
-          }}
-        >
-          <div
-            className="row"
-            style={{
-              gap: 8,
-              marginBottom: 16,
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <span style={{ color: "var(--text-secondary)" }}>
-                <ServerIcon size={16} />
-              </span>
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  fontWeight: 600,
-                  letterSpacing: 0.2,
-                }}
-              >
-                采集站管理
-              </h3>
-            </div>
-            <div className="row site-management-actions" style={{ gap: 4, alignItems: "center" }}>
-              <button
-                className="btn"
-                onClick={handleExportSites}
-                disabled={exporting || sites.length === 0}
-                style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                {exporting ? "导出中..." : "导出站点"}
-              </button>
-              <button
-                className="btn"
-                onClick={handleImportClick}
-                disabled={importing}
-                style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                {importing ? "导入中..." : "导入站点"}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleImportFile}
-                style={{ display: "none" }}
-              />
-              {sites.length > 0 && (
-                <button
-                  className="btn"
-                  onClick={handleBatchDetect}
-                  disabled={batchDetectLoading}
-                  style={{ fontSize: 12, gap: 4, minHeight: 34, padding: "0 12px" }}
-                >
-                  {batchDetectLoading ? (
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      检测中 {probeProgress.done}/{probeProgress.total}
-                    </span>
-                  ) : (
-                    <>
-                      <ActivityIcon size={14} />
-                      批量检测
-                    </>
-                  )}
-                </button>
-              )}
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowAddDialog(true)}
-                style={{ gap: 4, fontSize: 12, minHeight: 34, padding: "0 12px" }}
-              >
-                <PlusIcon size={14} />
-                添加站点
-              </button>
-              <button
-                className="btn"
-                onClick={() => setShowBatchSniffDialog(true)}
-                style={{ gap: 4, fontSize: 12, minHeight: 34, padding: "0 12px" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-                批量嗅探
-              </button>
-            </div>
-          </div>
-
-          <div className="col" style={{ gap: 10 }}>
-            {sites.length === 0 && (
-              <div
-                className="empty"
-                style={{
-                  padding: 32,
-                  background: "var(--tint-soft)",
-                  borderRadius: 8,
-                  fontSize: 13,
-                }}
-              >
-                <ServerIcon size={32} />
-                <p style={{ marginTop: 8 }}>暂无采集站，请添加资源站点</p>
-              </div>
-            )}
-
-            {sites.map((s) => {
-              const isEditing = editingId === s.id;
-              return (
-                <div
-                  key={s.id}
-                  className="site-row"
-                  style={{
-                    ...rowBaseStyle,
-                    border: s.enabled
-                      ? "1px solid transparent"
-                      : "1px solid var(--glass-border)",
-                    opacity: s.enabled ? 1 : 0.55,
-                    cursor: isEditing ? "default" : "pointer",
-                  }}
-                  onClick={() => {
-                    if (!isEditing) setDrawerSite(s);
-                  }}
-                  onMouseEnter={(e) => {
-                    if (s.enabled && !isEditing) {
-                      e.currentTarget.style.backgroundColor = "var(--tint-soft)";
-                      e.currentTarget.style.borderColor = "var(--glass-border)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "var(--tint-soft)";
-                    e.currentTarget.style.borderColor = s.enabled
-                      ? "transparent"
-                      : "var(--glass-border)";
-                  }}
-                >
-                  {/* 状态指示 */}
-                  <div
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      background: s.enabled
-                        ? "var(--success)"
-                        : "var(--text-secondary)",
-                      flexShrink: 0,
-                    }}
-                    title={s.enabled ? "已启用" : "已禁用"}
-                  />
-
-                  {/* 信息 / 编辑表单 */}
-                  <div className="site-info" style={{ flex: 1, minWidth: 0 }}>
-                    {isEditing ? (
-                      <div className="col" style={{ gap: 8 }}>
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          placeholder="站点名称"
-                          style={{ ...inputStyle, width: "100%" }}
-                          autoFocus
-                        />
-                        <input
-                          type="text"
-                          value={editUrl}
-                          onChange={(e) => setEditUrl(e.target.value)}
-                          placeholder="站点地址（如 http://xxx.php）"
-                          style={{ ...inputStyle, width: "100%" }}
-                        />
-                      </div>
-                    ) : (
-                      <>
-                        <div
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 500,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          {s.name}
-                          {!s.enabled && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                padding: "1px 6px",
-                                borderRadius: 4,
-                                background: "var(--glass-border)",
-                                color: "var(--text-secondary)",
-                              }}
-                            >
-                              已禁用
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            opacity: 0.55,
-                            marginTop: 2,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                          title={s.base_url}
-                        >
-                          {s.base_url}
-                        </div>
-                        {probeResults[s.id] && (
-                          <div
-                            className="row"
-                            style={{
-                              gap: 4,
-                              fontSize: 12,
-                              marginTop: 4,
-                              color: probeResults[s.id].ok
-                                ? "var(--success)"
-                                : "var(--danger)",
-                            }}
-                          >
-                            {probeResults[s.id].ok ? (
-                              <>
-                                <CheckIcon size={12} />
-                                <span>{probeResults[s.id].latency_ms}ms</span>
-                              </>
-                            ) : (
-                              <>
-                                <XIcon size={12} />
-                                <span>{probeResults[s.id].error}</span>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* 操作按钮 */}
-                  <div
-                    className="row site-actions"
-                    style={{ gap: 6, flexShrink: 0 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {isEditing ? (
-                      <>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => confirmEdit(s)}
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
-                          }}
-                        >
-                          保存
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={cancelEdit}
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
-                          }}
-                        >
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {s.enabled && (
-                          <button
-                            className="btn"
-                            disabled={
-                              Boolean(
-                                findActiveJob(
-                                  maintenanceJobs,
-                                  "crawl.incremental",
-                                  s.id
-                                )
-                              ) || startingKind === "crawl.incremental"
-                            }
-                            onClick={() =>
-                              startMaintenanceJob("crawl.incremental", s.id)
-                            }
-                            title="增量刮削"
-                            style={{
-                              padding: "8px 14px",
-                              minHeight: 40,
-                              fontSize: 12,
-                            }}
-                          >
-                            <ActivityIcon size={12} />
-                            {findActiveJob(
-                              maintenanceJobs,
-                              "crawl.incremental",
-                              s.id
-                            )
-                              ? "刮削中…"
-                              : startingKind === "crawl.incremental"
-                                ? "启动中..."
-                                : "增量"}
-                          </button>
-                        )}
-                        <button
-                          className="btn"
-                          onClick={() => startEdit(s)}
-                          title="编辑"
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
-                          }}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() => {
-                            if (deletingSiteIds.has(s.id)) return;
-                            setDeletingSiteIds((prev) => new Set(prev).add(s.id));
-                            deleteSite(s.id).catch(() => {
-                              setDeletingSiteIds((prev) => {
-                                const next = new Set(prev);
-                                next.delete(s.id);
-                                return next;
-                              });
-                            });
-                          }}
-                          title="删除"
-                          disabled={deletingSiteIds.has(s.id)}
-                          style={{
-                            padding: "8px 14px",
-                            minHeight: 40,
-                            fontSize: 12,
-                            color: "var(--danger)",
-                            opacity: deletingSiteIds.has(s.id) ? 0.6 : 1,
-                          }}
-                        >
-                          {deletingSiteIds.has(s.id) ? "删除中..." : "删除"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* 分类设置 */}
       {activeTab === "categories" && (
@@ -903,7 +130,6 @@ export default function Settings() {
                 margin: 0,
                 fontSize: 16,
                 fontWeight: 600,
-                textShadow: "0 0 12px var(--primary-glow)",
                 letterSpacing: 0.3,
               }}
             >
@@ -912,12 +138,21 @@ export default function Settings() {
           </div>
 
           {isMobileView ? (
-            <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text-secondary)" }}>
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.8,
+                color: "var(--text-secondary)",
+              }}
+            >
               分类映射只在桌面端配置。移动端会直接使用已配置好的分类，不需要在这里操作。
             </div>
           ) : (
             <>
-              <div className="row settings-tab-bar" style={{ gap: 6, marginBottom: 14 }}>
+              <div
+                className="row settings-tab-bar"
+                style={{ gap: 6, marginBottom: 14 }}
+              >
                 {(
                   [
                     { key: "workbench", label: "映射工作台" },
@@ -946,258 +181,6 @@ export default function Settings() {
 
       {/* 下载设置 */}
       {activeTab === "download" && <DownloadSettings />}
-
-      {/* 运维任务 */}
-      {activeTab === "logs" && (
-        <section
-          style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: 10,
-            padding: 20,
-          }}
-        >
-          <div
-            className="row"
-            style={{
-              gap: 8,
-              marginBottom: 16,
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <span style={{ color: "var(--primary)" }}>
-                <ActivityIcon size={16} />
-              </span>
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  fontWeight: 600,
-                  textShadow: "0 0 12px var(--primary-glow)",
-                  letterSpacing: 0.3,
-                }}
-              >
-                运维任务
-              </h3>
-            </div>
-            {crawlerStats?.last_updated_at && (
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-secondary)",
-                }}
-              >
-                最近更新{" "}
-                {new Date(crawlerStats.last_updated_at).toLocaleString("zh-CN")}
-              </span>
-            )}
-          </div>
-
-          <MaintenanceCenter />
-
-          <div
-            style={{
-              marginTop: 24,
-              marginBottom: 12,
-              fontSize: 13,
-              fontWeight: 600,
-              letterSpacing: "0.03em",
-              color: "var(--text-secondary)",
-            }}
-          >
-            刮削日志
-          </div>
-
-          {logsLoading ? (
-            <div
-              style={{
-                padding: 32,
-                textAlign: "center",
-                fontSize: 13,
-                color: "var(--text-secondary)",
-              }}
-            >
-              加载中...
-            </div>
-          ) : crawlerLogs.length === 0 ? (
-            <div
-              className="empty"
-              style={{
-                padding: 32,
-                background: "var(--tint-soft)",
-                borderRadius: 8,
-                fontSize: 13,
-              }}
-            >
-              <ActivityIcon size={32} />
-              <p style={{ marginTop: 8 }}>暂无刮削记录</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <div
-                className="col"
-                style={{
-                  gap: 8,
-                  minWidth: 720,
-                }}
-              >
-                {/* 表头 */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "minmax(140px, 1.6fr) minmax(70px, 0.9fr) minmax(70px, 0.9fr) minmax(50px, 0.6fr) minmax(60px, 0.7fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(65px, 0.7fr)",
-                    gap: 8,
-                    padding: "8px 12px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    borderBottom: "1px solid var(--glass-border)",
-                    alignItems: "center",
-                  }}
-                >
-                  <span>时间</span>
-                  <span>站点</span>
-                  <span>分类</span>
-                  <span>页码</span>
-                  <span>类型</span>
-                  <span style={{ textAlign: "right" }}>处理</span>
-                  <span style={{ textAlign: "right" }}>新增</span>
-                  <span style={{ textAlign: "right" }}>更新</span>
-                  <span style={{ textAlign: "right" }}>耗时</span>
-                </div>
-                {/* 日志行 */}
-                {crawlerLogs.map((log, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "minmax(140px, 1.6fr) minmax(70px, 0.9fr) minmax(70px, 0.9fr) minmax(50px, 0.6fr) minmax(60px, 0.7fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(55px, 0.6fr) minmax(65px, 0.7fr)",
-                      gap: 8,
-                      padding: "8px 12px",
-                      fontSize: 12,
-                      background:
-                        idx % 2 === 0 ? "transparent" : "var(--tint-soft)",
-                      borderRadius: 4,
-                      alignItems: "center",
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {new Date(log.timestamp).toLocaleString("zh-CN")}
-                    </span>
-                    <span
-                      style={{
-                        fontWeight: 500,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {log.site_name}
-                    </span>
-                    <span
-                      style={{
-                        color: "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {log.category}
-                    </span>
-                    <span>{log.page}</span>
-                    <span>
-                      {log.crawl_type === "full" ? "全量" : "增量"}
-                    </span>
-                    <span
-                      style={{
-                        textAlign: "right",
-                      }}
-                    >
-                      {log.items_count}
-                    </span>
-                    <span
-                      style={{
-                        textAlign: "right",
-                        color:
-                          log.new_count > 0
-                            ? "var(--primary)"
-                            : "var(--text-muted)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {log.new_count}
-                    </span>
-                    <span
-                      style={{
-                        textAlign: "right",
-                        color:
-                          log.update_count > 0
-                            ? "var(--text-primary)"
-                            : "var(--text-muted)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {log.update_count}
-                    </span>
-                    <span
-                      style={{
-                        textAlign: "right",
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      {log.duration_ms}ms
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      <SiteHealthDrawer
-        site={drawerSite}
-        open={drawerSite !== null}
-        onClose={() => setDrawerSite(null)}
-        onSiteChange={(changed) =>
-          setSites((prev) =>
-            prev.map((s) => (s.id === changed.id ? changed : s))
-          )
-        }
-      />
-
-      <AddSiteDialog
-        open={showAddDialog}
-        onClose={() => setShowAddDialog(false)}
-        onConfirm={handleAddSite}
-      />
-
-      <BatchSniffDialog
-        open={showBatchSniffDialog}
-        onClose={() => setShowBatchSniffDialog(false)}
-        onAdded={() => listSites().then(setSites)}
-      />
-
-      <ConfirmDialog
-        open={showBatchDetectDialog}
-        title="批量检测资源站"
-        message={`确定要批量检测全部 ${sites.length} 个资源站吗？`}
-        confirmText="开始检测"
-        cancelText="取消"
-        onConfirm={confirmBatchDetect}
-        onCancel={() => setShowBatchDetectDialog(false)}
-      />
     </div>
   );
 }

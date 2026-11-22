@@ -24,7 +24,7 @@ function ThemeToggle() {
 const GLOBAL_LINKS = [
   { to: "/", label: "首页", end: true },
   { to: "/favorites", label: "收藏" },
-  { to: "/dashboard", label: "看板" },
+  { to: "/ops", label: "运维" },
   { to: "/progress", label: "最近" },
   { to: "/downloads", label: "下载" },
   { to: "/settings", label: "设置" },

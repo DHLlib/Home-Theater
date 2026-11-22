@@ -242,6 +242,8 @@ textarea,
   align-items: center;
   justify-content: center;
   gap: 6px;
+  appearance: none;
+  -webkit-appearance: none;
   transition: all var(--transition-fast);
 }
 
