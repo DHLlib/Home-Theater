@@ -11,7 +11,7 @@ const FEATURES = [
   {
     key: "media_analysis",
     label: "按需画质分析",
-    description: "发起播放时分析当前视频的来源；每次最多 2 个，不做全库检测。",
+    description: "打开详情时自动分批分析当前视频的来源；每批最多 2 个，不做全库检测。",
   },
   {
     key: "playback_guard",

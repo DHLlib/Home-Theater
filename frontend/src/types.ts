@@ -54,6 +54,9 @@ export interface PlaySourcesResponse {
   analyzed?: number;
   remaining?: number;
   analysis_running?: boolean;
+  analysis_disabled?: boolean;
+  next_offset?: number;
+  total?: number;
 }
 
 export type PlaybackEventType =

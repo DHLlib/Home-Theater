@@ -48,7 +48,7 @@
 | 默认分类首页 | `api/videos.py`、`components/HomeCategorySections.tsx`、`hooks/useHomeSections.ts` | 七个父类固定顺序，每类最多 8 条最新视频且仅返回非空分区；默认不再展示推荐或混合视频墙 |
 | 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；校验 HTTP 状态，HEAD 受限时 Range GET 复核 |
 | 高清 / 稳定双推荐 | `source_media_info`、`media_metadata.py`、`source_quality.py` | 每片每源区分声明/检测/实测；高清看媒体参数，稳定看本机播放证据；不自动选源 |
-| 按需媒体分析 | `media_analysis.py`、`POST /play/sources/analyze` | 当前视频全局串行、每次最多 2 源；不全库采样、不下载未选源分片 |
+| 按需媒体分析 | `media_analysis.py`、`useAutoMediaAnalysis` | 打开详情自动逐批分析，每批最多 2 源；关闭详情停止后续，不全库采样、不下载未选源分片 |
 | 播放保护与轻量增强 | `playback_guard.py`、`playback_enhancement.py` | 播放时后台任务退让；可选 Lanczos + Unsharp，单 ffmpeg 进程、失败回退原源 |
 | 分类映射工作台 | `services/category_map.py`, `api/category_map.py` | 按站点聚类（≥0.75）+ 建议 + 批量 upsert + 撤销；分类页实测 258ms |
 | 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |

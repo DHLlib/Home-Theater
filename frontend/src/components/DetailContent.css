@@ -181,11 +181,10 @@
   gap: 10px;
 }
 
-.dc-source-analysis {
+.dc-source-analysis-status {
   flex: none;
-  min-height: 44px;
-  margin-left: 0;
-  padding: 8px 12px;
+  align-self: center;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -207,9 +206,10 @@
 }
 
 @media (max-width: 767px) {
-  .dc-source-analysis {
+  .dc-source-analysis-status {
     flex-basis: 100%;
     width: 100%;
+    text-align: center;
   }
 }
 

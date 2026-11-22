@@ -177,7 +177,7 @@ async def test_media_analysis_endpoint_returns_hd_recommendation_and_reuses_cach
         title="示例",
         norm_title=normalize_title("示例"),
         year=2026,
-        source_count=1,
+        source_count=3,
     )
     db_session.add(aggregate)
     await db_session.flush()
@@ -196,6 +196,24 @@ async def test_media_analysis_endpoint_returns_hd_recommendation_and_reuses_cach
             original_id="video-1",
         ),
     ])
+    for index in (2, 3):
+        db_session.add(
+            VideoCache(
+                site_id=1,
+                original_id=f"video-{index}",
+                title="示例",
+                norm_title=normalize_title("示例"),
+                year=2026,
+                play_url_raw=f"第1集$https://media.test/master-{index}.m3u8$ffm3u8",
+            )
+        )
+        db_session.add(
+            AggregatedSource(
+                aggregated_video_id=aggregate.id,
+                site_id=1,
+                original_id=f"video-{index}",
+            )
+        )
     await db_session.commit()
     calls = 0
 
@@ -217,6 +235,10 @@ async def test_media_analysis_endpoint_returns_hd_recommendation_and_reuses_cach
             "/api/play/sources/analyze", json={"title": "示例", "year": 2026}
         )
         second = await client.post(
+            "/api/play/sources/analyze",
+            json={"title": "示例", "year": 2026, "offset": 2},
+        )
+        cached = await client.post(
             "/api/play/sources/analyze", json={"title": "示例", "year": 2026}
         )
         heartbeat = await client.post(
@@ -227,12 +249,18 @@ async def test_media_analysis_endpoint_returns_hd_recommendation_and_reuses_cach
         )
 
     assert first.status_code == 200
-    assert first.json()["analyzed"] == 1
+    assert first.json()["analyzed"] == 2
+    assert first.json()["next_offset"] == 2
+    assert first.json()["remaining"] == 1
     source = first.json()["sources"][0]
     assert source["hd_recommended"] is True
     assert source["stable_recommended"] is False
     assert source["media"]["evidence"] == "declared"
-    assert second.json()["analyzed"] == 0
-    assert calls == 1
+    assert second.json()["analyzed"] == 1
+    assert second.json()["next_offset"] == 3
+    assert second.json()["remaining"] == 0
+    assert cached.json()["analyzed"] == 0
+    assert cached.json()["next_offset"] == 2
+    assert calls == 3
     assert heartbeat.status_code == 204
     assert stopped.status_code == 204

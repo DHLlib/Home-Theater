@@ -5,7 +5,7 @@ import {
   mergeSourceQuality,
   orderSourcesByQuality,
   playSourceKey,
-  useAnalyzePlaySources,
+  useAutoMediaAnalysis,
   usePlaySources,
 } from "../../hooks/usePlaySources";
 import { usePlaybackFeatures } from "../../hooks/usePlaybackFeatures";
@@ -104,7 +104,6 @@ export default function MobileDetailView() {
   );
   const detail = detailResp?.sources ?? [];
   const { data: playSourceResponse } = usePlaySources(item.title, item.year);
-  const analysis = useAnalyzePlaySources(item.title, item.year);
   const { data: playbackFeatures } = usePlaybackFeatures();
   const analysisAllowed = playbackFeatures?.media_analysis ?? true;
   const playSources = useMemo(
@@ -122,6 +121,13 @@ export default function MobileDetailView() {
   const pickerSources = useMemo(
     () => mergeSourceQuality(item.sources, playSources),
     [item.sources, playSources]
+  );
+
+  const detailReady = !isLoading && detail.length > 0;
+  const analysis = useAutoMediaAnalysis(
+    item.title,
+    item.year,
+    analysisAllowed && detailReady
   );
 
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
@@ -183,7 +189,6 @@ export default function MobileDetailView() {
       toastError("暂无可播放来源");
       return;
     }
-    if (analysisAllowed && !analysis.isPending) analysis.mutate();
     setPickerOpen(true);
   };
 
@@ -420,21 +425,11 @@ export default function MobileDetailView() {
               <h3>来源</h3>
               <span className="dc-sources-count tnum">{detail.length} 个</span>
               <span className="dc-sources-hint">选一个来源，展开选集</span>
-              <button
-                type="button"
-                className="dc-btn dc-source-analysis"
-                disabled={!analysisAllowed || analysis.isPending || playSourceResponse?.analysis_running}
-                onClick={() => analysis.mutate()}
-                title={analysisAllowed ? "仅分析当前视频，每次最多 2 个来源；不下载视频分片" : "可在设置 → 播放与画质中开启"}
-              >
-                {!analysisAllowed
-                  ? "分析已关闭"
-                  : analysis.isPending
-                    ? "分析中…"
-                  : playSourceResponse?.remaining
-                    ? `继续分析（${playSourceResponse.remaining}）`
-                    : "分析画质"}
-              </button>
+              {(analysis.analyzing || !analysisAllowed) && (
+                <span className="dc-source-analysis-status" role="status">
+                  {analysisAllowed ? "正在自动分析画质…" : "自动分析已关闭"}
+                </span>
+              )}
             </div>
             <div className="source-list">
               {sortedDetail.map((s) => {

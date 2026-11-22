@@ -534,7 +534,7 @@ endpoints:
     request_schema: AnalyzeSourcesIn
     response_schema: PlaySourcesResponse
     consumers: [AC-007, AC-008]
-    notes: 全局串行，每次最多 2 个来源；不下载未选源的视频分片
+    notes: 打开详情后自动逐批调用；全局串行，每次最多 2 个来源；offset/next_offset 保证缓存命中仍前进；不下载未选源的视频分片
 
   - id: API-PLAY-HEARTBEAT
     path: /api/play/heartbeat

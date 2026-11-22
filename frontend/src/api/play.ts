@@ -19,8 +19,12 @@ export const getSources = (title: string, year?: number | null) => {
   return get<PlaySourcesResponse>(`/api/play/sources?${qs}`);
 };
 
-export const analyzeSources = (title: string, year?: number | null) =>
-  post<PlaySourcesResponse>("/api/play/sources/analyze", { title, year });
+export const analyzeSources = (
+  title: string,
+  year?: number | null,
+  offset = 0
+) =>
+  post<PlaySourcesResponse>("/api/play/sources/analyze", { title, year, offset });
 
 export interface EnhancementCapability {
   available: boolean;

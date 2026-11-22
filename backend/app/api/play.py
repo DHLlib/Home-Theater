@@ -10,7 +10,7 @@ import aiofiles
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -188,6 +188,8 @@ class PlaySourcesResponse(BaseModel):
     remaining: int = 0
     analysis_running: bool = False
     analysis_disabled: bool = False
+    next_offset: int = 0
+    total: int = 0
 
 
 def _parse_source_info(play_url_raw: str | None) -> tuple[int, str]:
@@ -458,6 +460,7 @@ async def get_sources(
 class AnalyzeSourcesIn(BaseModel):
     title: str
     year: int | None = None
+    offset: int = Field(default=0, ge=0)
 
 
 @router.post("/sources/analyze", response_model=PlaySourcesResponse)
@@ -477,10 +480,12 @@ async def analyze_play_sources(
     async def should_continue() -> bool:
         return not await request.is_disconnected()
 
-    outcome = await analyze_candidates(db, candidates, should_continue)
+    outcome = await analyze_candidates(db, candidates[req.offset :], should_continue)
     response = await get_sources(req.title, req.year, db)
     response.analyzed = outcome.probed
-    response.remaining = max(len(candidates) - outcome.processed, 0)
+    response.next_offset = req.offset + outcome.processed
+    response.total = len(candidates)
+    response.remaining = max(len(candidates) - response.next_offset, 0)
     response.analysis_running = outcome.running
     return response
 
