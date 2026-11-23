@@ -11,6 +11,8 @@ interface SiteCardProps {
   site: SiteMaintenanceStatus;
   job?: MaintenanceJob;
   deleting?: boolean;
+  /** 删除任务的实时状态（如「等待其他任务结束：crawl.full」） */
+  deletingMessage?: string;
   onOpen: () => void;
 }
 
@@ -18,6 +20,7 @@ export default function SiteCard({
   site,
   job,
   deleting = false,
+  deletingMessage,
   onOpen,
 }: SiteCardProps) {
   const health = healthOf(site);
@@ -64,7 +67,7 @@ export default function SiteCard({
           <i style={{ width: `${progressPercent(site.total, site.with_detail)}%` }} />
         </div>
         <div className={`ops-card-meta${meta.active ? " is-active" : ""}`}>
-          {deleting ? "删除中…" : meta.text}
+          {deleting ? deletingMessage || "删除中…" : meta.text}
         </div>
       </div>
     </article>

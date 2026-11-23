@@ -180,6 +180,9 @@ export default function Ops() {
   const [showMobileMore, setShowMobileMore] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<number>>(() => new Set());
+  const [deletingMessages, setDeletingMessages] = useState<Map<number, string>>(
+    () => new Map()
+  );
   const [probeBusy, setProbeBusy] = useState(false);
   const [probeProgress, setProbeProgress] = useState({ done: 0, total: 0 });
   const probeAbortRef = useRef<AbortController | null>(null);
@@ -224,6 +227,19 @@ export default function Ops() {
       else next.delete(siteId);
       return next;
     });
+    if (!deleting) {
+      // 终态时一并清掉排队提示，避免残留「等待其他任务结束」
+      setDeletingMessages((previous) => {
+        if (!previous.has(siteId)) return previous;
+        const next = new Map(previous);
+        next.delete(siteId);
+        return next;
+      });
+    }
+  }, []);
+
+  const setDeletingMessage = useCallback((siteId: number, message: string) => {
+    setDeletingMessages((previous) => new Map(previous).set(siteId, message));
   }, []);
 
   useEffect(() => {
@@ -240,9 +256,11 @@ export default function Ops() {
         markDeleting(data.site_id, false);
         toastError(data.message || "站点删除失败");
         refreshSites();
+      } else if (data.message) {
+        setDeletingMessage(data.site_id, data.message);
       }
     });
-  }, [markDeleting, refreshSites]);
+  }, [markDeleting, refreshSites, setDeletingMessage]);
 
   const statusById = useMemo(() => {
     const map = new Map<number, SiteMaintenanceStatus>();
@@ -334,6 +352,7 @@ export default function Ops() {
     });
   };
   const beginDelete = (site: Site) => {
+    if (deletingIds.has(site.id)) return;
     askConfirm({
       title: "删除站点",
       message: `确定要删除「${site.name}」吗？该站点的缓存数据将一并清理。`,
@@ -848,6 +867,7 @@ export default function Ops() {
                 site={site}
                 job={activeJobFor(site.site_id, jobs)}
                 deleting={deletingIds.has(site.site_id)}
+                deletingMessage={deletingMessages.get(site.site_id)}
                 onOpen={() => setSheetSiteId(site.site_id)}
               />
             ))}

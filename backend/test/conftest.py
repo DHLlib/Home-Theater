@@ -41,11 +41,11 @@ async def _prepare_database():
 def _isolate_maintenance_dependencies(monkeypatch):
     """维护任务及其测试只能使用测试库，事件不发送到开发环境。"""
     from app.api import sites, videos
-    from app.services import scheduler
+    from app.services import scheduler, site_deleter
     from app.services.maintenance import maintenance_coordinator
     from app.services.notify_sender import notify_sender
 
-    for module in (sites, videos, scheduler):
+    for module in (sites, videos, scheduler, site_deleter):
         monkeypatch.setattr(module, "async_session_factory", async_session_factory)
     monkeypatch.setattr(maintenance_coordinator, "_db_factory", async_session_factory)
 

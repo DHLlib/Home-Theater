@@ -79,6 +79,20 @@ describe("SiteCard", () => {
     ).toBeDisabled();
   });
 
+  it("删除排队时展示阻塞任务而不是笼统的删除中", () => {
+    render(
+      <SiteCard
+        site={makeSite()}
+        deleting
+        deletingMessage="等待其他任务结束：crawl.full"
+        onOpen={() => {}}
+      />
+    );
+
+    expect(screen.getByText("等待其他任务结束：crawl.full")).toBeInTheDocument();
+    expect(screen.queryByText("删除中…")).not.toBeInTheDocument();
+  });
+
   it("点击卡片触发 onOpen", async () => {
     const onOpen = vi.fn();
     render(<SiteCard site={makeSite()} onOpen={onOpen} />);

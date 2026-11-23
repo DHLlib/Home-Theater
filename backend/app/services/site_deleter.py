@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Type
 
 from sqlalchemy import delete, func, select
@@ -21,7 +22,13 @@ from app.models import (
     SiteProbeLog,
     VideoCache,
 )
-from app.services.aggregator import acquire_operation_lock, release_operation_lock, refresh_aggregated_view
+from app.constants import SITE_DELETE_LOCK_POLL_SECONDS, SITE_DELETE_LOCK_WAIT_SECONDS
+from app.services.aggregator import (
+    acquire_operation_lock,
+    is_operation_in_progress,
+    release_operation_lock,
+    refresh_aggregated_view,
+)
 from app.services.notify_sender import Event, notify_sender
 
 logger = logging.getLogger(__name__)
@@ -113,15 +120,103 @@ async def _cleanup_favorites(db: AsyncSession, site_id: int) -> None:
     )
 
 
+async def _has_related_data(site_id: int) -> bool:
+    """站点是否有需要清理的缓存/聚合数据。空站点可以直接删除，不必排队等锁。"""
+    async with async_session_factory() as db:
+        cache_count = await db.scalar(
+            select(func.count())
+            .select_from(VideoCache)
+            .where(VideoCache.site_id == site_id)
+        )
+        if cache_count:
+            return True
+        agg_count = await db.scalar(
+            select(func.count())
+            .select_from(AggregatedSource)
+            .where(AggregatedSource.site_id == site_id)
+        )
+        return bool(agg_count)
+
+
+async def _delete_empty_site(site_id: int, site_name: str) -> None:
+    """删除没有任何缓存数据的站点：不涉及聚合刷新，无需等待全局操作锁。"""
+    from app.api.videos import (
+        invalidate_category_filter_cache,
+        invalidate_hidden_video_cache,
+    )
+
+    async with async_session_factory() as db:
+        site = await db.get(Site, site_id)
+        if site is None:
+            await _send_progress(site_id, "failed", 0, "站点不存在")
+            return
+        site.enabled = False
+        await db.commit()
+        invalidate_hidden_video_cache()
+        invalidate_category_filter_cache()
+        await _cleanup_favorites(db, site_id)
+        site = await db.get(Site, site_id)
+        if site is not None:
+            await db.delete(site)
+            await db.commit()
+    await _send_progress(site_id, "completed", 100, "删除完成")
+    logger.info("site_delete_completed_empty site_id=%d name=%s", site_id, site_name)
+
+
+async def _acquire_delete_lock(site_id: int) -> bool:
+    """排队等待全局操作锁，并持续上报「在等哪个任务」。
+
+    全量刮削可能持锁几十分钟，删除不能 60 秒就放弃——那样前端会一直停在
+    「删除中…」，用户只能反复点。这里最多等 SITE_DELETE_LOCK_WAIT_SECONDS。
+    """
+    operation = f"delete_site_{site_id}"
+    deadline = time.monotonic() + SITE_DELETE_LOCK_WAIT_SECONDS
+    while True:
+        if await acquire_operation_lock(operation, timeout=SITE_DELETE_LOCK_POLL_SECONDS):
+            return True
+        blocker = is_operation_in_progress() or "未知任务"
+        await _send_progress(
+            site_id, "running", 1, f"等待其他任务结束：{blocker}"
+        )
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "删除站点等待全局操作锁超时 site_id=%d blocker=%s", site_id, blocker
+            )
+            await _send_progress(
+                site_id, "failed", 0, f"其他任务占用太久（{blocker}），请稍后重试"
+            )
+            return False
+
+
+_pending_deletes: set[int] = set()
+
+
 async def delete_site_background(site_id: int, site_name: str) -> None:
-    """后台删除站点及其关联数据。"""
+    """后台删除站点及其关联数据。
+
+    重复点击同一站点只执行一次；空站点走快速路径，其余站点排队等全局操作锁。
+    """
+    if site_id in _pending_deletes:
+        logger.info("site_delete_already_running site_id=%d", site_id)
+        return
+    _pending_deletes.add(site_id)
+    try:
+        await _delete_site(site_id, site_name)
+    finally:
+        _pending_deletes.discard(site_id)
+
+
+async def _delete_site(site_id: int, site_name: str) -> None:
     logger.info("site_delete_started site_id=%d name=%s", site_id, site_name)
     await _send_progress(site_id, "running", 0, "开始删除站点")
 
-    # 获取全局操作锁，防止与其他操作冲突
-    if not await acquire_operation_lock(f"delete_site_{site_id}", timeout=60):
-        await _send_progress(site_id, "failed", 0, "有其他操作正在进行，请稍后重试")
-        logger.warning("删除站点失败：全局操作锁被占用 site_id=%d", site_id)
+    # 空站点：没有缓存/聚合数据要清理，直接删除，不排队
+    if not await _has_related_data(site_id):
+        await _delete_empty_site(site_id, site_name)
+        return
+
+    # 有数据的站点：排队等待全局操作锁（最多 15 分钟），期间持续上报阻塞者
+    if not await _acquire_delete_lock(site_id):
         return
 
     lock_released = False
