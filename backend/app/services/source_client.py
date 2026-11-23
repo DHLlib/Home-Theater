@@ -41,9 +41,51 @@ class SourceProtocolError(Exception):
 class SourceHttpError(SourceProtocolError):
     """资源站返回 HTTP 错误状态码（4xx/5xx），带状态码供调用方熔断。"""
 
-    def __init__(self, site: str, status_code: int):
+    def __init__(self, site: str, status_code: int, *, reason: str = ""):
+        self.site = site
         self.status_code = status_code
-        super().__init__(f"site={site} HTTP {status_code}")
+        message = f"site={site} HTTP {status_code}"
+        if reason:
+            message += f"（{reason}）"
+        super().__init__(message)
+
+
+class SourceChallengeError(SourceHttpError):
+    """站点 WAF 人机校验拦截（如 Cloudflare 的 "Just a moment..." 挑战页）。
+
+    区别于真正的 403 封禁：挑战通常只持续数十秒，等待后重试即可恢复。
+    调用方应等待重试，不能把整站判死并熔断剩余批次。
+    """
+
+    def __init__(self, site: str, status_code: int):
+        super().__init__(site, status_code, reason="人机校验")
+
+
+# WAF 人机校验页特征。命中说明是浏览器校验页而不是接口本身的 403：
+# 真正的接口封禁返回 JSON，不会出现这些标记。
+# 注意不要把 Cloudflare "Attention Required"（WAF 拦截页）算进来——
+# 那是不可自愈的封禁，重试只会白等。
+_CHALLENGE_BODY_MARKERS = (
+    "just a moment",
+    "checking your browser",
+    "enable javascript and cookies",
+    "cf-chl",
+    "cf_chl_opt",
+)
+_CHALLENGE_BODY_MAX_CHARS = 4096
+
+
+def _is_challenge_response(resp: "httpx.Response") -> bool:
+    """判断 4xx/5xx 响应是否为 WAF 人机校验页（可重试）而非接口封禁。"""
+    if resp.headers.get("cf-mitigated", "").strip().lower() == "challenge":
+        return True
+    if "html" not in resp.headers.get("content-type", "").lower():
+        return False
+    try:
+        body = resp.text[:_CHALLENGE_BODY_MAX_CHARS].lower()
+    except Exception:  # 解码失败说明不是能识别的挑战页
+        return False
+    return any(marker in body for marker in _CHALLENGE_BODY_MARKERS)
 
 
 # 共享 httpx 客户端池：按 (site_id, base_url, timeout) 复用连接。
@@ -140,18 +182,28 @@ class SourceClient:
         return params
 
     async def _get(self, params: dict[str, str], op: str = "unknown") -> dict[str, Any]:
-        url_with_params = f"{self.base_url}?{urlencode(params)}"
+        # ids 里的逗号必须保持字面量。httpx 默认把 "," 编码成 "%2C"，而部分资源站
+        # （无尽ME 实测）的 Cloudflare 规则会把 %2C 判成可疑请求，直接返回
+        # "Just a moment..." 挑战页 → 整批补全被判 403。AppleCMS 协议本身就是
+        # ids=1,2,3，字面逗号既符合协议，也避开这条 WAF 规则。
+        query = urlencode(params, safe=",")
+        separator = "&" if "?" in self.base_url else "?"
+        url_with_params = f"{self.base_url}{separator}{query}"
         start = time.monotonic()
         for attempt in range(self.max_attempts):
             try:
                 client = await self._get_client()
-                resp = await client.get(self.base_url, params=params)
+                resp = await client.get(url_with_params)
                 elapsed = time.monotonic() - start
                 if resp.status_code >= 400:
+                    challenge = _is_challenge_response(resp)
                     logger.warning(
-                        "source_request_error site=%s attempt=%d status=%d url=%s elapsed=%.2fs",
-                        self.name, attempt + 1, resp.status_code, url_with_params, elapsed
+                        "source_request_error site=%s attempt=%d status=%d challenge=%s url=%s elapsed=%.2fs",
+                        self.name, attempt + 1, resp.status_code, challenge, url_with_params, elapsed
                     )
+                    if challenge:
+                        # 人机校验：短时可恢复，交给调用方决定等待重试策略
+                        raise SourceChallengeError(self.name, resp.status_code)
                     raise SourceHttpError(self.name, resp.status_code)
                 try:
                     data = resp.json()
