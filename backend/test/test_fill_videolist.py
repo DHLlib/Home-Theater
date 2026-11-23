@@ -10,7 +10,7 @@ from app.schemas import FillStatus, FillVideolistRequest
 from app.services.aggregator import acquire_operation_lock, release_operation_lock
 from app.services.crawler import Crawler
 from app.services.fill_status import FillStatusTracker, fill_status_tracker
-from app.services.source_client import SourceHttpError
+from app.services.source_client import SourceChallengeError, SourceHttpError
 
 from conftest import async_session_factory
 
@@ -249,6 +249,115 @@ async def test_fill_other_sites_continue_after_403(db_session, fake_client):
     assert result["state"] == "partial"
     assert result["filled"] == 10
     assert result["skipped"] == 40
+
+
+# ------------------------------------------------------------------
+# WAF 人机校验：短时挑战等待重试，持续挑战才熔断
+# ------------------------------------------------------------------
+
+@pytest.fixture
+def fast_challenge_retry(monkeypatch):
+    """把 10/30/60 秒的等待梯度压成 0，测试不真的等 100 秒。"""
+    monkeypatch.setattr(
+        "app.services.crawler.WAF_CHALLENGE_BACKOFF_SECONDS", (0.0, 0.0, 0.0)
+    )
+    return monkeypatch
+
+
+async def test_fill_retries_transient_challenge(
+    db_session, fake_client, fast_challenge_retry
+):
+    """挑战页只是短时拦截：等待重试后应继续补全，不熔断、不丢条目。"""
+    await _make_site(db_session, 1)
+    ids = [str(i) for i in range(1, 26)]  # 25 条 → 2 个子批
+    await _add_missing_rows(db_session, 1, ids)
+
+    attempts = {"n": 0}
+
+    def flaky(_ids):
+        attempts["n"] += 1
+        if attempts["n"] <= 2:
+            raise SourceChallengeError("site-1", 403)
+        return [_detail(str(i)) for i in _ids]
+
+    fake_client.handlers[1] = flaky
+
+    crawler = Crawler(async_session_factory)
+    result = await crawler.fill_missing_videolist()
+
+    site = result["sites"][0]
+    assert site["state"] == "done"
+    assert site["filled"] == 25
+    assert site["failed"] == 0
+    assert site["skipped"] == 0
+    assert result["state"] == "done"
+    assert result["filled"] == 25
+    # 第一批：挑战两次后成功（3 次请求）；第二批：直接成功（1 次）
+    assert attempts["n"] == 4
+
+
+async def test_fill_persistent_challenge_blocks_with_reason(
+    db_session, fake_client, fast_challenge_retry
+):
+    """连续挑战（超过等待梯度）才熔断，且原因必须是「人机校验」而不是裸 403。"""
+    await _make_site(db_session, 1, name="无尽ME")
+    await _add_missing_rows(db_session, 1, [str(i) for i in range(1, 61)])
+
+    def challenged(_ids):
+        raise SourceChallengeError("无尽ME", 403)
+
+    fake_client.handlers[1] = challenged
+
+    crawler = Crawler(async_session_factory)
+    result = await crawler.fill_missing_videolist()
+
+    site = result["sites"][0]
+    assert site["state"] == "blocked"
+    assert site["filled"] == 0
+    assert site["failed"] == 0
+    assert site["skipped"] == 60
+    assert "人机校验" in (site["error"] or "")
+    assert result["state"] == "failed"
+    # 首次 + 3 次按梯度重试，之后才放弃
+    assert len(fake_client.calls) == 4
+
+    # 熔断不删除数据、不误标 has_detail
+    remaining = (
+        await db_session.execute(
+            select(VideoCache).where(VideoCache.site_id == 1)
+        )
+    ).scalars().all()
+    assert len(remaining) == 60
+    assert all(r.has_detail is False for r in remaining)
+
+
+async def test_fill_blocked_after_progress_marks_partial(
+    db_session, fake_client, fast_challenge_retry
+):
+    """已补到数据后再被拦截：整体应为 partial，不能报「失败 + 已补 20」。"""
+    await _make_site(db_session, 1, name="无尽ME")
+    await _add_missing_rows(db_session, 1, [str(i) for i in range(1, 61)])
+
+    calls = {"n": 0}
+
+    def first_ok_then_challenged(_ids):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [_detail(str(i)) for i in _ids]
+        raise SourceChallengeError("无尽ME", 403)
+
+    fake_client.handlers[1] = first_ok_then_challenged
+
+    crawler = Crawler(async_session_factory)
+    result = await crawler.fill_missing_videolist()
+
+    site = result["sites"][0]
+    assert site["state"] == "blocked"
+    assert site["filled"] == 20
+    assert site["skipped"] == 40
+    assert result["filled"] == 20
+    assert result["state"] == "partial"
+    assert "人机校验" in (result["error"] or "")
 
 
 # ------------------------------------------------------------------

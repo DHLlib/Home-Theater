@@ -41,6 +41,7 @@ from app.constants import (
     FULL_CRAWL_LOCK_TIMEOUT,
     RETRY_BASE_DELAY_SECONDS,
     RETRY_MAX_ATTEMPTS,
+    WAF_CHALLENGE_BACKOFF_SECONDS,
 )
 from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
 from app.services import playback_guard
@@ -53,7 +54,11 @@ from app.services.aggregator import (
 )
 from app.services.category_mapping import get_site_category_mappings
 from app.services.fill_status import fill_status_tracker
-from app.services.source_client import SourceClient, SourceHttpError
+from app.services.source_client import (
+    SourceChallengeError,
+    SourceClient,
+    SourceHttpError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,29 @@ ProgressCallback = Callable[[int, int, dict], Awaitable[None]]
 
 def _stop_requested(stop_event: asyncio.Event | None) -> bool:
     return stop_event is not None and stop_event.is_set()
+
+
+async def _sleep_or_stop(stop_event: asyncio.Event | None, seconds: float) -> bool:
+    """可被取消信号打断的等待；返回 True 表示等待期间收到了取消。"""
+    if seconds <= 0:
+        return _stop_requested(stop_event)
+    if stop_event is None:
+        await asyncio.sleep(seconds)
+        return False
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
+def _challenge_blocked_message(exc: SourceChallengeError) -> str:
+    """人机校验持续不过时的可读原因：前端要能看出「不是没补，是被拦了」。"""
+    waited = int(sum(WAF_CHALLENGE_BACKOFF_SECONDS))
+    return (
+        f"站点人机校验拦截（HTTP {exc.status_code}），已等待重试 {waited} 秒仍未通过；"
+        "剩余条目跳过，请稍后再补全"
+    )
 
 
 class Crawler:
@@ -530,9 +558,14 @@ class Crawler:
                 else:
                     site_snaps = fill_status_tracker.snapshot()["sites"]
                     site_states = [s["state"] for s in site_snaps]
+                    filled_total = sum(s["filled"] for s in site_snaps)
                     if all(state == "done" for state in site_states):
                         overall = "done"
-                    elif any(state in ("done", "partial") for state in site_states):
+                    elif (
+                        any(state in ("done", "partial") for state in site_states)
+                        or filled_total > 0
+                    ):
+                        # 中途被熔断但已经补到数据：结果不是「失败」，而是部分完成
                         overall = "partial"
                     else:
                         overall = "failed"
@@ -736,12 +769,28 @@ class Crawler:
 
         与 _batch_videolist 的区别：逐条区分 filled/failed，且遇到
         401/403 立即熔断返回 blocked_error，不再继续轰炸该站点。
-        stop_event 在子批边界响应取消。
+        WAF 人机校验（SourceChallengeError）单独处理：它是短时可恢复的，
+        按 WAF_CHALLENGE_BACKOFF_SECONDS 原地等待后重试同一批，只有连续
+        多次仍未通过才熔断——否则一次 Cloudflare 挑战就会让整站补全判死。
+        stop_event 在子批边界与等待期间响应取消。
         """
         affected: set[str] = set()
         filled = 0
         failed = 0
         detail_entries: list[dict] = []
+        challenge_waits: list[float] = []
+
+        async def _flush_details() -> None:
+            """落库本批已拿到的详情：任何提前返回前都必须先刷盘，否则白请求。"""
+            nonlocal filled
+            if not detail_entries:
+                return
+            async with self._db_factory() as db:
+                affected.update(
+                    await self._batch_upsert_detail_fields(db, detail_entries)
+                )
+            filled += len(detail_entries)
+            detail_entries.clear()
 
         for j in range(0, len(entries), CRAWLER_VIDEOLIST_BATCH_SIZE):
             if _stop_requested(stop_event):
@@ -749,27 +798,62 @@ class Crawler:
             sub_batch = entries[j : j + CRAWLER_VIDEOLIST_BATCH_SIZE]
             ids = [e["original_id"] for e in sub_batch]
 
-            try:
-                await playback_guard.wait_until_idle()
-                details = await client.videolist(ids=ids, op=op)
-            except SourceHttpError as exc:
-                if exc.status_code in FILL_BLOCK_STATUS_CODES:
+            details: list[dict] | None = None
+            while True:
+                try:
+                    await playback_guard.wait_until_idle()
+                    details = await client.videolist(ids=ids, op=op)
+                    challenge_waits.clear()
+                    break
+                except SourceChallengeError as exc:
+                    if len(challenge_waits) >= len(WAF_CHALLENGE_BACKOFF_SECONDS):
+                        logger.warning(
+                            "站点 %s 人机校验持续未通过（%s），暂停补全，剩余 %d 条未补",
+                            site.name, exc, len(entries) - j,
+                        )
+                        await _flush_details()
+                        return FillChunkResult(
+                            affected=affected,
+                            filled=filled,
+                            failed=failed,
+                            blocked_error=_challenge_blocked_message(exc),
+                        )
+                    delay = WAF_CHALLENGE_BACKOFF_SECONDS[len(challenge_waits)]
+                    challenge_waits.append(delay)
                     logger.warning(
-                        "站点 %s videolist 返回 HTTP %s，熔断该站剩余 %d 条",
-                        site.name, exc.status_code, len(entries) - j,
+                        "站点 %s 触发人机校验（%s），%.0f 秒后重试（第 %d/%d 次）",
+                        site.name, exc, delay,
+                        len(challenge_waits), len(WAF_CHALLENGE_BACKOFF_SECONDS),
                     )
-                    return FillChunkResult(
-                        affected=affected, filled=filled, failed=failed,
-                        blocked_error=str(exc),
-                    )
-                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
-                failed += len(sub_batch)
-                continue
-            except Exception as exc:
-                logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
-                failed += len(sub_batch)
-                continue
+                    if await _sleep_or_stop(stop_event, delay):
+                        # 等待期间收到取消：已拿到的先落库，剩余交给 _fill_site 收尾
+                        await _flush_details()
+                        return FillChunkResult(
+                            affected=affected, filled=filled, failed=failed
+                        )
+                except SourceHttpError as exc:
+                    if exc.status_code in FILL_BLOCK_STATUS_CODES:
+                        logger.warning(
+                            "站点 %s videolist 返回 HTTP %s，熔断该站剩余 %d 条",
+                            site.name, exc.status_code, len(entries) - j,
+                        )
+                        await _flush_details()
+                        return FillChunkResult(
+                            affected=affected, filled=filled, failed=failed,
+                            blocked_error=str(exc),
+                        )
+                    logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+                    failed += len(sub_batch)
+                    break
+                except Exception as exc:
+                    logger.warning("批量 videolist 站点 %s 失败: %s", site.name, exc)
+                    failed += len(sub_batch)
+                    break
 
+            if details is None:
+                if _stop_requested(stop_event):
+                    break
+                continue
             detail_map = {str(d.get("original_id", "")): d for d in details}
             for entry in sub_batch:
                 d = detail_map.get(entry["original_id"])
@@ -783,14 +867,7 @@ class Crawler:
                 detail_entry["type_name"] = entry.get("type_name")
                 detail_entries.append(detail_entry)
 
-        if detail_entries:
-            async with self._db_factory() as db:
-                batch_affected = await self._batch_upsert_detail_fields(
-                    db, detail_entries
-                )
-                affected.update(batch_affected)
-            filled += len(detail_entries)
-
+        await _flush_details()
         return FillChunkResult(affected=affected, filled=filled, failed=failed)
 
 
