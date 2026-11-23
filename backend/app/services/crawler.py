@@ -357,6 +357,17 @@ class Crawler:
             completed = await self._crawl_site_incremental(
                 site, stop_event=stop_event
             )
+        except SourceChallengeError as exc:
+            # 人机校验是站点级信号：本轮直接中止，等下一轮调度重试，
+            # 不能按分类/页逐个硬试
+            logger.warning("增量更新站点 %s 被人机校验拦截: %s", site_id, exc)
+            return {
+                "state": "failed",
+                "error": (
+                    f"站点人机校验拦截（HTTP {exc.status_code}），本轮已中止，"
+                    "稍后按调度自动重试"
+                ),
+            }
         except Exception as exc:
             logger.warning("增量更新站点 %s 失败: %s", site_id, exc)
             return {"state": "failed", "error": str(exc)}
@@ -1281,13 +1292,30 @@ class Crawler:
     async def _fetch_list_page(
         self, client: SourceClient, cat_id, page: int, op: str = "unknown"
     ) -> list[dict]:
-        """请求单页 list，带重试。"""
+        """请求单页 list，带重试。
+
+        人机校验（SourceChallengeError）单独处理：等待一次后重试，仍被拦就抛给
+        上层中止该站本轮。不能按分类逐个重试——一次爬取会放大成
+        「分类数 × 3 次」的请求（实测百度云 54 个分类就是 162 次），只会把站点
+        风控越打越热，整轮都补不回来。
+        """
+        challenge_waits = 0
         for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
                 await playback_guard.wait_until_idle()
                 t = cat_id if cat_id is not None else None
                 items = await client.list(t=t, pg=page, op=op)
                 return items
+            except SourceChallengeError as exc:
+                if challenge_waits >= 1:
+                    raise
+                challenge_waits += 1
+                delay = WAF_CHALLENGE_BACKOFF_SECONDS[0]
+                logger.warning(
+                    "站点 %s list 触发人机校验（%s），%.0f 秒后重试一次",
+                    client.name, exc, delay,
+                )
+                await asyncio.sleep(delay)
             except Exception:
                 if attempt < RETRY_MAX_ATTEMPTS - 1:
                     await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** attempt))
