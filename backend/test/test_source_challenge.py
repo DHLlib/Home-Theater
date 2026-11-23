@@ -11,6 +11,7 @@ from app.services.source_client import (
     SourceChallengeError,
     SourceClient,
     SourceHttpError,
+    SourceProtocolError,
     _is_challenge_response,
 )
 
@@ -123,6 +124,41 @@ async def test_search_keyword_is_still_url_encoded():
     await client.list(wd="白蛇", pg=1)
 
     assert "wd=%E7%99%BD%E8%9B%87" in recorder.urls[0]
+
+
+class _FailingHttpClient:
+    def __init__(self, exc: Exception):
+        self.exc = exc
+
+    async def get(self, url, params=None):
+        raise self.exc
+
+
+async def _raise_network(exc: Exception):
+    client = SourceClient(
+        site_id=1, base_url="http://site.test/api", name="暴风资源", max_attempts=1
+    )
+
+    async def _stub_get_client():
+        return _FailingHttpClient(exc)
+
+    client._get_client = _stub_get_client  # type: ignore[method-assign]
+    await client._get({"ac": "list"})
+
+
+async def test_network_timeout_reports_readable_reason():
+    """httpx 的超时异常 str 为空，站点面板不能只显示「失败：」。"""
+    with pytest.raises(SourceProtocolError) as exc_info:
+        await _raise_network(httpx.ConnectTimeout(""))
+    message = str(exc_info.value)
+    assert "连接超时" in message
+    assert not message.rstrip().endswith("：")
+
+
+async def test_connection_reset_reports_readable_reason():
+    with pytest.raises(SourceProtocolError) as exc_info:
+        await _raise_network(httpx.ReadError(""))
+    assert "连接被重置" in str(exc_info.value)
 
 
 async def _raise_for(response: httpx.Response):

@@ -88,6 +88,26 @@ def _is_challenge_response(resp: "httpx.Response") -> bool:
     return any(marker in body for marker in _CHALLENGE_BODY_MARKERS)
 
 
+# httpx 的网络异常大多 str 为空，直接拼进错误会导致站点面板只显示「失败：」，
+# 看不出是超时、被重置还是域名不可达。
+_NETWORK_ERROR_LABELS = {
+    "ConnectTimeout": "连接超时（TCP 握手无响应，域名可能不可达）",
+    "ReadTimeout": "读取超时",
+    "WriteTimeout": "写入超时",
+    "PoolTimeout": "连接池等待超时",
+    "ConnectError": "连接失败（无法建立 TCP 连接）",
+    "ReadError": "连接被重置或读取中断",
+    "RemoteProtocolError": "对方返回了非 HTTP 响应",
+}
+
+
+def _describe_network_error(exc: BaseException) -> str:
+    name = type(exc).__name__
+    detail = str(exc).strip()
+    label = _NETWORK_ERROR_LABELS.get(name, name)
+    return f"{label}（{detail}）" if detail else label
+
+
 # 共享 httpx 客户端池：按 (site_id, base_url, timeout) 复用连接。
 # 之前每次 SourceClient 都新建 AsyncClient → 每次请求都要重新 TCP + TLS 握手
 # （单次 0.2–1 秒），爬虫一轮上百页就是上百次握手，还会产生大量连接重置。
@@ -243,7 +263,7 @@ class SourceClient:
                         self.name, attempt + 1, exc, elapsed, url_with_params
                     )
                     raise SourceProtocolError(
-                        f"site={self.name} 请求重试后仍失败：{exc!s}"
+                        f"site={self.name} 请求重试后仍失败：{_describe_network_error(exc)}"
                     ) from exc
             except SourceProtocolError:
                 raise
