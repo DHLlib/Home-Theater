@@ -125,6 +125,48 @@ describe("TaskRecords", () => {
     expect(screen.getByText("正在补全 新浪HTTPS")).toBeInTheDocument();
   });
 
+  it("失败任务在记录里显示错误原因", async () => {
+    const failed = makeJob({
+      id: "fail",
+      kind: "detail.fill",
+      state: "failed",
+      trigger: "manual",
+      error:
+        "无尽ME：站点人机校验拦截（HTTP 403），已等待重试 100 秒仍未通过；剩余条目跳过",
+      details: {
+        fill: {
+          state: "failed",
+          current_site_id: null,
+          current_site_name: null,
+          completed_sites: 1,
+          total_sites: 1,
+          missing: 12851,
+          filled: 0,
+          failed: 0,
+          skipped: 12851,
+          started_at: "2026-11-23T13:15:51.845540Z",
+          finished_at: "2026-11-23T13:15:54.685147Z",
+          error: "无尽ME：站点人机校验拦截（HTTP 403）",
+          sites: [],
+        },
+      },
+    });
+    render(
+      <TaskRecords
+        jobs={[failed]}
+        sites={[site]}
+        loading={false}
+        error={false}
+        onCancel={() => {}}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /任务记录/ }));
+    // 不能只给一个红色「失败」，必须能看到失败原因
+    expect(screen.getByText(/人机校验拦截/)).toBeInTheDocument();
+    expect(screen.getByText(/已补 0/)).toBeInTheDocument();
+  });
+
   it("聚合定时任务并给出各状态计数", async () => {
     render(
       <TaskRecords

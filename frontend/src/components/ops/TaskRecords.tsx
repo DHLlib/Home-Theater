@@ -118,7 +118,7 @@ function ActiveJob({
 
 function TaskRow({ job, siteName }: { job: MaintenanceJob; siteName: string }) {
   return (
-    <div className="ops-task-row">
+    <div className="ops-task-row" title={job.error ?? undefined}>
       <div className="ops-task-name">
         {kindLabel(job.kind)}
         <span className="ops-task-site">{siteName}</span>
@@ -131,6 +131,7 @@ function TaskRow({ job, siteName }: { job: MaintenanceJob; siteName: string }) {
       <span className="ops-task-trigger">{triggerLabel(job.trigger)}</span>
       <span className="ops-task-brief">{jobBrief(job) || "—"}</span>
       <span className="ops-task-time">{formatShortTime(job.created_at)}</span>
+      {job.error && <span className="ops-task-error">{job.error}</span>}
     </div>
   );
 }
