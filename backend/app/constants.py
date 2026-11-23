@@ -69,7 +69,7 @@ SMART_MATCH_SUGGEST_THRESHOLD = 0.3  # 置信度 ≥ 此值显示为建议，< �
 # 站点批量探测
 # ------------------------------------------------------------------
 
-BATCH_PROBE_LIMIT = 20               # 单次批量探测最多站点数
+BATCH_PROBE_LIMIT = 100              # 单次批量探测/嗅探最多站点数（并发 5、单站 6 秒预算）
 BATCH_PROBE_CONCURRENCY = 5          # 批量探测并发请求数
 BATCH_PROBE_TIMEOUT = 6.0            # 单站检测有界总超时（秒），超时按该站失败处理
 

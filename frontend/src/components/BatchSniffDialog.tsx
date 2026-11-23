@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { batchProbe } from "../api/sites";
+import { MAX_BATCH_SNIFF, parseBatchSites } from "../utils/batchSniff";
 import type { BatchProbeResult } from "../types";
 
 interface BatchSniffDialogProps {
@@ -16,6 +17,7 @@ export default function BatchSniffDialog({
   const [batchJson, setBatchJson] = useState("");
   const [batchResults, setBatchResults] = useState<BatchProbeResult[] | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [skippedCount, setSkippedCount] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -23,6 +25,7 @@ export default function BatchSniffDialog({
       setBatchJson("");
       setBatchResults(null);
       setBatchLoading(false);
+      setSkippedCount(0);
       setTimeout(() => textareaRef.current?.focus(), 50);
     }
   }, [open]);
@@ -30,19 +33,17 @@ export default function BatchSniffDialog({
   if (!open) return null;
 
   const handleProbe = () => {
-    let items: { name: string; url: string }[];
+    let parsed;
     try {
-      items = JSON.parse(batchJson.trim());
-      if (!Array.isArray(items)) throw new Error("必须是数组");
-      if (items.length === 0) throw new Error("数组不能为空");
-      if (items.length > 20) throw new Error("一次最多 20 个站点");
-    } catch (e: any) {
-      alert("JSON 格式错误: " + (e?.message || "未知错误"));
+      parsed = parseBatchSites(batchJson);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "解析失败");
       return;
     }
     setBatchLoading(true);
     setBatchResults(null);
-    batchProbe(items)
+    setSkippedCount(parsed.skipped);
+    batchProbe(parsed.items)
       .then((r) => {
         setBatchResults(r.results);
         if (onAdded && r.results.some((x) => x.added)) {
@@ -133,7 +134,8 @@ export default function BatchSniffDialog({
               color: "var(--text-secondary)",
             }}
           >
-            格式: name/url 对象数组，最多 20 条；探测成功会自动添加
+            支持 TVBox 配置（api_site 对象）或 [{"{"}name,url{"}"}] 数组，最多{" "}
+            {MAX_BATCH_SNIFF} 条；探测成功会自动添加并立即触发全量刮削
           </p>
         </div>
 
@@ -150,7 +152,7 @@ export default function BatchSniffDialog({
             ref={textareaRef}
             value={batchJson}
             onChange={(e) => setBatchJson(e.target.value)}
-            placeholder={`[\n  {"name": "站点名称", "url": "http://xxx/api.php/provide/vod"}\n]`}
+            placeholder={`{\n  "api_site": {\n    "example.com": {\n      "name": "示例站点",\n      "api": "https://example.com/api.php/provide/vod",\n      "detail": "https://example.com"\n    }\n  }\n}`}
             style={{ ...inputStyle, width: "100%", minHeight: 140 }}
           />
 
@@ -184,6 +186,7 @@ export default function BatchSniffDialog({
                 }}
               >
                 嗅探结果
+                {skippedCount > 0 ? `（已跳过 ${skippedCount} 条无效项）` : ""}
               </div>
               <div className="col" style={{ gap: 6 }}>
                 {batchResults.map((r, i) => (

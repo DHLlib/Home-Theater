@@ -24,7 +24,7 @@ export const fetchRemoteCategories = (id: number) =>
   post<FetchCategoriesResponse>(`/api/sites/${id}/fetch-categories`);
 
 export const batchProbe = (items: BatchProbeItem[]) =>
-  post<BatchProbeResponse>("/api/sites/batch-probe", items);
+  post<BatchProbeResponse>("/api/sites/batch-probe", items, 120000);
 
 function isSiteProbeResult(value: unknown): value is SiteProbeResult {
   if (typeof value !== "object" || value === null) return false;
