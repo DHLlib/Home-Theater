@@ -12,7 +12,7 @@ from app.models import Site, VideoCache, _utcnow
 from app.schemas import BatchProbeItem, BatchProbeResult, SiteCreate
 from app.services import site_deleter
 from app.services.aggregator import acquire_operation_lock, release_operation_lock
-from app.services.site_urls import site_url_key
+from app.services.site_urls import site_name_key, site_url_key
 
 from conftest import async_session_factory
 
@@ -68,12 +68,31 @@ async def test_create_site_rejects_duplicate_url_with_other_scheme(db_session):
 
 
 async def test_create_site_rejects_duplicate_name(db_session):
-    await _call_create(SiteCreate(name="A", base_url="http://a.test/api", enabled=False), db_session)
+    await _call_create(
+        SiteCreate(name="A", base_url="http://a.test/api", enabled=False), db_session
+    )
     with pytest.raises(HTTPException) as exc_info:
         await _call_create(
             SiteCreate(name="A", base_url="http://b.test/api", enabled=False), db_session
         )
     assert exc_info.value.status_code == 409
+
+
+async def test_create_site_rejects_similar_name_with_icon(db_session):
+    await _call_create(SiteCreate(name="量子资源", base_url="http://a.test/api", enabled=False), db_session)
+    with pytest.raises(HTTPException) as exc_info:
+        await _call_create(
+            SiteCreate(name="🎬量子资源", base_url="http://b.test/api", enabled=False),
+            db_session,
+        )
+    assert exc_info.value.status_code == 409
+    assert "忽略图标" in str(exc_info.value.detail)
+
+
+async def test_site_name_key_ignores_icons_and_punctuation():
+    assert site_name_key("🎬量子资源") == site_name_key("量子-资源")
+    assert site_name_key("🔞-老色逼-") == site_name_key("老色逼")
+    assert site_name_key("🎬") == "🎬"  # 纯符号名称退回原串，避免塌缩成空
 
 
 async def _call_create(site: SiteCreate, db):
@@ -100,7 +119,26 @@ async def test_batch_probe_skips_existing_url_with_other_scheme(
         )
     )
     await db_session.commit()
+    _stub_probe_and_side_effects(monkeypatch, sites_api)
 
+    resp = await sites_api.batch_probe(
+        [
+            BatchProbeItem(
+                name="🎬非凡资源",
+                url="https://api.ffzyapi.com/api.php/provide/vod",
+            )
+        ],
+        db_session,
+    )
+
+    assert resp.results[0].ok is True
+    assert resp.results[0].added is False
+    assert "已存在" in (resp.results[0].error or "")
+    remaining = (await db_session.execute(select(Site))).scalars().all()
+    assert len(remaining) == 1
+
+
+def _stub_probe_and_side_effects(monkeypatch, sites_api):
     async def fake_probe(item: BatchProbeItem) -> BatchProbeResult:
         return BatchProbeResult(
             name=item.name, url=item.url, ok=True, latency_ms=10,
@@ -117,18 +155,56 @@ async def test_batch_probe_skips_existing_url_with_other_scheme(
     monkeypatch.setattr(sites_api, "_auto_match_and_save", noop_auto_match)
     monkeypatch.setattr(sites_api, "_submit_lifecycle_crawl", noop_lifecycle)
 
+
+async def test_batch_probe_skips_similar_name_with_icon(db_session, monkeypatch):
+    """地址不同、名称只差 🎬/空格/标点时，也算已存在。"""
+    from app.api import sites as sites_api
+
+    db_session.add(
+        Site(
+            name="量子资源",
+            base_url="https://cj.lziapi.com/api.php/provide/vod",
+            enabled=True,
+            sort=0,
+        )
+    )
+    await db_session.commit()
+    _stub_probe_and_side_effects(monkeypatch, sites_api)
+
     resp = await sites_api.batch_probe(
         [
             BatchProbeItem(
-                name="🎬非凡资源",
-                url="https://api.ffzyapi.com/api.php/provide/vod",
+                name="🎬量子-资源",
+                url="https://cj.lzcaiji.com/api.php/provide/vod",
             )
         ],
         db_session,
     )
 
-    assert resp.results[0].ok is True
     assert resp.results[0].added is False
+    assert "已存在：量子资源" in (resp.results[0].error or "")
+    remaining = (await db_session.execute(select(Site))).scalars().all()
+    assert len(remaining) == 1
+
+
+async def test_batch_probe_marks_within_batch_duplicates_correctly(
+    db_session, monkeypatch
+):
+    """同一批里重复的地址：第一条 added，第二条必须标成已存在而不是也标 added。"""
+    from app.api import sites as sites_api
+
+    _stub_probe_and_side_effects(monkeypatch, sites_api)
+
+    resp = await sites_api.batch_probe(
+        [
+            BatchProbeItem(name="A", url="https://dup.test/api.php/provide/vod"),
+            BatchProbeItem(name="B", url="http://dup.test/api.php/provide/vod/"),
+        ],
+        db_session,
+    )
+
+    assert [r.added for r in resp.results] == [True, False]
+    assert "已存在：A" in (resp.results[1].error or "")
     remaining = (await db_session.execute(select(Site))).scalars().all()
     assert len(remaining) == 1
 

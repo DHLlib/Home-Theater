@@ -231,7 +231,7 @@ export default function BatchSniffDialog({
                       {r.ok
                         ? r.added
                           ? `已添加 ${r.latency_ms}ms`
-                          : `已存在 ${r.latency_ms}ms`
+                          : r.error || `已存在 ${r.latency_ms}ms`
                         : r.error}
                     </span>
                   </div>

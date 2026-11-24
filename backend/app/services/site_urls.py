@@ -7,9 +7,22 @@
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_NON_NAME_CHARS = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def site_name_key(name: str) -> str:
+    """站点名称的宽松比较键：去掉 🎬/🔞 等图标、空白和标点后再比。
+
+    「🎬量子资源」「量子资源」「量子-资源」会被视为同一个名称；
+    完全由符号组成的名称退回原字符串，避免全部塌缩成空串。
+    """
+    raw = (name or "").strip().lower()
+    key = _NON_NAME_CHARS.sub("", raw)
+    return key or raw
 
 
 def site_url_key(url: str) -> str:

@@ -24,7 +24,7 @@ from app.schemas import (
     SiteImportIn, SiteImportResult,
 )
 from app.services.health import probe as health_probe
-from app.services.site_urls import site_url_key
+from app.services.site_urls import site_name_key, site_url_key
 from app.services.source_client import SourceClient
 from app.services.smart_matcher import match_site_categories
 from app.services.category_mapping import (
@@ -69,16 +69,23 @@ async def list_sites(db: AsyncSession = Depends(get_db)):
 
 @router.post("")
 async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
-    # 判重：名称唯一，API 地址按归一化 key 比较（http/https、末尾斜杠不算不同）
+    # 判重：API 地址按归一化 key 比较（http/https、末尾斜杠不算不同），
+    # 名称先按完全一致、再按去掉图标/标点后的宽松 key 比较
     existing_sites = (await db.execute(select(Site))).scalars().all()
     if any(s.name == site.name for s in existing_sites):
         raise HTTPException(status_code=409, detail=f"站点名称已存在：{site.name}")
     new_key = site_url_key(site.base_url)
+    new_name_key = site_name_key(site.name)
     for existing in existing_sites:
         if site_url_key(existing.base_url) == new_key:
             raise HTTPException(
                 status_code=409,
                 detail=f"该 API 地址已存在：{existing.name}",
+            )
+        if site_name_key(existing.name) == new_name_key:
+            raise HTTPException(
+                status_code=409,
+                detail=f"站点名称与「{existing.name}」重复（忽略图标/符号）",
             )
 
     db_site = Site(**site.model_dump())
@@ -679,12 +686,14 @@ async def batch_probe(
     if len(items) > BATCH_PROBE_LIMIT:
         raise HTTPException(status_code=400, detail=f"一次最多探测 {BATCH_PROBE_LIMIT} 个站点")
 
-    # 获取已有站点（用于去重；地址按归一化 key 比较，避免 http/https、
-    # 末尾斜杠不同被当成两个站）
+    # 获取已有站点（用于去重）：
+    # - 地址按归一化 key 比较，http/https、末尾斜杠不同不算新站；
+    # - 名称先比完全一致，再比去掉 🎬/🔞、空格、标点后的宽松 key
     existing = await db.execute(select(Site))
     existing_sites = existing.scalars().all()
     existing_url_keys = {site_url_key(s.base_url): s for s in existing_sites}
-    existing_names = {s.name for s in existing_sites}
+    existing_names = {s.name: s for s in existing_sites}
+    existing_name_keys = {site_name_key(s.name): s for s in existing_sites}
 
     async def _probe_with_limit(item: BatchProbeItem) -> BatchProbeResult:
         async with _SEM:
@@ -692,18 +701,30 @@ async def batch_probe(
 
     results = await asyncio.gather(*[_probe_with_limit(item) for item in items])
 
-    # 自动添加探测成功的站点
+    # 自动添加探测成功的站点；命中去重的记录跳过原因
     new_sites: list[Site] = []
-    for r in results:
-        if r.ok:
-            url_key = site_url_key(r.url)
-            if url_key in existing_url_keys or r.name in existing_names:
-                continue
-            db_site = Site(name=r.name, base_url=r.url, enabled=True, sort=0)
-            db.add(db_site)
-            new_sites.append(db_site)
-            existing_url_keys[url_key] = db_site
-            existing_names.add(r.name)
+    added_indexes: set[int] = set()
+    skip_reasons: dict[int, str] = {}
+    for index, r in enumerate(results):
+        if not r.ok:
+            continue
+        url_key = site_url_key(r.url)
+        name_key = site_name_key(r.name)
+        hit = (
+            existing_url_keys.get(url_key)
+            or existing_names.get(r.name)
+            or existing_name_keys.get(name_key)
+        )
+        if hit is not None:
+            skip_reasons[index] = f"已存在：{hit.name}"
+            continue
+        db_site = Site(name=r.name, base_url=r.url, enabled=True, sort=0)
+        db.add(db_site)
+        new_sites.append(db_site)
+        added_indexes.add(index)
+        existing_url_keys[url_key] = db_site
+        existing_names[r.name] = db_site
+        existing_name_keys[name_key] = db_site
 
     if new_sites:
         await db.commit()
@@ -717,18 +738,16 @@ async def batch_probe(
         # 不再出现「嗅探添加后没有刮削」的不一致
         await _submit_lifecycle_crawl(new_sites)
 
-    added_url_keys = {site_url_key(s.base_url) for s in new_sites}
-    added_names = {s.name for s in new_sites}
-
-    # 重新标记 added 字段
+    # 重新标记 added 字段；跳过的给出「已存在：谁」，不再只显示泛泛的「已存在」
     final = []
-    for r in results:
-        is_added = r.ok and (
-            site_url_key(r.url) in added_url_keys or r.name in added_names
-        )
+    for index, r in enumerate(results):
+        is_added = index in added_indexes
+        skip_reason = skip_reasons.get(index)
         final.append(BatchProbeResult(
             name=r.name, url=r.url, ok=r.ok,
-            latency_ms=r.latency_ms, error=r.error, added=is_added,
+            latency_ms=r.latency_ms,
+            error=skip_reason or r.error,
+            added=is_added,
         ))
 
     # 记录一次站点嗅探历史（统一维护任务 site.discover，短任务 run 等待落库）；
