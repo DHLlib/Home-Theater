@@ -224,23 +224,47 @@
 
 ## AC-025 批量站点嗅探
 
-**Given** 用户访问「设置 → 站点管理」页面
-**When** 在批量嗅探区域粘贴站点 JSON 并点击「嗅探并添加」
-**Then** 系统并发探测每个 URL，返回探测结果（成功/失败 + 延迟），探测成功的自动添加到站点列表
+**Given** 用户访问「运维 → 批量嗅探」弹窗
+**When** 粘贴站点配置并点击「嗅探并添加」
+**Then** 系统并发探测每个 API 地址，返回逐条结果（成功/失败 + 延迟），探测成功的自动添加到站点列表，并提交一次 lifecycle 全量刮削
 
-**输入格式**:
+**输入格式**（三选一，最多 100 条）：
+
 ```json
 [
-  {"name": "非凡资源", "url": "http://ffzy5.tv/api.php/provide/vod"},
-  {"name": "卧龙资源", "url": "https://wolongzyw.com/api.php/provide/vod"}
+  {"name": "非凡资源", "url": "http://ffzy5.tv/api.php/provide/vod"}
 ]
 ```
 
-**约束**:
-- 并发探测最多 5 个同时进行
-- 同名或同 URL 的已有站点需跳过
-- 仅支持 http/https 协议，防止 SSRF
-- 探测逻辑复用现有 `health.probe` 函数
+```json
+[
+  {"name": "非凡资源", "api": "https://api.ffzyapi.com/api.php/provide/vod"}
+]
+```
+
+```json
+{
+  "cache_time": 7200,
+  "api_site": {
+    "ffzyapi.com": {
+      "name": "🎬非凡资源",
+      "api": "https://api.ffzyapi.com/api.php/provide/vod",
+      "detail": "https://cj.ffzyapi.com"
+    }
+  }
+}
+```
+
+**约束**：
+- 并发探测最多 5 个同时进行，单站 6 秒预算；整批请求前端超时 120 秒
+- 仅支持 http/https 协议，防止 SSRF；探测逻辑复用 `health.probe`
+- 判重键（任一命中即跳过，不重复建站）：
+  - API 地址归一化后比较：忽略 `http/https`、默认端口、主机大小写、末尾斜杠
+  - 名称先比完全一致，再比去掉 🎬/🔞 等图标、空白、标点后的宽松 key
+  - 同一批内的重复地址只添加第一条
+- 跳过时结果里写明「已存在：<已有站点名>」；`added=false`
+- 探测失败（不可达、非 JSON、超时）不入库，并给出可读原因
+- 新站添加后与单站添加一致：自动智能匹配分类、记录 `site.discover`、触发全量刮削
 
 ---
 
@@ -395,3 +419,34 @@
 **Then** 使用 PostgreSQL COPY FROM 或高效 executemany 批量插入，替代逐条 INSERT
 
 **性能约束**：批量写入吞吐量提升 5x+（原逐条 INSERT 受 SQLite 串行写入限制）
+
+---
+
+## AC-035 站点删除排队与幂等
+
+**Given** 用户在站点弹层点击「删除站点」并二次确认
+**When** 后端执行删除
+**Then** 接口立即返回，后台任务按以下两条路径处理：
+
+- **空站点**（无 `video_cache`、无 `aggregated_sources`）：直接禁用并删除，无需等待全局操作锁
+- **有数据的站点**：排队等待全局操作锁，最多 15 分钟；每 10 秒通过 SSE `site_delete_progress` 上报「等待其他任务结束：<阻塞任务>」
+
+**约束**：
+- 删除进度事件带 `status`（running/completed/failed）与可读 `message`
+- 前端站点卡片在删除中展示任务实时 message（默认「删除中…」），终态清理提示
+- 同一站点删除任务在途时，重复点击只执行一次（进程内 pending 集合）
+- 有数据站点超时仍未拿到锁时失败，站点与数据保留，提示「其他任务占用太久（<阻塞任务>），请稍后重试」
+
+---
+
+## AC-036 资源站请求健壮性
+
+**Given** 后端通过 `SourceClient` 请求资源站（list / videolist）
+**When** 遇到 WAF 拦截或网络异常
+**Then** 按以下规则区分处理：
+
+- `ids` 参数保持字面逗号（`ids=1,2,3`），不做 `%2C` 编码；`wd` 等参数仍正常百分号编码
+- 响应为 4xx/5xx 且命中 WAF 人机校验页特征（`cf-mitigated: challenge`、`Just a moment`、`cf_chl_opt`）时抛 `SourceChallengeError`；返回 JSON 的 403 仍按接口封禁处理
+- 补全（videolist）：按 10/30/60 秒原地退避重试同一批，连续四次仍被拦才熔断；等待期间可被取消信号打断
+- 列表抓取（ac=list）：先等 10 秒重试一次，仍被拦则整站中止本轮（不再按分类逐个重试），任务报「站点人机拦截（HTTP 403），本轮已中止」
+- 网络异常（超时 / 连接重置 / 不可达）的错误文案必须包含中文原因，不能只显示「失败：」

@@ -394,18 +394,41 @@ HOME THEATER          ⌕          ◐
 | 单站补全 | 有活动 `detail.fill`（全局去重）；站点已禁用 | 补全中… | 同上 |
 | 立即探测 | 探测中 | 探测中… | 刷新健康与卡片 |
 | 启用/禁用 | 提交中 | — | 乐观更新，失败回滚并 toast |
-| 删除 | 本站有活动任务；删除中 | 删除中… | 等 SSE `site_delete_progress` 完成后关闭弹层并 toast |
+| 删除 | 本站有活动任务；删除中 | 删除中…（排队时显示「等待其他任务结束：<任务>」） | 等 SSE `site_delete_progress` 完成后关闭弹层并 toast |
 | 编辑 | 编辑中 | — | 保存后刷新卡片与弹层标题 |
 
 - 站点已禁用时，增量/补全禁用并显示提示「站点已禁用，启用后可操作」。
 - 探测会写健康日志但不改变自动禁用计数（沿用现状）。
 - 删除必须二次确认；失败恢复按钮并 toast。
+- 删除分两条路径：无缓存/无聚合来源的站点直接删除（不占全局锁）；有数据的站点排队等锁（最多 15 分钟），期间卡片展示 SSE 带来的实时 message，终态清理提示。同站删除在途时重复点击只执行一次。
 
 #### 5.9.4 数据来源
 
 - 弹层打开时不重复拉全量：站点行、健康、统计数字由页面传入；仅调用一次 `getSiteHealth(id)` 获取 24h 可用率与探测历史。
 - 本站任务从页面已加载的 `jobs` 中过滤 `site_id`；若后续需要更久历史，再加 `/maintenance/jobs?site_id=`。
 - 编辑保存后调用 `updateSite`，随后刷新站点列表与 overview。
+
+---
+
+### 5.10 批量嗅探（TVBox 兼容）
+
+入口：站点工具条「批量嗅探」→ 弹窗（`BatchSniffDialog`）。粘贴配置后点「嗅探并添加」，一次请求 `POST /api/sites/batch-probe` 完成探测与添加。
+
+**输入**（三选一，最多 100 条，前端 `utils/batchSniff.ts` 解析）：
+
+1. `[{ "name": "...", "url": "..." }]`
+2. `[{ "name": "...", "api": "..." }]`
+3. TVBox 配置 `{ "cache_time": 7200, "api_site": { "域名": { "name", "api", "detail" } } }`
+
+解析规则：取 `name` + `api`（或 `url`）；`detail`/`cache_time` 忽略；缺 `name` 用主机名兜底；缺地址或协议不是 http(s) 的条目跳过并在结果区显示「已跳过 N 条无效项」。
+
+**判重**（后端，任一命中即跳过）：
+
+- API 地址归一化：忽略 scheme、默认端口、主机大小写、末尾斜杠
+- 名称：完全一致，或去掉 🎬/🔞 图标、空白、标点后一致
+- 同一批内重复地址只添加第一条
+
+跳过结果展示「已存在：<已有站点名>」；探测失败展示可读原因（连接超时 / 连接被重置 / 非 JSON 等）。探测成功的站点自动入库，并立即触发一次 lifecycle 全量刮削——一次粘几十个站会同时开抓，建议分批。
 
 ---
 
@@ -422,7 +445,8 @@ HOME THEATER          ⌕          ◐
 | 弹层健康 | `GET /api/sites/{id}/health` | `latest_probe/availability_24h/recent_logs/auto_disabled_at` |
 | 删除 | `DELETE /api/sites/{id}` + SSE `site_delete_progress` | `status: completed/failed` |
 | 批量检测 | `POST /api/sites/probe-batch`（NDJSON 流） | 逐站结果；完成后失效 overview |
-| 批量嗅探/导入/导出 | 现接口 | 不变 |
+| 批量嗅探 | `POST /api/sites/batch-probe` | `{name,url}` 数组；结果 `{ok,latency_ms,error,added}`，其中跳过的 `error` 为「已存在：<站点名>」 |
+| 导入/导出 | `GET /api/sites/export`、`POST /api/sites/import` | 不变 |
 
 后端待办（可选，不阻塞）：
 

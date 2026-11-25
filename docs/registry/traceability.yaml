@@ -739,22 +739,26 @@ acceptance_criteria:
     status: completed
 - id: AC-025
   title: 批量站点嗅探
-  description: 资源站管理页面增加批量嗅探功能，用户传入 JSON 数组，系统自动并发探测并添加可用站点
+  description: 批量嗅探支持 [{name,url}]、[{name,api}] 与 TVBox {api_site} 三种输入，按归一化地址 + 名称宽松判重，探测成功自动添加并触发 lifecycle 全量
   status: completed
   stage: qa
   source: backend/app/api/sites.py
   owner: frontend+backend
-  tests: []
+  tests:
+  - backend/test/test_site_delete_dedupe.py
+  - frontend/src/utils/__tests__/batchSniff.test.ts
   blockedBy: []
   impl_files:
   - backend/app/api/sites.py
   - backend/app/services/health.py
-  - frontend/src/pages/Settings.tsx
+  - backend/app/services/site_urls.py
+  - frontend/src/utils/batchSniff.ts
+  - frontend/src/components/BatchSniffDialog.tsx
   atdd:
     status: completed
   architect:
     status: completed
-  notes: 新增 AC，从 atdd 开始
+  notes: 2026-11-25 更新：支持 TVBox api_site、上限 20→100、去重跳过写明已有站点
   tdd:
     status: completed
   bdd:
@@ -1109,6 +1113,69 @@ acceptance_criteria:
     started_at: '2026-06-09T12:15:00Z'
   assembly:
     status: pending
+- id: AC-035
+  title: 站点删除排队与幂等
+  description: 删除接口立即返回；空站点直接删除，有数据站点排队等全局操作锁并持续上报阻塞任务；同站重复点击只执行一次
+  status: completed
+  stage: qa
+  source: backend/app/services/site_deleter.py
+  owner: frontend+backend
+  tests:
+  - backend/test/test_site_delete_dedupe.py
+  blockedBy: []
+  impl_files:
+  - backend/app/services/site_deleter.py
+  - backend/app/services/site_urls.py
+  - backend/app/api/sites.py
+  - backend/app/constants.py
+  - frontend/src/pages/Ops.tsx
+  - frontend/src/components/ops/SiteCard.tsx
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 2026-11-25 从「删除中…」卡死事故补充；追加名称宽松判重
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
+- id: AC-036
+  title: 资源站请求健壮性
+  description: ids 保持字面逗号避开 WAF；识别人机校验页并退避重试/中止本轮；网络错误给出可读中文原因
+  status: completed
+  stage: qa
+  source: backend/app/services/source_client.py
+  owner: backend
+  tests:
+  - backend/test/test_source_challenge.py
+  - backend/test/test_fill_videolist.py
+  - backend/test/test_crawler_challenge.py
+  blockedBy: []
+  impl_files:
+  - backend/app/services/source_client.py
+  - backend/app/services/crawler.py
+  - backend/app/constants.py
+  atdd:
+    status: completed
+  architect:
+    status: completed
+  notes: 2026-11-25 从无尽ME 补全 403、百度云列表挑战事故补充
+  tdd:
+    status: completed
+  bdd:
+    status: completed
+  review:
+    status: completed
+  qa:
+    status: completed
+  assembly:
+    status: completed
 sprints:
 - id: sprint-002
   name: 技术债务清理与边界测试补充

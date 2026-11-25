@@ -24,7 +24,10 @@ endpoints:
     summary: 新建采集站
     request_schema: SiteCreate
     response_schema: Site
-    consumers: [AC-001]
+    consumers: [AC-001, AC-025]
+    notes: |
+      判重：名称完全一致，或 API 地址按归一化 key（忽略 scheme / 默认端口 /
+      末尾斜杠 / 主机大小写）与已有站点相同，返回 409 并指出已有站点。
 
   - id: API-SITE-UPDATE
     path: /api/sites/{site_id}
@@ -37,10 +40,14 @@ endpoints:
   - id: API-SITE-DELETE
     path: /api/sites/{site_id}
     method: DELETE
-    summary: 删除采集站
+    summary: 删除采集站（后台任务，接口立即返回）
     request_schema: null
     response_schema: OkResponse
-    consumers: [AC-001]
+    consumers: [AC-001, AC-035]
+    notes: |
+      空站点（无 video_cache / 无 aggregated_sources）直接删除，不等全局操作锁；
+      有数据的站点排队等锁（最多 15 分钟），进度经 SSE site_delete_progress 推送
+      （status: running/completed/failed + message）。同站删除在途时重复请求只执行一次。
 
   - id: API-SITE-PROBE
     path: /api/sites/{site_id}/probe
@@ -49,6 +56,18 @@ endpoints:
     request_schema: null
     response_schema: ProbeResult
     consumers: [AC-001, AC-013]
+
+  - id: API-SITE-BATCH-PROBE
+    path: /api/sites/batch-probe
+    method: POST
+    summary: 批量嗅探新站点（探测成功自动添加并触发 lifecycle 全量）
+    request_schema: "BatchProbeItem[]"
+    response_schema: BatchProbeResponse
+    consumers: [AC-025]
+    notes: |
+      单次最多 100 条，并发 5、单站 6 秒预算。判重：API 地址归一化（忽略 scheme /
+      默认端口 / 末尾斜杠 / 主机大小写）+ 名称（完全一致或去图标/标点后一致）。
+      跳过时结果 added=false 且 error 为「已存在：<站点名>」；探测失败不入库。
 
   - id: API-SITE-CATEGORIES-GET
     path: /api/sites/{site_id}/categories

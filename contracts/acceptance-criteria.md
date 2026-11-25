@@ -1,6 +1,7 @@
 # 验收条件（Acceptance Criteria）
 
 > 状态: 活跃（与当前代码同步）
+> 维护中的完整列表（AC-018~036，含运维控制台、分类映射、批量嗅探、站点删除等）见 `docs/contracts/acceptance-criteria.md`；本文件保留 AC-001~017 的基础条目。
 
 ---
 
@@ -8,7 +9,7 @@
 
 **Given** 用户访问设置页
 **When** 添加/编辑/删除站点
-**Then** 站点配置持久化到 SQLite
+**Then** 站点配置持久化到 PostgreSQL
 **And** 支持探测站点健康状态
 
 ---
@@ -158,4 +159,4 @@
 **Given** 后端绑定 0.0.0.0
 **When** 前端构建为静态文件
 **Then** 后端通过 FastAPI StaticFiles 托管 dist
-**And** 局域网内所有设备可通过 IP:8181 访问
+**And** 局域网内所有设备可通过 IP:8000 访问

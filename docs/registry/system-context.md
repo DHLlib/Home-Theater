@@ -1,6 +1,6 @@
 # System Context — Home Theater v0.1.1
 
-**最后更新**: 2026-11-22
+**最后更新**: 2026-11-25
 
 **环境**: Python 3.13, FastAPI, React 18, Vite 5, PostgreSQL 16, xgplayer v3
 
@@ -56,7 +56,10 @@
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
 | 性能与可观测 | `services/tls.py`、共享客户端池、`event_loop_lag`、`slow_request` | 见 §15 性能检查清单 |
 | 统一站点运维 | `services/maintenance.py`、`api/maintenance.py`、`hooks/useMaintenance.ts`、`pages/Ops.tsx`、`components/ops/*` | 全量/增量/补全/清理统一 job_id、去重、取消、进度与中断恢复；SSE + GET 快照；手动探测写健康日志但不改变自动禁用计数 |
-| videolist 批量补全进度 | `crawler.run_fill_job` + `detail.fill` 任务 | 手动与每日本地 04:00 定时共用协调器；`details.fill` 保留 FillStatus；403 单站熔断；取消与重启中断分别展示 |
+| videolist 批量补全进度 | `crawler.run_fill_job` + `detail.fill` 任务 | 手动与每日本地 04:00 定时共用协调器；`details.fill` 保留 FillStatus；401/403 单站熔断，WAF 人机校验按 10/30/60 秒退避重试；取消与重启中断分别展示 |
+| 资源站请求健壮性 | `services/source_client.py`、`services/crawler.py` | `ids` 保持字面逗号（避开把 `%2C` 判为可疑请求的 WAF）；`SourceChallengeError` 区分人机校验与接口 403；补全退避重试、列表抓取中止本轮；网络错误文案带中文原因 |
+| 站点判重与删除排队 | `services/site_urls.py`、`api/sites.py`、`services/site_deleter.py`、`utils/batchSniff.ts`、`components/BatchSniffDialog.tsx` | 地址归一化（忽略 scheme/默认端口/末尾斜杠/主机大小写）+ 名称宽松判重（去图标/标点）；空站点删除不等全局锁，有数据站点排队最多 15 分钟并上报阻塞任务；重复点击幂等 |
+| 批量嗅探 TVBox 配置 | `utils/batchSniff.ts`、`api/sites.py` batch-probe | 支持 `[{name,url}]`、`[{name,api}]`、`{api_site:{...}}` 三种输入，上限 100；跳过时结果写明「已存在：<站点名>」 |
 
 ---
 
@@ -64,12 +67,12 @@
 
 ### Sites (`/api/sites`)
 - `GET    /api/sites` → list_sites
-- `POST   /api/sites` → create_site（新增站点自动匹配分类并播种别名）
+- `POST   /api/sites` → create_site（名称 + 归一化地址判重，重复返回 409；新增站点自动匹配分类并播种别名）
 - `PATCH  /api/sites/{site_id}` → update_site（启用/禁用会失效隐藏缓存）
-- `DELETE /api/sites/{site_id}` → delete_site
+- `DELETE /api/sites/{site_id}` → delete_site（立即返回；后台删除，空站点直接删，有数据站点排队等全局锁并上报阻塞者）
 - `POST   /api/sites/{site_id}/probe` → probe_site
 - `POST   /api/sites/probe-batch` → probe_sites_batch（NDJSON 逐站返回，结果写健康日志）
-- `POST   /api/sites/batch-probe` → batch_probe（新站嗅探、自动添加、记录 site.discover、触发 lifecycle 全量）
+- `POST   /api/sites/batch-probe` → batch_probe（新站嗅探、按归一化地址 + 名称宽松判重、跳过写明已有站点、自动添加、记录 site.discover、触发 lifecycle 全量；单次最多 100 条）
 - `GET    /api/sites/{site_id}/categories` → get_site_categories
 - `PUT    /api/sites/{site_id}/categories` → update_site_categories
 - `POST   /api/sites/{site_id}/fetch-categories` → fetch_remote_categories
@@ -213,13 +216,16 @@
 10. **来源推荐**：播放事件按 `event_id` 幂等写入；质量按来源聚合近 30 天数据，推荐只影响排序与标识，不自动选中。
 11. **默认首页**：按电影 → 连续剧 → 综艺 → 动漫 → 短剧 → 体育 → 其他展示非空父类，每类最多 8 条最新聚合视频；不展示推荐或混合视频墙。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
 12. **统一站点运维**：长任务写入 `maintenance_jobs` 并返回真实 job_id；手动/定时/启动/生命周期共用协调器；页/子批边界合作取消，重启后遗留活动任务标 interrupted。健康与更新同轮共享一次列表探测，网络错误不误判为无更新。
-13. **批量补全 videolist**：新前端读取 `detail.fill` 的 `details.fill`；旧 API 的 FillStatus 快照仍兼容。单站连续 HTTP 403 时熔断为 blocked，剩余条目计 skipped，其余站点继续；取消与后端重启分别显示。
+13. **批量补全 videolist**：新前端读取 `detail.fill` 的 `details.fill`；旧 API 的 FillStatus 快照仍兼容。WAF 人机校验按 10/30/60 秒退避重试同一批，连续四次仍被拦才熔断；接口 401/403 仍立即熔断，剩余条目计 skipped，其余站点继续；提前返回前先落库已取到的详情，有进度后熔断记 partial。取消与后端重启分别显示。
+14. **站点判重**：地址按归一化 key（忽略 scheme/默认端口/末尾斜杠/主机大小写），名称先比完全一致再比「去图标/标点」宽松 key；单站添加、批量嗅探、导入三处共用，重复返回 409 或结果标「已存在：<站点名>」。不同域名的镜像站视为不同站点。
+15. **站点删除**：接口立即返回，后台任务分两条路径——空站点（无 `video_cache`/`aggregated_sources`）直接删除，不等全局锁；有数据站点排队最多 15 分钟，每 10 秒 SSE 上报「等待其他任务结束：<阻塞任务>」。同站删除在途时重复点击只执行一次。
 
 ---
 
 ## 已知限制
 
 - 维护协调器的活动任务表是进程内状态；只支持单进程后端，多进程需另行实现数据库租约与跨进程取消。
+- 有数据站点的删除最多排队等待全局操作锁 15 分钟；全量刮削更久时会失败并提示稍后重试（删除尚未登记为 `maintenance_job`，不出现在任务记录里）。
 - `failed_sources` 字段保留用于兼容旧前端。
 - SSE 为单例 EventSource，每客户端 1 秒心跳；规模再大需换 WebSocket。
 - 全量重建聚合表时的 Python 回填仍可能造成秒级 lag（待压测验证）。
