@@ -39,7 +39,7 @@ export function parseBatchSites(input: string): BatchSniffParseResult {
     data = JSON.parse(text);
   } catch (err) {
     const detail = err instanceof Error ? `：${err.message}` : "";
-    throw new Error(`JSON 格式错误${detail}`);
+    throw new Error(`JSON 格式错误${detail}`, { cause: err });
   }
 
   let rawItems: unknown[];
