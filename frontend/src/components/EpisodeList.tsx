@@ -1,42 +1,7 @@
 import type { Episode } from "../types";
 import { toastError } from "../utils/toast";
+import { groupEpisodes } from "../utils/episodeGrouping";
 import "./EpisodeList.css";
-
-function groupEpisodes(episodes: Episode[]): { label: string; eps: Episode[] }[] {
-  if (episodes.length === 0) return [];
-
-  const bySuffix: Record<string, Episode[]> = {};
-  for (const ep of episodes) {
-    if (!bySuffix[ep.suffix]) bySuffix[ep.suffix] = [];
-    bySuffix[ep.suffix].push(ep);
-  }
-  const suffixes = Object.keys(bySuffix);
-
-  if (suffixes.length > 1) {
-    return suffixes.map((s) => ({ label: s.toUpperCase(), eps: bySuffix[s] }));
-  }
-
-  const groups: Episode[][] = [];
-  let currentGroup: Episode[] = [];
-  const seen = new Set<string>();
-
-  for (const ep of episodes) {
-    if (seen.has(ep.ep_name)) {
-      groups.push(currentGroup);
-      currentGroup = [];
-      seen.clear();
-    }
-    currentGroup.push(ep);
-    seen.add(ep.ep_name);
-  }
-  if (currentGroup.length > 0) groups.push(currentGroup);
-
-  if (groups.length > 1) {
-    return groups.map((g, i) => ({ label: `线路 ${i + 1}`, eps: g }));
-  }
-
-  return [{ label: suffixes[0]?.toUpperCase() || "", eps: episodes }];
-}
 
 export default function EpisodeList({
   episodes,
