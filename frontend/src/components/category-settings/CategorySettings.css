@@ -638,6 +638,26 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.cat-select-all {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+  transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
+}
+.cat-select-all:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--tint-soft);
+  border-color: var(--border-hover);
+}
+.cat-select-all:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .cat-search {
   position: relative;
   display: flex;

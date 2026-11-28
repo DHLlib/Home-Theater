@@ -299,6 +299,15 @@ export default function CategorySettings() {
     [available, checked]
   );
 
+  const filteredCheckedCount = useMemo(
+    () =>
+      availableFiltered.filter((item) => checked.has(remoteKey(item))).length,
+    [availableFiltered, checked]
+  );
+  const allFilteredChecked =
+    availableFiltered.length > 0 &&
+    filteredCheckedCount === availableFiltered.length;
+
   const siteGroups = useMemo(() => {
     const groups = new Map<
       number,
@@ -654,6 +663,19 @@ export default function CategorySettings() {
       for (const item of items) {
         if (next) result.add(remoteKey(item));
         else result.delete(remoteKey(item));
+      }
+      return result;
+    });
+  };
+
+  const toggleAllFiltered = () => {
+    const next = !allFilteredChecked;
+    setChecked((prev) => {
+      const result = new Set(prev);
+      for (const item of availableFiltered) {
+        const key = remoteKey(item);
+        if (next) result.add(key);
+        else result.delete(key);
       }
       return result;
     });
@@ -1061,6 +1083,26 @@ export default function CategorySettings() {
                       </span>
                     </div>
                     <div className="cat-available-tools">
+                      {query.trim() && availableFiltered.length > 0 && (
+                        <button
+                          type="button"
+                          className="cat-select-all"
+                          onClick={toggleAllFiltered}
+                          disabled={busy}
+                          aria-label={
+                            allFilteredChecked
+                              ? "取消全选搜索结果"
+                              : `全选搜索结果（${availableFiltered.length} 个）`
+                          }
+                          title={
+                            allFilteredChecked
+                              ? "取消全选当前搜索的远程分类"
+                              : "全选当前搜索的远程分类"
+                          }
+                        >
+                          {allFilteredChecked ? "取消全选" : "全选"}
+                        </button>
+                      )}
                       {query.trim() && (
                         <span className="cat-match">匹配 {availableFiltered.length} 个</span>
                       )}
