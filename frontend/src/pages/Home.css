@@ -83,8 +83,8 @@
 .spot-arrow {
   position: absolute;
   top: calc(50% - 44px);
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target);
+  height: var(--touch-target);
   display: none;
   align-items: center;
   justify-content: center;
@@ -198,13 +198,13 @@
 .home-loading-title {
   height: 16px;
   width: 80%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .home-loading-meta {
   height: 12px;
   width: 40%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* 返回顶部：浮层按钮。用与主题相反的实心色（深色主题=白底黑箭头，
@@ -213,7 +213,7 @@
   position: fixed;
   right: 20px;
   bottom: 24px;
-  z-index: 100;
+  z-index: var(--z-nav);
   width: 46px;
   height: 46px;
   border-radius: 50%;

@@ -40,6 +40,8 @@ rounded:
   card: "12px"
   dialog: "16px"
   pill: "999px"
+  circle: "50%"
+  square: "0"
 ---
 
 # Design System: Home Theater（品类标准件）
@@ -118,8 +120,45 @@ rounded:
 ## 4. 层级与圆角
 
 - **描边即层级**：`1px` 描边 + 一档表面色。默认不用投影；只有真正浮起的层（弹窗、抽屉、Toast、选源浮层）允许一个大而软的投影，且不与描边重复声明。
-- 圆角只有四档：`8px`（按钮、输入）、`12px`（封面、卡片、来源块）、`16px`（弹窗、抽屉）、`999px`（胶囊、状态点）。
 - 不用发光、不用彩色 halo、不用渐变文字、不用玻璃拟态做装饰。
+
+### 4.1 圆角 [项目约定]
+
+- **规则**：`border-radius` 只从下列 token 取，组件里不写字面量。
+- **四档主体 + 两个派生**：
+
+| Token | 值 | 用途 |
+|---|---|---|
+| `--radius-sm` | `8px` | 按钮、输入框、小标签、下拉项 |
+| `--card-radius` | `12px` | 封面、卡片、来源块、Toast |
+| `--radius-lg` | `16px` | 弹窗、抽屉 |
+| `--radius-pill` | `999px` | 胶囊、状态点、进度轨道、拖拽把手 |
+| `50%` | — | 正圆：播放徽标、圆形图标按钮、头像 |
+| `0` | — | 直角：贴边的分类栏链接、13px 勾选框 |
+
+- **派生值**：`50%` 与 `0` 是"形状"而非"大小"，直接写，不建 token。
+- **细长元素**：宽度只有 3–4px 的装饰条（分区标题条、进度轨道）用 `--radius-pill`；CSS 会把半径裁到短边一半，渲染上等价于原来的 2px，不需要单独开档。
+- **不允许**：`2px` / `3px` / `4px` / `6px` / `10px` / `100px` 这类自由值。
+- **验收**：`grep 'border-radius'` 后，结果只能是 `var(--radius-*)` / `var(--card-radius)` / `50%` / `0` / `inherit`。
+
+### 4.2 层叠（z-index） [项目约定]
+
+- **规则**：跨组件覆盖一律用 token；组件内部的相对层叠用 `1–10` 的字面量，**不得超过 10**。
+- **顺序即语义**（小 → 大）：
+
+| Token | 值 | 用在哪 |
+|---|---|---|
+| `--z-sticky` | `20` | 内容区吸顶（首页分类锚点、下拉面板、详情页头） |
+| `--z-dropdown` | `50` | 顶栏内的下拉（在顶栏自身层叠上下文里） |
+| `--z-nav` | `100` | 全局顶栏 / 底栏、返回顶部 |
+| `--z-modal` | `1000` | 弹窗、抽屉、遮罩、看板浮层 |
+| `--z-popover` | `1100` | 弹窗**内部**的浮层（选集选择器） |
+| `--z-top` | `1200` | 必须盖住弹窗的浮层（选源浮层） |
+| `--z-toast` | `2000` | Toast 通知 |
+| `--z-fullscreen` | `9999` | 模拟全屏 / 横屏播放 |
+
+- **为什么选源浮层高于弹窗**：选源是详情弹窗内的强制步骤，必须在弹窗之上；这不违反 §7「不要为同一步骤叠两层弹窗」——它就是一层，盖在详情上。
+- **验收**：`grep 'z-index'` 后，非 `var(--z-*)` 的值必须都 ≤ 10。
 
 ## 5. 组件
 
@@ -201,6 +240,6 @@ rounded:
 - **视觉可以更小**：海报角标这类必须小巧的控件，保留视觉尺寸，用伪元素把命中区域外扩到 44（例：`.card-action-btn` 视觉 30px + `::after { inset: var(--hit-spread-sm) }`）。**禁止**靠缩小图标去"凑"尺寸。
 - **验收**：量渲染后的 `getBoundingClientRect()`，看命中区域而不是视觉描边。
 
-**已覆盖**：`.btn`、`.nav-link`、`.nav-icon-btn`、`.nav-menu-btn`、`.nav-search`、`.vc-play`、`.vc-fav`、`.card-action-btn`、`.mobile-back-btn`、`.category-search-input`、`.category-search-option`、`.cleanup-speed`。
+**已覆盖**：`.btn`、`.nav-link`、`.nav-icon-btn`、`.nav-menu-btn`、`.nav-search`、`.vc-play`、`.vc-fav`、`.card-action-btn`、`.mobile-back-btn`、`.category-search-input`、`.category-search-option`、`.cleanup-speed`、分类锚点、`.spot-arrow`，以及 ops 页与分类工作台的全部输入框 / 按钮 / 下拉 / 分段控件。
 
-**已知欠账** [待清理]：ops 页工具栏与分类工作台仍有 32–40px 的输入框和按钮（约 20 处，如 `ops.css` 的 `height: 32px/40px`、`CategoryWorkbench.css` 的 `height: 32px/34px`）。这些是桌面鼠标密集面板，改动会显著改变面板密度，**需单独一轮带截图评审**，不要在做其他任务时顺手改。
+**不适用**：静态徽标与指示器（`.wb-pill`、`.wb-chip`、`.ops-state`、`.source-badge`）、装饰条（拖拽把手、进度轨道、骨架线、圆点）不需要 44——它们不可点。

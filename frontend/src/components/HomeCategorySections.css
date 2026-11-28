@@ -8,7 +8,7 @@
 .home-category-sections__nav {
   position: sticky;
   top: var(--home-category-nav-offset, var(--top-nav-height, 62px));
-  z-index: 20;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   gap: 24px;
@@ -163,14 +163,14 @@
   width: 82%;
   height: 15px;
   margin-top: 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .home-category-sections__skeleton-meta {
   width: 46%;
   height: 12px;
   margin-top: 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .home-category-sections__status {

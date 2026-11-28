@@ -2,7 +2,7 @@
 
 .cat-structure {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   padding: 10px 12px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -40,7 +40,7 @@
 
 .cat-group {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   overflow: hidden;
 }
 
@@ -83,7 +83,7 @@
   padding: 0 6px;
   height: 18px;
   line-height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
   color: var(--text-muted);
   background: var(--bg-elevated);

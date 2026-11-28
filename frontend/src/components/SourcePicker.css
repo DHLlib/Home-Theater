@@ -3,7 +3,7 @@
 .sp-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: var(--z-top);
   display: flex;
   align-items: center;
   justify-content: center;

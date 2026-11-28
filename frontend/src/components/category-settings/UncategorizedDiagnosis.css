@@ -2,7 +2,7 @@
 
 .uncat-diag {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   padding: 10px 12px;
   font-size: 13px;
   color: var(--text-secondary);

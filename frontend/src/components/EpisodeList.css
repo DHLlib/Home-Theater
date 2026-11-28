@@ -27,7 +27,7 @@
 
 .ep-btn {
   position: relative;
-  height: 36px;
+  height: var(--touch-target);
   padding: 0 12px;
   display: flex;
   align-items: center;
@@ -76,7 +76,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  /* 13px 的勾选框用直角：任何 8px 以上的圆角都会被裁成圆形，读起来像单选钮 */
+  border-radius: 0;
   border: 1.5px solid var(--border-bright);
   color: var(--primary-ink);
 }
@@ -92,7 +93,7 @@
     gap: 7px;
   }
   .ep-btn {
-    height: 34px;
+    height: var(--touch-target);
     font-size: 12px;
   }
 }

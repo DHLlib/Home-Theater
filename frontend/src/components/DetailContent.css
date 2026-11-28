@@ -27,7 +27,7 @@
 .dc-poster {
   width: 100%;
   aspect-ratio: 2 / 3;
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   overflow: hidden;
   background: var(--bg-surface);
 }
@@ -123,7 +123,7 @@
 }
 
 .dc-btn {
-  height: 40px;
+  height: var(--touch-target);
   padding: 0 18px;
   display: inline-flex;
   align-items: center;
@@ -221,7 +221,7 @@
 
 .source-block {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   background: var(--bg-surface);
   overflow: hidden;
   transition: border-color var(--transition-fast), background var(--transition-fast);
@@ -285,8 +285,8 @@
   position: absolute;
   top: 14px;
   right: 14px;
-  width: 34px;
-  height: 34px;
+  width: var(--touch-target);
+  height: var(--touch-target);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -311,7 +311,7 @@
 .ep-picker-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: var(--z-popover);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -31,7 +31,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 100;
+  z-index: var(--z-nav);
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -78,7 +78,7 @@
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 200;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -87,7 +87,7 @@
 
 .mobile-toast {
   padding: 10px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
@@ -209,7 +209,7 @@
 .mobile-category-tab {
   flex-shrink: 0;
   padding: 6px 14px;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--glass-border);
   background: transparent;
   color: var(--text-secondary);
@@ -404,7 +404,7 @@
   color: var(--text-muted);
   padding: 1px 6px;
   background: var(--bg-elevated);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
 }
 
@@ -446,7 +446,7 @@
 .mobile-source-section {
   margin-bottom: 16px;
   border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  border-radius: var(--card-radius);
   overflow: hidden;
 }
 
@@ -481,7 +481,7 @@
 .mobile-episode-btn {
   min-height: 44px;
   padding: 8px 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
   background: var(--bg-elevated);
   color: var(--text-primary);
@@ -504,7 +504,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px;
-  border-radius: 10px;
+  border-radius: var(--card-radius);
   background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   margin-bottom: 10px;
@@ -561,7 +561,7 @@
   min-width: 0;
   height: 44px;
   padding: 0 14px;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--glass-border);
   background: var(--bg-elevated);
   color: var(--text-primary);
@@ -595,7 +595,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-radius: 10px;
+  border-radius: var(--card-radius);
   background: var(--bg-elevated);
   border: 1px solid var(--glass-border);
   color: var(--text-primary);

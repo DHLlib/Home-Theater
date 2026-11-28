@@ -10,7 +10,7 @@
   min-height: 22px;
   padding: 1px 7px;
   border: 1px solid var(--border-bright);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-surface);
   color: var(--text-secondary);
   font-size: 11px;
