@@ -5,6 +5,12 @@
    ============================================================ */
 
 :root {
+  /* color-scheme 必须放在这里（第一个 :root），不能单独再写一个 :root。
+     :root 与 [data-theme="light"] 特异性相同，靠源序决胜；后面再出现的 :root
+     会把浅色主题的 color-scheme: light 直接盖掉，导致 select / checkbox /
+     日期选择器这些浏览器自绘部件在白底上仍按深色渲染。 */
+  color-scheme: dark;
+
   /* === 断点 Token === */
   --bp-mobile-max: 767px;
   --bp-tablet-min: 768px;
@@ -40,7 +46,8 @@
   --danger: #f87171;
   --danger-dim: rgba(248, 113, 113, 0.12);
   --warning: #fbbf24;
-  --success: #4ade80;
+  /* 成功即主色的语义别名，不复制色值：改 --primary 时这里跟着走 */
+  --success: var(--primary);
 
   /* === 圆角 === */
   --card-radius: 12px;
@@ -74,6 +81,10 @@
   --surface: #17171a;
   --primary-glow: rgba(74, 222, 128, 0.35);
 
+  /* === 滚动条（浏览器自绘，不跟表面色走，必须显式给值） === */
+  --scrollbar-thumb: #2e2e33;
+  --scrollbar-thumb-hover: #43434b;
+
   /* === 层级系统 === */
   --z-toast: 2000;
   --z-modal: 1000;
@@ -91,6 +102,9 @@
    ============================================================ */
 
 [data-theme="light"] {
+  /* 浏览器自绘部件（select / checkbox / file）跟随浅色，否则白底上会画出深色控件 */
+  color-scheme: light;
+
   --bg: #ffffff;
   --bg-elevated: #f6f6f7;
   --bg-surface: #ececef;
@@ -112,7 +126,7 @@
   --danger: #dc2626;
   --danger-dim: rgba(220, 38, 38, 0.1);
   --warning: #b45309;
-  --success: #16a34a;
+  --success: var(--primary);
 
   --btn-bg-hover: #efeff2;
 
@@ -130,6 +144,9 @@
   --glass-border-bright: rgba(16, 16, 18, 0.18);
   --surface: #ececef;
   --primary-glow: rgba(22, 163, 74, 0.25);
+
+  --scrollbar-thumb: #d4d4d8;
+  --scrollbar-thumb-hover: #a1a1aa;
 }
 
 /* ============================================================
@@ -164,11 +181,12 @@ body {
 }
 
 :root {
-  color-scheme: dark;
-  scrollbar-color: #2e2e33 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
+/* 滚动条只在这里定义一次：上方 scrollbar-color 与下方 ::-webkit-scrollbar 必须同源，
+   否则改一处不生效（历史上有过两套，后一套静默覆盖前一套）。 */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -179,13 +197,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2e2e33;
+  background: var(--scrollbar-thumb);
   border: 3px solid var(--bg);
   border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #43434b;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* 表格数字：时长、进度、计数一律等宽，避免跳动 */
@@ -562,6 +580,9 @@ nav.top-nav.hidden + main {
 
 .nav-search:focus-within {
   border-color: var(--border-bright);
+  /* 内层 input 的 outline 被清掉，焦点环必须由包裹元素提供，否则键盘用户看不到焦点 */
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .nav-search-icon {
@@ -875,25 +896,6 @@ nav.top-nav.hidden + main {
   aspect-ratio: 2 / 3;
   transition: border-color var(--transition-fast);
   border: 1px solid transparent;
-}
-
-/* === 滚动条 === */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-hover);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-bright);
 }
 
 /* === 输入框 === */
