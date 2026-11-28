@@ -854,6 +854,28 @@
   text-overflow: ellipsis;
   max-width: 540px;
 }
+.cat-queue-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.cat-queue-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex: 0 0 5px;
+  animation: cat-queue-pulse 1.2s var(--ease-in-out) infinite;
+}
+@keyframes cat-queue-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 .cat-footer-actions {
   margin-left: auto;
   display: flex;

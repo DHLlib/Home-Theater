@@ -26,6 +26,11 @@ import "./CategorySettings.css";
 
 type Adding = { kind: "big" | "child"; parentId?: number } | null;
 type DeleteTarget = { kind: "big" | "child"; id: number } | null;
+interface MountJob {
+  categoryId: number;
+  categoryName: string;
+  remotes: RemoteCategoryItem[];
+}
 
 const fmt = (n: number) => Number(n || 0).toLocaleString("zh-CN");
 const remoteKey = (r: RemoteCategoryItem) => `${r.site_id}|${r.remote_id}`;
@@ -156,6 +161,9 @@ export default function CategorySettings() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busy, setBusy] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+  const mountQueueRef = useRef<MountJob[]>([]);
+  const mountingRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -528,12 +536,45 @@ export default function CategorySettings() {
     }
   };
 
-  const attachSelected = async () => {
+  const processMountQueue = async () => {
+    if (mountingRef.current) return;
+    mountingRef.current = true;
+    try {
+      while (mountQueueRef.current.length > 0) {
+        const job = mountQueueRef.current[0];
+        try {
+          const result = await attachCategoryLinks(
+            job.remotes.map((item) => ({
+              site_id: item.site_id,
+              remote_id: item.remote_id,
+              system_category_id: job.categoryId,
+            }))
+          );
+          toastSuccess(
+            `已挂载 ${result.linked ?? job.remotes.length} 个远程分类到「${job.categoryName}」· 重算 ${fmt(result.affected_videos)} 个视频`
+          );
+        } catch {
+          // client 已统一 toast；继续处理队列中的下一项
+        } finally {
+          mountQueueRef.current.shift();
+          setQueueCount(mountQueueRef.current.length);
+        }
+      }
+    } finally {
+      await load(true);
+      mountingRef.current = false;
+      // 刷新期间新加入的队列项要接着处理，不能被 finally 漏掉
+      if (mountQueueRef.current.length > 0) {
+        void processMountQueue();
+      }
+    }
+  };
+
+  const attachSelected = () => {
     if (!selectedCategory || checkedRemotes.length === 0 || busy) return;
     const targets = checkedRemotes;
     const targetKeys = new Set(targets.map(remoteKey));
-    const targetCount = targets.length;
-    // 先本地落位，避免等 3 秒的远程快照刷新；落库失败时再回滚
+    // 先本地落位并清空勾选，用户可立刻切到下一个小类继续加入队列
     setRemotes((prev) =>
       prev.map((item) =>
         targetKeys.has(remoteKey(item))
@@ -547,25 +588,13 @@ export default function CategorySettings() {
     );
     setChecked(new Set());
     scrollDetailTop();
-    setBusy(true);
-    try {
-      const result = await attachCategoryLinks(
-        targets.map((item) => ({
-          site_id: item.site_id,
-          remote_id: item.remote_id,
-          system_category_id: selectedCategory.id,
-        }))
-      );
-      toastSuccess(
-        `已挂载 ${result.linked ?? targetCount} 个远程分类到「${selectedCategory.name}」· 重算 ${fmt(result.affected_videos)} 个视频`
-      );
-      void load(true);
-    } catch {
-      // client 已统一 toast
-      void load(true);
-    } finally {
-      setBusy(false);
-    }
+    mountQueueRef.current.push({
+      categoryId: selectedCategory.id,
+      categoryName: selectedCategory.name,
+      remotes: targets,
+    });
+    setQueueCount(mountQueueRef.current.length);
+    void processMountQueue();
   };
 
   const detachOne = async (item: RemoteCategoryItem) => {
@@ -1330,6 +1359,11 @@ export default function CategorySettings() {
                       {checkedRemotes.length > 2
                         ? ` 等 ${checkedRemotes.length} 项`
                         : ""}
+                    </span>
+                  )}
+                  {queueCount > 0 && (
+                    <span className="cat-queue-status" role="status">
+                      挂载中 · 队列 {queueCount} 项
                     </span>
                   )}
                 </div>
