@@ -111,7 +111,10 @@
 
   --text-primary: #101012;
   --text-secondary: #52525b;
-  --text-muted: #71717a;
+  /* 元信息要压在 --bg-elevated / --bg-surface 上也达标，不能只按白底算：
+     #71717a 在 --bg-surface 上只有 4.10:1，低于 4.5。压深到 #63636b 后三层
+     背景最低 5.05:1（白 5.95 / elevated 5.51 / surface 5.05）。 */
+  --text-muted: #63636b;
 
   --border: #e4e4e7;
   --border-hover: #d4d4d8;
