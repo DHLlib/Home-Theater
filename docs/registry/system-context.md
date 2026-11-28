@@ -1,6 +1,6 @@
 # System Context — Home Theater v0.1.1
 
-**最后更新**: 2026-11-25
+**最后更新**: 2026-11-28
 
 **环境**: Python 3.13, FastAPI, React 18, Vite 5, PostgreSQL 16, xgplayer v3
 
@@ -11,7 +11,7 @@
 | AC | 状态 | 后端文件 | 前端文件 |
 |----|------|---------|---------|
 | AC-001 站点管理 | ✅ | `api/sites.py` | `pages/Ops.tsx`、`components/ops/SiteOpsSheet.tsx` |
-| AC-002 分类映射 | ✅ | `api/sites.py`, `api/category_aliases.py` | `components/category-settings/AliasSettings.tsx` |
+| AC-002 分类映射 | ✅ | `api/category_settings.py`, `api/system_categories.py`, `services/category_links.py` | `components/category-settings/CategorySettings.tsx` |
 | AC-003 首页聚合 | ✅ | `api/videos.py`, `services/aggregator.py` | `pages/Home.tsx` |
 | AC-004 视频搜索 | ✅ | `api/videos.py` | `pages/Home.tsx` |
 | AC-005 视频详情 | ✅ | `api/videos.py`, `services/resolver.py` | `pages/DetailModal.tsx` |
@@ -38,19 +38,20 @@
 
 | 能力 | 关键实现 | 说明 |
 |---|---|---|
-| 全局分类别名 | `services/category_alias.py`, `api/category_aliases.py` | 远程类名 → 系统分类，跨站共享；98 个别名覆盖 21 站 805 条旧映射 |
-| 视频级分类 | `aggregated_videos.system_category` | 聚合时多数票；NULL = 「未分类」伪分类 |
-| 体育 / 短剧 系统分类 | `main._ensure_late_categories` | 启动幂等补齐，共 48 个分类 |
-| 站点例外 | `site_category_overrides` + `/overrides` API | 同名类名在某站点含义不同时覆盖 |
+| 手动分类挂载 | `services/category_links.py`, `api/category_settings.py` | 站点远程分类 → 小类；按站点唯一，一远程只挂一个小类，一小类可挂多个 |
+| 远程分类快照 | `site_remote_categories` + `/api/category-settings/refresh` | 从 `ac=list` 拉取全部分类；爬虫用最新快照抓取，映射不影响抓取范围 |
+| 视频级分类 | `aggregated_videos.system_category` | 按来源挂载关系投票；NULL = 「未分类」；不再全量回填 |
+| 分类删除 | `api/system_categories.py` | 解挂载 + 视频置 NULL + 删分类，不迁移、不重新投票 |
+| 出厂分类播种 | `main._init_default_categories` | 空库首次播种；`app_config.system_categories_seeded` 防删除后复活 |
 | 禁用站点隐藏内容 | `videos._hidden_video_filter` | 禁用站点从列表/搜索/分类计数中隐藏 |
 | 浅色主题 | `styles/theme.css`, `lib/theme.ts` | 深色 `cinema` / 浅色 `light`，偏好持久化 |
 | 启动自愈 | `main.CacheControlStaticFiles` + `lazyWithRetry` | 旧 HTML 引用失效 chunk 时自动重载，不再白屏 |
-| 默认分类首页 | `api/videos.py`、`components/HomeCategorySections.tsx`、`hooks/useHomeSections.ts` | 七个父类固定顺序，每类最多 8 条最新视频且仅返回非空分区；默认不再展示推荐或混合视频墙 |
+| 默认分类首页 | `api/videos.py`、`components/HomeCategorySections.tsx`、`hooks/useHomeSections.ts` | 顶级分类按系统排序动态生成，每类最多 8 条最新视频；首页分类栏也显示 0 内容分类（弱化样式，点击进入空态）；不展示推荐或混合视频墙 |
 | 播放兜底 | `VideoPlayer` 12s 缓冲提示 / 30s 判定 + `play.py` 线路探测 | 无首帧先提示「线路较慢」，30 秒才报失败；校验 HTTP 状态，HEAD 受限时 Range GET 复核 |
 | 高清 / 稳定双推荐 | `source_media_info`、`media_metadata.py`、`source_quality.py` | 每片每源区分声明/检测/实测；高清看媒体参数，稳定看本机播放证据；不自动选源 |
 | 按需媒体分析 | `media_analysis.py`、`useAutoMediaAnalysis` | 打开详情自动逐批分析，每批最多 2 源；关闭详情停止后续，不全库采样、不下载未选源分片 |
 | 播放保护与轻量增强 | `playback_guard.py`、`playback_enhancement.py` | 播放时后台任务退让；可选 Lanczos + Unsharp，单 ffmpeg 进程、失败回退原源 |
-| 分类映射工作台 | `services/category_map.py`, `api/category_map.py` | 按站点聚类（≥0.75）+ 建议 + 批量 upsert + 撤销；分类页实测 258ms |
+| 分类设置单页 | `components/category-settings/CategorySettings.tsx` | 左系统树 + 右已挂载/可挂载（按站点分组）；新增/改名/删除、手动勾选挂载、0 内容分类保留 |
 | 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
@@ -67,29 +68,20 @@
 
 ### Sites (`/api/sites`)
 - `GET    /api/sites` → list_sites
-- `POST   /api/sites` → create_site（名称 + 归一化地址判重，重复返回 409；新增站点自动匹配分类并播种别名）
+- `POST   /api/sites` → create_site（名称 + 归一化地址判重，重复返回 409；新增站点自动拉取一次远程分类快照）
 - `PATCH  /api/sites/{site_id}` → update_site（启用/禁用会失效隐藏缓存）
 - `DELETE /api/sites/{site_id}` → delete_site（立即返回；后台删除，空站点直接删，有数据站点排队等全局锁并上报阻塞者）
 - `POST   /api/sites/{site_id}/probe` → probe_site
 - `POST   /api/sites/probe-batch` → probe_sites_batch（NDJSON 逐站返回，结果写健康日志）
 - `POST   /api/sites/batch-probe` → batch_probe（新站嗅探、按归一化地址 + 名称宽松判重、跳过写明已有站点、自动添加、记录 site.discover、触发 lifecycle 全量；单次最多 100 条）
-- `GET    /api/sites/{site_id}/categories` → get_site_categories
-- `PUT    /api/sites/{site_id}/categories` → update_site_categories
-- `POST   /api/sites/{site_id}/fetch-categories` → fetch_remote_categories
-- `POST   /api/sites/{site_id}/smart-match` → smart_match
-- `GET    /api/sites/export` / `POST /api/sites/import` → 站点配置导入导出
-- `GET    /api/sites/templates` / `POST /api/sites/{site_id}/apply-template` → 分类模板
-- `GET    /api/sites/category-map/summary` → 各站类名覆盖概况（默认选问题最多的站点）
-- `GET    /api/sites/{site_id}/category-map` → 映射工作台数据（聚类/建议/样例）
-- `POST   /api/sites/{site_id}/category-map` → 批量写入别名/站点例外（支持 fill_rest）
-- `POST   /api/sites/{site_id}/category-map/undo` → 撤销最近一次写入
+- `GET    /api/sites/export` / `POST /api/sites/import` → 站点配置导入导出（旧的 categories/mappings 字段仅兼容，不再参与分类决策）
 
 ### Videos (`/api/videos`)
 - `GET    /api/videos` → list_videos（聚合表，`category=`/`sort=`/`mode=`）
 - `GET    /api/videos/search` → search_videos（短词前缀索引 + 回退）
 - `GET    /api/videos/recommended` → recommended_videos（60s 缓存；默认首页不展示）
-- `GET    /api/videos/home-sections` → 默认首页分区，返回 `{sections: [{category, items}]}`（七父类固定顺序，每类最多 8 条最新聚合视频，仅非空分类）
-- `GET    /api/videos/categories/stats` → category_stats（仅非空分类，60s 缓存）
+- `GET    /api/videos/home-sections` → 默认首页分区，返回 `{sections: [{category, items}]}`（启用顶级分类按系统排序，每类最多 8 条最新聚合视频，仅非空分区）
+- `GET    /api/videos/categories/stats` → category_stats（分类计数 + 未分类数，60s 缓存；0 内容分类也会出现在前端分类栏）
 - `POST   /api/videos/detail` → video_detail（缓存优先，过期 stale-while-revalidate）
 - `GET    /api/videos/crawler/status` → crawler_status
 - `POST   /api/videos/crawler/full` → trigger_full
@@ -111,19 +103,17 @@
 - `POST   /api/maintenance/jobs/{job_id}/cancel` → 合作式取消
 - `maintenance_progress` SSE 只提示刷新快照，活动任务有 2 秒低频兜底轮询；旧 crawler/cleanup API 仍可用
 
-### Category Aliases (`/api/category-aliases`)
-- `GET    /api/category-aliases` → 别名列表（含来源条数/站点数）
-- `POST   /api/category-aliases` → 新增/修改别名（即时重算受影响视频）
-- `DELETE /api/category-aliases/{name_key}` → 删除别名
-- `GET    /api/category-aliases/unmapped` → 未归类远程类名
-- `POST   /api/category-aliases/adopt` → 一键采纳
-- `GET    /api/category-aliases/overrides` → 站点例外列表
-- `POST   /api/category-aliases/overrides` → 新增站点例外
-- `DELETE /api/category-aliases/overrides` → 删除站点例外
+### Category Settings (`/api/category-settings`)
+- `GET    /api/category-settings/overview` → 系统分类树（含 videos/remotes 计数）+ 汇总
+- `GET    /api/category-settings/remotes` → 远程分类快照（按站点、挂载状态、样例、stale）
+- `POST   /api/category-settings/links` → 批量挂载（只能挂小类；定向重算受影响视频）
+- `DELETE /api/category-settings/links` → 批量解除挂载（定向重算受影响视频）
+- `POST   /api/category-settings/refresh` → 重新拉取所有站点远程分类快照
+- `POST   /api/category-settings/sites/{site_id}/refresh` → 单站刷新
 
 ### System Categories (`/api/system-categories`)
-- `GET    /api/system-categories` → 分类树
-- `POST   /api/system-categories` / `PATCH` / `DELETE` → 维护（受保护分类不可删）
+- `GET    /api/system-categories` → 分类树（两类：大类只分组，小类可挂载）
+- `POST   /api/system-categories` / `PATCH` / `DELETE` → 新增/改名/调序/删除；删除不迁移，相关视频直接变未分类
 
 ### Play (`/api/play`)
 - `GET    /api/play/sources` → 播放源列表（高清/稳定双推荐 + 媒体证据）
@@ -162,13 +152,13 @@
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
-| `/` | Home | 默认七父类分区 + 吸顶分类锚点；搜索/分类筛选复用完整聚合列表，详情弹窗 |
+| `/` | Home | 默认顶级分类分区 + 吸顶分类锚点（0 内容分类弱化显示，点击进空态）；搜索/分类筛选复用完整聚合列表，详情弹窗 |
 | `/search` | Search | 搜索结果 |
 | `/ops` | Ops | 运维：概览、站点卡片/弹层、全局刮削/补全/清理、任务记录、刮削日志 |
 | `/favorites` | Favorites | 收藏 |
 | `/progress` | Progress | 最近播放 |
 | `/downloads` | Downloads | 下载任务，SSE 实时进度 |
-| `/settings` | Settings | 分类别名、下载目录、缓存（`?tab=categories` / `?tab=download`） |
+| `/settings` | Settings | 分类手动挂载、下载目录（`?tab=categories` / `?tab=download`） |
 | `/player` | Player | xgplayer 播放、进度恢复、换源 |
 
 `/dashboard`、`/settings?tab=sites`、`/settings?tab=logs` 均重定向到 `/ops`；移动端底栏新增「运维」，手机壳层 6 项（首页 / 搜索 / 收藏 / 下载 / 运维 / 我的）。
@@ -187,9 +177,9 @@
 | AggregatedSource | `aggregated_sources` | `(aggregated_video_id, site_id)` UNIQUE，`type_name` 索引 |
 | RecommendedVideo | `recommended_videos` | 推荐数据，定期重建；默认首页不再展示 |
 | SystemCategory | `system_categories` | 名称 UNIQUE，父子层级 |
-| CategoryAlias | `category_aliases` | `name_key` PK，`raw_names` 数组 |
-| SiteCategoryOverride | `site_category_overrides` | `(site_id, name_key)` UNIQUE |
-| SiteCategoryMapping | `site_category_mappings` | 旧映射，仅实时回退路径使用 |
+| SiteRemoteCategory | `site_remote_categories` | `(site_id, remote_id)` UNIQUE；`last_seen_at` 标记最新快照 |
+| SiteCategoryLink | `site_category_links` | `(site_id, remote_id)` UNIQUE；`system_category_id` FK 小类，删除级联 |
+| CategoryAlias / SiteCategoryOverride / SiteCategoryMapping | 旧表 | 仅保留历史表，启动一次性清空，不再读写 |
 | Favorite | `favorites` | `(title, year)` UNIQUE |
 | PlayProgress | `play_progress` | `(title, year)` UNIQUE（NULLS NOT DISTINCT），`updated_at` 索引 |
 | PlaybackEvent | `playback_events` | `event_id` UNIQUE；`(site_id, original_id, created_at)` 索引；90 天保留 |
@@ -198,7 +188,7 @@
 | SiteProbeLog | `site_probe_logs` | 手动/自动探测记录；手动探测不触发自动禁用计数 |
 | MaintenanceJob | `maintenance_jobs` | UUID 字符串 PK；`kind/state/created_at` 索引；站点删除后保留历史 |
 | CleanupCandidate | `cleanup_candidates` | `(site_id, original_id)` PK；记录连续缺失轮次，两轮确认后才删除 |
-| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled`、`fill_videolist_status`（旧补全接口快照）、`site_maintenance_schedule`（站点健康/更新调度状态） |
+| AppConfig | `app_config` | `key` PK；含 `cleanup_cursor:<site_id>`、`stream_accel_enabled`、`stream_accel_level`、`ad_filter_enabled`、`fill_videolist_status`（旧补全接口快照）、`site_maintenance_schedule`（站点健康/更新调度状态）、`manual_category_reset_v1`（历史分类映射清空标记）、`system_categories_seeded`（出厂分类播种标记） |
 
 ---
 
@@ -206,7 +196,7 @@
 
 1. **显式选源**：播放/下载前必须选来源，无默认选中。
 2. **聚合去重**：`normalize_title(title) + year`；排序用资源站 `source_updated_at`。
-3. **分类决策**：站点例外 > 别名 > 多数票 > 排序小者；别名变更先失效缓存再重算。
+3. **分类决策**：按来源的 `(site_id, remote_id)` 查挂载关系投票；未挂载来源不投票，平票按小类排序；不读取旧别名/站点例外。
 4. **未分类**：`system_category IS NULL`，前端用「未分类」伪分类筛选。
 5. **禁用站点**：从列表/搜索/分类计数中隐藏（id 列表缓存 60s，>1 万回退子查询）。
 6. **缓存优先**：列表/搜索走聚合表；详情有缓存即返回，过期则后台刷新。
@@ -214,7 +204,7 @@
 8. **健康监控**：每 10 分钟探测，连续 3 次失败禁用、连续 2 次成功恢复。
 9. **进度上报**：每 15 秒，`beforeunload` 用 `sendBeacon` 兜底。
 10. **来源推荐**：播放事件按 `event_id` 幂等写入；质量按来源聚合近 30 天数据，推荐只影响排序与标识，不自动选中。
-11. **默认首页**：按电影 → 连续剧 → 综艺 → 动漫 → 短剧 → 体育 → 其他展示非空父类，每类最多 8 条最新聚合视频；不展示推荐或混合视频墙。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
+11. **默认首页**：启用顶级分类按系统 `sort,id` 动态生成锚点；仅非空分区渲染，每类最多 8 条最新聚合视频；0 内容分类在锚点中弱化显示，点击进入分类页空态。分类锚点只滚动定位，「查看全部」、搜索与分类筛选仍使用现有完整列表。
 12. **统一站点运维**：长任务写入 `maintenance_jobs` 并返回真实 job_id；手动/定时/启动/生命周期共用协调器；页/子批边界合作取消，重启后遗留活动任务标 interrupted。健康与更新同轮共享一次列表探测，网络错误不误判为无更新。
 13. **批量补全 videolist**：新前端读取 `detail.fill` 的 `details.fill`；旧 API 的 FillStatus 快照仍兼容。WAF 人机校验按 10/30/60 秒退避重试同一批，连续四次仍被拦才熔断；接口 401/403 仍立即熔断，剩余条目计 skipped，其余站点继续；提前返回前先落库已取到的详情，有进度后熔断记 partial。取消与后端重启分别显示。
 14. **站点判重**：地址按归一化 key（忽略 scheme/默认端口/末尾斜杠/主机大小写），名称先比完全一致再比「去图标/标点」宽松 key；单站添加、批量嗅探、导入三处共用，重复返回 409 或结果标「已存在：<站点名>」。不同域名的镜像站视为不同站点。

@@ -125,6 +125,62 @@ class SiteCategoryOverride(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SiteRemoteCategory(Base):
+    """站点远程分类快照（手动挂载页的左侧树来源）。
+
+    只存子分类；父分类仅作为分组信息保存在 parent_name / parent_remote_id。
+    刷新时 upsert 并更新 last_seen_at；本轮未返回的行保留，供「已挂载但站点
+    已不返回」的标记使用。
+    """
+
+    __tablename__ = "site_remote_categories"
+    __table_args__ = (
+        UniqueConstraint("site_id", "remote_id", name="uix_site_remote_category"),
+        Index("ix_site_remote_categories_site", "site_id"),
+        Index("ix_site_remote_categories_site_seen", "site_id", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_id: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    parent_remote_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    parent_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class SiteCategoryLink(Base):
+    """站点远程分类 → 系统小类的唯一挂载关系。
+
+    一个 (site_id, remote_id) 只能挂到一个小类；一个小类可以挂多个站点的
+    多个远程分类。删除小类时由外键级联删除，视频级分类在同一事务里直接置空。
+    """
+
+    __tablename__ = "site_category_links"
+    __table_args__ = (
+        UniqueConstraint("site_id", "remote_id", name="uix_site_category_link"),
+        Index("ix_site_category_links_site", "site_id"),
+        Index("ix_site_category_links_category", "system_category_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_id: Mapped[str] = mapped_column(String, nullable=False)
+    remote_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    system_category_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("system_categories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (UniqueConstraint("title", "year", name="uix_favorite_title_year"),)

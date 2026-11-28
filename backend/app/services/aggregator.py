@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import engine
-from app.services.category_alias import (
+from app.services.category_links import (
     backfill_video_categories,
     load_category_decision_maps,
     pick_system_category,
@@ -125,8 +125,8 @@ def aggregate_lists(per_source: Iterable[Iterable[dict[str, Any]]]) -> list[dict
 def _aggregate_records(
     records: Iterable[Any],
     site_name_map: dict[int, str | None] | None = None,
-    category_aliases: dict[str, dict] | None = None,
-    category_overrides: dict[tuple[int, str], str] | None = None,
+    links_by_id: dict[tuple[int, str], str] | None = None,
+    links_by_name: dict[tuple[int, str], str] | None = None,
     category_sort: dict[str, int] | None = None,
 ) -> list[tuple[str, int | None, dict[str, Any], str]]:
     """把 VideoCache 记录按 (norm_title, year) 聚合去重。
@@ -210,11 +210,14 @@ def _aggregate_records(
     )
     results = []
     for key, item in sorted_items:
-        if category_aliases is not None:
+        if links_by_id is not None:
             item["system_category"] = pick_system_category(
-                [(s.get("site_id"), s.get("type")) for s in item["sources"]],
-                category_aliases,
-                category_overrides,
+                [
+                    (s.get("site_id"), s.get("type_id"), s.get("type"))
+                    for s in item["sources"]
+                ],
+                links_by_id,
+                links_by_name or {},
                 category_sort,
             )
         results.append((key[0], key[1], item, latest_update[key]))
@@ -640,15 +643,15 @@ async def incrementally_update_aggregated_tables(
 
         # 3. 聚合去重（含 year=None 回填）+ 视频级分类投票
         (
-            category_aliases,
-            category_overrides,
+            links_by_id,
+            links_by_name,
             category_sort,
         ) = await load_category_decision_maps(db)
         sorted_items = _aggregate_records(
             records,
             site_name_map,
-            category_aliases,
-            category_overrides,
+            links_by_id,
+            links_by_name,
             category_sort,
         )
 
@@ -758,6 +761,7 @@ async def rebuild_aggregated_tables(db: AsyncSession) -> bool:
             # SQL 全量重建不参与投票，重建后统一回填视频级分类
             try:
                 await backfill_video_categories(db)
+                await db.commit()
             except Exception as exc:
                 logger.warning("重建后回填视频级分类失败: %s", exc)
             logger.info("聚合中间表重建完成")

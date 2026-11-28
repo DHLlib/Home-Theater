@@ -638,22 +638,6 @@ async def test_batch_probe_stream_persists_health_logs(
     assert by_site[2].error == "网络错误：x"
 
 
-class _FakeSiteClient:
-    """sites 路由用假 SourceClient（智能匹配等 _get 调用）。"""
-
-    def __init__(self, site_id, base_url, name="", **kwargs):
-        self.site_id = site_id
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def _get(self, params):
-        return {"class": []}
-
-
 async def test_batch_probe_records_discover_and_submits_crawl(
     db_session, fake_crawler_client, coordinator, monkeypatch, probe_log_db
 ):
@@ -661,7 +645,11 @@ async def test_batch_probe_records_discover_and_submits_crawl(
         return ProbeResult(ok=True, latency_ms=20, error=None)
 
     monkeypatch.setattr(sites_api, "health_probe", fake_probe)
-    monkeypatch.setattr(sites_api, "SourceClient", _FakeSiteClient)
+
+    async def noop_sync(site, db):
+        return {}
+
+    monkeypatch.setattr(sites_api, "_sync_site_remote_categories", noop_sync)
 
     crawler = Crawler(async_session_factory)
     crawler._running = True

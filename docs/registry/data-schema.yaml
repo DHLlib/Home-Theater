@@ -552,40 +552,13 @@ db_models:
         fields: [parent_id, name]
         unique: true
 
-  - name: CategoryAlias
-    table: category_aliases
-    owner: backend
-    description: 全局分类别名（远程类名 → 系统分类，跨站共享）
-    fields:
-      - name: name_key
-        type: String
-        pk: true
-        description: 归一化后的类名
-      - name: system_name
-        type: String
-        nullable: false
-        index: true
-      - name: raw_names
-        type: ARRAY(String)
-        nullable: true
-        description: 归一化前实际出现过的写法
-      - name: enabled
-        type: Boolean
-        default: true
-        nullable: false
-      - name: source
-        type: String
-        default: auto
-        nullable: false
-        description: auto = 规则/多数票推断，manual = 用户确认
-      - name: created_at
-        type: DateTime
-        default: datetime.utcnow
+  # 旧 category_aliases / site_category_overrides / site_category_mappings 已退役：
+  # 由启动时 manual_category_reset_v1 清空，仅保留历史表，不再参与分类决策。
 
-  - name: SiteCategoryOverride
-    table: site_category_overrides
+  - name: SiteRemoteCategory
+    table: site_remote_categories
     owner: backend
-    description: 站点级分类例外（同名类名在某站点语义不同时使用）
+    description: 站点远程分类快照（来自 ac=list；last_seen_at 标记最新一轮）
     fields:
       - name: id
         type: Integer
@@ -595,24 +568,41 @@ db_models:
         type: Integer
         fk: sites.id
         nullable: false
-      - name: name_key
+      - name: remote_id
         type: String
         nullable: false
-      - name: system_name
+      - name: name
         type: String
+        nullable: false
+      - name: parent_remote_id
+        type: String
+        nullable: true
+      - name: parent_name
+        type: String
+        nullable: true
+      - name: sort
+        type: Integer
+        default: 0
+        nullable: false
+      - name: last_seen_at
+        type: DateTime
         nullable: false
       - name: created_at
         type: DateTime
         default: datetime.utcnow
     indexes:
-      - name: uix_site_override_name
-        fields: [site_id, name_key]
+      - name: uix_site_remote_category
+        fields: [site_id, remote_id]
         unique: true
+      - name: ix_site_remote_categories_site
+        fields: [site_id]
+      - name: ix_site_remote_categories_site_seen
+        fields: [site_id, last_seen_at]
 
-  - name: SiteCategoryMapping
-    table: site_category_mappings
+  - name: SiteCategoryLink
+    table: site_category_links
     owner: backend
-    description: 旧版站点分类映射（仅实时回退路径使用）
+    description: 站点远程分类 → 系统小类的唯一挂载关系
     fields:
       - name: id
         type: Integer
@@ -628,24 +618,22 @@ db_models:
       - name: remote_name
         type: String
         nullable: true
-      - name: system_name
-        type: String
+      - name: system_category_id
+        type: Integer
+        fk: system_categories.id
         nullable: false
-      - name: enabled
-        type: Boolean
-        default: true
-        nullable: false
+        description: 必须是小类；删除分类时级联删除挂载
       - name: created_at
         type: DateTime
         default: datetime.utcnow
     indexes:
-      - name: uix_site_remote_id
+      - name: uix_site_category_link
         fields: [site_id, remote_id]
         unique: true
-      - name: ix_site_category_mappings_site_id
+      - name: ix_site_category_links_site
         fields: [site_id]
-      - name: ix_site_category_mappings_system_name
-        fields: [system_name]
+      - name: ix_site_category_links_category
+        fields: [system_category_id]
 
   - name: MaintenanceJob
     table: maintenance_jobs

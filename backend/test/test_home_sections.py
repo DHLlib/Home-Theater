@@ -3,28 +3,24 @@ import pytest
 from fastapi import FastAPI
 
 import app.api.videos as videos_module
-from app.api.videos import HOME_CATEGORY_ORDER, router
+from app.api.videos import router
 from app.db import get_db
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
     Site,
-    SiteCategoryMapping,
     SystemCategory,
     VideoCache,
 )
-from app.services import category_alias
 
 
 @pytest.fixture(autouse=True)
 def _reset_category_caches():
     videos_module._category_filter_cache = None
     videos_module._category_filter_cache_ts = 0.0
-    category_alias.invalidate_alias_cache()
     yield
     videos_module._category_filter_cache = None
     videos_module._category_filter_cache_ts = 0.0
-    category_alias.invalidate_alias_cache()
 
 
 async def _get_home_sections(db) -> dict:
@@ -126,11 +122,13 @@ async def test_home_sections_limits_to_eight_with_deterministic_latest_order(db_
 
 
 @pytest.mark.asyncio
-async def test_home_sections_uses_fixed_category_order_and_omits_empty(db_session):
+async def test_home_sections_uses_system_sort_and_omits_empty(db_session):
     await _make_site(db_session)
     categories = [
-        SystemCategory(id=10 + index, name=name, enabled=True)
-        for index, name in enumerate(HOME_CATEGORY_ORDER)
+        SystemCategory(id=10 + index, name=name, enabled=True, sort=index)
+        for index, name in enumerate(
+            ["电影", "连续剧", "综艺", "动漫", "短剧", "体育", "其他"]
+        )
     ]
     db_session.add_all(categories)
     db_session.add(SystemCategory(id=30, parent_id=12, name="真人秀", enabled=True))
@@ -238,22 +236,6 @@ async def test_home_sections_preserves_disabled_site_and_category_filters(db_ses
         )
     )
     mixed.source_count = 2
-    await _add_video(
-        db_session,
-        "禁用映射",
-        "动作片",
-        "2025-04-04 00:00:00",
-        type_id=99,
-    )
-    db_session.add(
-        SiteCategoryMapping(
-            site_id=1,
-            remote_id="99",
-            remote_name="动作片",
-            system_name="动作片",
-            enabled=False,
-        )
-    )
     await _add_video(db_session, "禁用子分类", "禁用剧集", "2025-04-03 00:00:00")
     await _add_video(db_session, "禁用父分类", "综艺", "2025-04-02 00:00:00")
     await _add_video(db_session, "正常视频", "电影", "2025-04-01 00:00:00")
@@ -297,27 +279,17 @@ async def test_home_sections_merges_children_and_puts_null_updates_last(db_sessi
 
 
 @pytest.mark.asyncio
-async def test_home_sections_fills_eight_items_after_source_filters(db_session):
-    await _make_site(db_session)
-    db_session.add_all(
-        [
-            SystemCategory(id=10, name="电影", enabled=True),
-            SiteCategoryMapping(
-                site_id=1,
-                remote_id="99",
-                remote_name="电影",
-                system_name="电影",
-                enabled=False,
-            ),
-        ]
-    )
+async def test_home_sections_fills_eight_items_after_disabled_site_filter(db_session):
+    await _make_site(db_session, 1, enabled=True)
+    await _make_site(db_session, 2, enabled=False)
+    db_session.add(SystemCategory(id=10, name="电影", enabled=True))
     for index in range(9):
         await _add_video(
             db_session,
             f"禁用-{index}",
             "电影",
             f"2025-02-{index + 1:02d} 00:00:00",
-            type_id=99,
+            site_id=2,
         )
     for index in range(8):
         await _add_video(

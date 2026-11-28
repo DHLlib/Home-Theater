@@ -11,12 +11,9 @@ export const updateSystemCategory = (id: number, body: { name?: string; parent_i
   patch<SystemCategory>(`/api/system-categories/${id}`, body);
 
 /**
- * 删除分类。分类仍被别名/视频引用时后端返回 409，
- * 需要传 remapTo 先把引用迁到目标分类再删。
+ * 删除分类：服务端不再迁移，相关远程分类回到未挂载，视频直接置为未分类。
  */
-export const deleteSystemCategory = (id: number, remapTo?: string) =>
-  del<{ ok: boolean; remapped_to?: string | null; names?: string[] }>(
-    `/api/system-categories/${id}${
-      remapTo ? `?remap_to=${encodeURIComponent(remapTo)}` : ""
-    }`
+export const deleteSystemCategory = (id: number) =>
+  del<{ ok: boolean; names: string[]; links_removed: number; videos_reset: number }>(
+    `/api/system-categories/${id}`
   );

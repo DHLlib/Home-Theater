@@ -43,7 +43,7 @@ from app.constants import (
     RETRY_MAX_ATTEMPTS,
     WAF_CHALLENGE_BACKOFF_SECONDS,
 )
-from app.models import AggregatedVideoV3, AppConfig, Site, VideoCache
+from app.models import AggregatedVideoV3, AppConfig, Site, SiteRemoteCategory, VideoCache
 from app.services import playback_guard
 from app.services.aggregator import (
     acquire_operation_lock,
@@ -52,7 +52,6 @@ from app.services.aggregator import (
     refresh_aggregated_view,
     release_operation_lock,
 )
-from app.services.category_mapping import get_site_category_mappings
 from app.services.fill_status import fill_status_tracker
 from app.services.source_client import (
     SourceChallengeError,
@@ -1278,16 +1277,27 @@ class Crawler:
         return list(result.scalars().all())
 
     async def _get_site_categories(self, db: AsyncSession, site: Site) -> list:
-        """获取站点的分类 remote_id 列表（中间表优先）。"""
-        mappings = await get_site_category_mappings(db, site.id)
-        if not mappings:
+        """获取站点最新一次快照里的全部远程子分类 id（与挂载关系无关）。"""
+        latest = (
+            await db.execute(
+                select(func.max(SiteRemoteCategory.last_seen_at)).where(
+                    SiteRemoteCategory.site_id == site.id
+                )
+            )
+        ).scalar()
+        if latest is None:
             return []
-        cats = []
-        for c in mappings:
-            rid = c.get("remote_id")
-            if rid is not None:
-                cats.append(rid)
-        return cats
+        rows = (
+            await db.execute(
+                select(SiteRemoteCategory.remote_id)
+                .where(
+                    SiteRemoteCategory.site_id == site.id,
+                    SiteRemoteCategory.last_seen_at == latest,
+                )
+                .order_by(SiteRemoteCategory.sort, SiteRemoteCategory.id)
+            )
+        ).all()
+        return [row[0] for row in rows]
 
     async def _fetch_list_page(
         self, client: SourceClient, cat_id, page: int, op: str = "unknown"
@@ -1661,16 +1671,20 @@ class Crawler:
         duration_ms: int,
     ):
         """记录单页刮削日志，仅保留当天日志，最多 50 条。"""
-        # 解析分类名称（中间表优先）
+        # 解析分类名称（远程分类快照）
         type_name = "全部"
         if category is not None:
             async with self._db_factory() as db:
-                mappings = await get_site_category_mappings(db, site.id)
-                for c in mappings:
-                    rid = c.get("remote_id")
-                    if str(rid) == str(category):
-                        type_name = c.get("name") or "全部"
-                        break
+                remote = (
+                    await db.execute(
+                        select(SiteRemoteCategory.name).where(
+                            SiteRemoteCategory.site_id == site.id,
+                            SiteRemoteCategory.remote_id == str(category),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if remote:
+                    type_name = remote
 
         self._logs.append({
             "timestamp": _utcnow().isoformat(),

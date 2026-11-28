@@ -7,8 +7,8 @@ from sqlalchemy import select, delete, func, desc, Integer, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session_factory, get_db
-from app.errors import ApiError, ErrorCode, site_not_found
-from app.models import Site, SystemCategory, SiteProbeLog, SiteCategoryMapping, _utcnow
+from app.errors import site_not_found
+from app.models import Site, SiteProbeLog, SiteCategoryMapping, _utcnow
 import asyncio
 import json
 
@@ -16,8 +16,6 @@ import app.services.scheduler as scheduler_module
 
 from app.constants import BATCH_PROBE_LIMIT, BATCH_PROBE_CONCURRENCY, BATCH_PROBE_TIMEOUT
 from app.schemas import (
-    CategoryMapping, CategoryMappingWithPid, CategoryGroup, SiteCategoriesOut,
-    SiteCategoriesFetchOut, SiteCategoriesUpdate,
     SiteCreate, SitePatch, BatchProbeItem, BatchProbeResult, BatchProbeResponse,
     SiteProbeResult, ProbeSitesBatchRequest, SiteHealthOut, SiteProbeLogEntry,
     SiteExportOut, SiteExportSite, SiteExportMapping,
@@ -25,13 +23,7 @@ from app.schemas import (
 )
 from app.services.health import probe as health_probe
 from app.services.site_urls import site_name_key, site_url_key
-from app.services.source_client import SourceClient
-from app.services.smart_matcher import match_site_categories
-from app.services.category_mapping import (
-    get_site_category_mappings,
-    save_site_category_mappings,
-)
-from app.services.template_manager import apply_template, preview_template, load_templates
+from app.services.category_links import refresh_site_remote_categories
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 logger = logging.getLogger(__name__)
@@ -96,7 +88,7 @@ async def create_site(site: SiteCreate, db: AsyncSession = Depends(get_db)):
 
     # 自动触发智能匹配（高置信度直接保存）
     if db_site.enabled:
-        await _auto_match_and_save(db_site, db)
+        await _sync_site_remote_categories(db_site, db)
 
     # 新站点启用时，后台触发全量刮削即时补全
     if db_site.enabled and scheduler_module.crawler:
@@ -308,351 +300,25 @@ async def get_site_health(site_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/{site_id}/categories")
-async def get_site_categories(site_id: int, db: AsyncSession = Depends(get_db)):
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-    cats = await get_site_category_mappings(db, db_site.id)
-    return SiteCategoriesOut(
-        site_id=db_site.id,
-        categories=[CategoryMapping(**c) for c in cats],
-    )
-
-
-@router.put("/{site_id}/categories")
-async def update_site_categories(
-    site_id: int,
-    body: SiteCategoriesUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-
-    # AC-002 gap fix: server-side mutual exclusion validation
-    seen: dict[str, str] = {}
-    for c in body.categories:
-        if c.remote_id in seen:
-            raise HTTPException(
-                status_code=400,
-                detail=f"remote_id '{c.remote_id}' 已分配到分类 '{seen[c.remote_id]}'",
-            )
-        seen[c.remote_id] = c.name
-
-    await save_site_category_mappings(
-        db, db_site.id, [c.model_dump() for c in body.categories]
-    )
-    await db.commit()
-    cats = await get_site_category_mappings(db, db_site.id)
-    return SiteCategoriesOut(
-        site_id=db_site.id,
-        categories=[CategoryMapping(**c) for c in cats],
-    )
-
-
-@router.post("/{site_id}/fetch-categories")
-async def fetch_remote_categories(site_id: int, db: AsyncSession = Depends(get_db)):
-    """从资源站自动拉取分类列表，返回层级分组格式（AC-027）。"""
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-    async with SourceClient(
-        site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-    ) as client:
-        try:
-            data = await client._get({"ac": "list"})
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-    class_list = data.get("class", [])
-    if not isinstance(class_list, list):
-        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "资源站未返回 class 分类列表", 502)
-
-    # 1. 提取父分类
-    parents: dict[str, str] = {}
-    for raw in class_list:
-        if isinstance(raw, dict):
-            type_pid = raw.get("type_pid")
-            if type_pid == 0 or type_pid == "0":
-                pid = str(raw.get("type_id") or raw.get("id") or "")
-                pname = str(raw.get("type_name") or raw.get("name") or "")
-                if pid:
-                    parents[pid] = pname
-
-    # 2. 按父分类分组子分类
-    groups: dict[str | None, list[CategoryMappingWithPid]] = {}
-    for raw in class_list:
-        if not isinstance(raw, dict):
-            continue
-        type_pid = raw.get("type_pid")
-        if type_pid == 0 or type_pid == "0":
-            continue  # 父分类不放入 groups
-
-        remote_id = str(raw.get("type_id") or raw.get("id") or "")
-        name = str(raw.get("type_name") or raw.get("name") or "")
-        pid_str = str(type_pid) if type_pid is not None else None
-
-        # 如果 type_pid 指向的父分类不存在，归入未分组
-        parent_id = pid_str if pid_str in parents else None
-
-        if parent_id not in groups:
-            groups[parent_id] = []
-        groups[parent_id].append(
-            CategoryMappingWithPid(remote_id=remote_id, name=name, type_pid=pid_str)
-        )
-
-    # 2b. 智能分组兜底：如果站点没有提供 type_pid 层级（parents 为空），
-    # 根据分类名称关键词推断父分类分组
-    if not parents and groups.get(None):
-        # 定义名称关键词 -> 父分类的映射规则
-        _INFER_RULES: list[tuple[str, str, str]] = [
-            ("综艺", "综艺", "3"),
-            ("动漫", "动漫", "4"),
-            ("动画", "动漫", "4"),
-            ("短剧", "短剧", "5"),
-            ("纪录", "纪录片", "6"),
-            ("体育", "体育", "7"),
-            ("其他", "其他", "8"),
-        ]
-        ungrouped = groups.pop(None)
-        inferred: dict[str, list[CategoryMappingWithPid]] = {}
-        for cat in ungrouped:
-            assigned = False
-            for keyword, parent_name, virtual_pid in _INFER_RULES:
-                if keyword in cat.name:
-                    if virtual_pid not in inferred:
-                        inferred[virtual_pid] = []
-                    inferred[virtual_pid].append(cat)
-                    assigned = True
-                    break
-            if not assigned:
-                # 未命中综艺/动漫/短剧/纪录/体育/其他：按「片」vs「剧」区分
-                if "剧" in cat.name:
-                    if "2" not in inferred:
-                        inferred["2"] = []
-                    inferred["2"].append(cat)
-                elif "片" in cat.name:
-                    if "1" not in inferred:
-                        inferred["1"] = []
-                    inferred["1"].append(cat)
-                else:
-                    # 兜底：其他
-                    if "8" not in inferred:
-                        inferred["8"] = []
-                    inferred["8"].append(cat)
-        # 将推断的分组合并到 groups
-        _INFER_PARENTS = {
-            "1": "电影",
-            "2": "连续剧",
-            "3": "综艺",
-            "4": "动漫",
-            "5": "短剧",
-            "6": "纪录片",
-            "7": "体育",
-            "8": "其他",
-        }
-        for virtual_pid, cats in inferred.items():
-            groups[virtual_pid] = cats
-            parents[virtual_pid] = _INFER_PARENTS[virtual_pid]
-
-    # 3. 构建响应
-    result_groups: list[CategoryGroup] = []
-    for parent_id, cats in groups.items():
-        if not cats:
-            continue
-        result_groups.append(CategoryGroup(
-            parent_id=parent_id,
-            parent_name=parents.get(parent_id) if parent_id else None,
-            categories=cats,
-        ))
-
-    # 4. 排序：有 parent_name 的在前，按 parent_name 字母序；无 parent 的在最后
-    result_groups.sort(key=lambda g: (g.parent_name is None, g.parent_name or ""))
-
-    logger.info("site_fetch_categories site_id=%d name=%s groups=%d total_categories=%d",
-                db_site.id, db_site.name, len(result_groups),
-                sum(len(g.categories) for g in result_groups))
-    return SiteCategoriesFetchOut(site_id=db_site.id, groups=result_groups)
-
-
-@router.post("/{site_id}/smart-match")
-async def smart_match_categories(site_id: int, db: AsyncSession = Depends(get_db)):
-    """对指定站点的远程分类执行智能匹配，返回推荐映射（AC-026）。"""
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-
-    async with SourceClient(
-        site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-    ) as client:
-        try:
-            data = await client._get({"ac": "list"})
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-
-    class_list = data.get("class", [])
-    if not isinstance(class_list, list) or not class_list:
-        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
-
-    # 读取当前系统分类（子分类）用于动态规则生成
-    sys_result = await db.execute(
-        select(SystemCategory.name).where(SystemCategory.parent_id.isnot(None))
-    )
-    system_names = [row[0] for row in sys_result.all()]
-
-    result = match_site_categories(
-        site_id=site_id,
-        remote_categories=class_list,
-        existing_mappings=await get_site_category_mappings(db, db_site.id),
-        system_category_names=system_names,
-    )
-    return result
-
-
-@router.post("/{site_id}/apply-template")
-async def apply_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
-    """对指定站点应用分类映射模板（AC-028）。"""
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-
-    # 检查是否有匹配模板
-    load_templates(force=True)  # 热更新：每次调用重新加载
-    from app.services.template_manager import match_template
-    template = match_template(db_site.name, db_site.base_url)
-    if not template:
-        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
-
-    async with SourceClient(
-        site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-    ) as client:
-        try:
-            data = await client._get({"ac": "list"})
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-
-    class_list = data.get("class", [])
-    if not isinstance(class_list, list) or not class_list:
-        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
-
-    result = apply_template(
-        site_id=db_site.id,
-        site_name=db_site.name,
-        site_url=db_site.base_url,
-        remote_categories=class_list,
-        existing_mappings=await get_site_category_mappings(db, db_site.id),
-    )
-
-    if not result.template_matched:
-        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
-
-    return result
-
-
-@router.get("/{site_id}/template-preview")
-async def preview_site_template(site_id: int, db: AsyncSession = Depends(get_db)):
-    """预览模板应用结果，不实际修改数据（AC-028）。"""
-    db_site = await db.get(Site, site_id)
-    if not db_site:
-        raise site_not_found(site_id)
-
-    load_templates(force=True)  # 热更新
-    from app.services.template_manager import match_template
-    template = match_template(db_site.name, db_site.base_url)
-    if not template:
-        raise ApiError(ErrorCode.CATEGORY_NO_TEMPLATE, "暂无该站点的预设模板", 404)
-
-    async with SourceClient(
-        site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-    ) as client:
-        try:
-            data = await client._get({"ac": "list"})
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-
-    class_list = data.get("class", [])
-    if not isinstance(class_list, list) or not class_list:
-        raise ApiError(ErrorCode.SITE_NO_CATEGORIES, "请先拉取远程分类列表", 502)
-
-    result = preview_template(
-        site_id=db_site.id,
-        site_name=db_site.name,
-        site_url=db_site.base_url,
-        remote_categories=class_list,
-        existing_mappings=await get_site_category_mappings(db, db_site.id),
-    )
-
-    return result
-
-
-async def _auto_match_and_save(db_site: Site, db: AsyncSession) -> dict:
-    """对新站点自动执行智能匹配，高置信度结果直接保存。
-    返回匹配摘要 {total, auto_mapped, suggested, unrecognized}。"""
+async def _sync_site_remote_categories(db_site: Site, db: AsyncSession) -> dict:
+    """新增站点后拉取一次远程分类快照；失败不影响站点创建。"""
     try:
-        async with SourceClient(
-            site_id=db_site.id, base_url=db_site.base_url, name=db_site.name
-        ) as client:
-            data = await client._get({"ac": "list"})
-    except Exception:
-        return {"total": 0, "auto_mapped": 0, "suggested": 0, "unrecognized": 0}
-
-    class_list = data.get("class", [])
-    if not isinstance(class_list, list) or not class_list:
-        return {"total": 0, "auto_mapped": 0, "suggested": 0, "unrecognized": 0}
-
-    # 读取当前系统分类（子分类）用于动态规则生成
-    sys_result = await db.execute(
-        select(SystemCategory.name).where(SystemCategory.parent_id.isnot(None))
-    )
-    system_names = [row[0] for row in sys_result.all()]
-
-    result = match_site_categories(
-        site_id=db_site.id,
-        remote_categories=class_list,
-        existing_mappings=await get_site_category_mappings(db, db_site.id),
-        system_category_names=system_names,
-    )
-
-    # 只保存高置信度（auto_mapped）的结果
-    auto_mappings = []
-    alias_pairs: list[tuple[str, str]] = []
-    for m in result.matches:
-        if m.status == "auto_mapped" and m.suggested_system_name:
-            auto_mappings.append({
-                "remote_id": m.remote_id,
-                "name": m.suggested_system_name,
-            })
-            # 同时并入全局别名：新站点的高置信类名让所有站点受益，
-            # 未识别/低置信的留给「分类设置 → 未分类」人工确认。
-            if m.remote_name:
-                alias_pairs.append((m.remote_name, m.suggested_system_name))
-
-    if auto_mappings:
-        existing = await get_site_category_mappings(db, db_site.id)
-        # 合并：保留已有映射，添加新的 auto_mapped
-        existing_ids = {str(c.get("remote_id", "")) for c in existing}
-        for am in auto_mappings:
-            if am["remote_id"] not in existing_ids:
-                existing.append(am)
-        await save_site_category_mappings(db, db_site.id, existing)
-
-    aliases_added = 0
-    if alias_pairs:
-        from app.services.category_alias import seed_aliases_from_names
-
-        aliases_added = await seed_aliases_from_names(db, alias_pairs)
-
-    summary = result.summary.model_dump()
-    summary["aliases_added"] = aliases_added
-    logger.info(
-        "site_auto_matched site_id=%d name=%s auto=%d suggested=%d unrecognized=%d aliases_added=%d",
-        db_site.id, db_site.name,
-        summary.get("auto_mapped", 0),
-        summary.get("suggested", 0),
-        summary.get("unrecognized", 0),
-        aliases_added,
-    )
-    return summary
+        stats = await refresh_site_remote_categories(db, db_site)
+        logger.info(
+            "site_remote_categories_synced site_id=%d name=%s stats=%s",
+            db_site.id,
+            db_site.name,
+            stats,
+        )
+        return stats
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "site_remote_categories_sync_failed site_id=%d name=%s: %s",
+            db_site.id,
+            db_site.name,
+            exc,
+        )
+        return {"added": 0, "updated": 0, "total": 0}
 
 
 async def _probe_one(item: BatchProbeItem) -> BatchProbeResult:
@@ -733,7 +399,7 @@ async def batch_probe(
             await db.refresh(s)
         # 自动触发智能匹配
         for s in new_sites:
-            await _auto_match_and_save(s, db)
+            await _sync_site_remote_categories(s, db)
         # 嗅探添加的站点与单站添加一致：立即提交全量刮削（lifecycle），
         # 不再出现「嗅探添加后没有刮削」的不一致
         await _submit_lifecycle_crawl(new_sites)

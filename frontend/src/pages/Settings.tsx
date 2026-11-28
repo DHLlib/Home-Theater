@@ -1,8 +1,5 @@
-import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
-import AliasSettings from "../components/category-settings/AliasSettings";
-import CategoryStructure from "../components/category-settings/CategoryStructure";
-import CategoryWorkbench from "../components/category-settings/CategoryWorkbench";
+import CategorySettings from "../components/category-settings/CategorySettings";
 import DownloadSettings from "../components/DownloadSettings";
 
 function FolderIcon({ size = 16 }: { size?: number }) {
@@ -52,9 +49,6 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
 export default function Settings() {
   // 当前 tab 由 URL 决定（?tab=categories / ?tab=download），便于分享与深链
   const [searchParams, setSearchParams] = useSearchParams();
-  const [categoryView, setCategoryView] = useState<
-    "workbench" | "structure" | "advanced"
-  >("workbench");
 
   const tabParam = searchParams.get("tab");
   // 采集站与运维任务已迁到 /ops：旧深链直接重定向
@@ -111,73 +105,20 @@ export default function Settings() {
         })}
       </div>
 
-      {/* 分类设置 */}
-      {activeTab === "categories" && (
-        <section
-          style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: 10,
-            padding: 20,
-          }}
-        >
-          <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-            <span style={{ color: "var(--primary)" }}>
-              <TagIcon size={16} />
-            </span>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 16,
-                fontWeight: 600,
-                letterSpacing: 0.3,
-              }}
-            >
-              分类设置
-            </h3>
+      {activeTab === "categories" &&
+        (isMobileView ? (
+          <div
+            style={{
+              fontSize: 13,
+              lineHeight: 1.8,
+              color: "var(--text-secondary)",
+            }}
+          >
+            分类映射只在桌面端配置。移动端会直接使用已配置好的分类，不需要在这里操作。
           </div>
-
-          {isMobileView ? (
-            <div
-              style={{
-                fontSize: 13,
-                lineHeight: 1.8,
-                color: "var(--text-secondary)",
-              }}
-            >
-              分类映射只在桌面端配置。移动端会直接使用已配置好的分类，不需要在这里操作。
-            </div>
-          ) : (
-            <>
-              <div
-                className="row settings-tab-bar"
-                style={{ gap: 6, marginBottom: 14 }}
-              >
-                {(
-                  [
-                    { key: "workbench", label: "映射工作台" },
-                    { key: "structure", label: "分类结构" },
-                    { key: "advanced", label: "别名与例外（高级）" },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={`btn${categoryView === item.key ? " btn-primary" : ""}`}
-                    onClick={() => setCategoryView(item.key)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-
-              {categoryView === "workbench" && <CategoryWorkbench />}
-              {categoryView === "structure" && <CategoryStructure />}
-              {categoryView === "advanced" && <AliasSettings />}
-            </>
-          )}
-        </section>
-      )}
+        ) : (
+          <CategorySettings />
+        ))}
 
       {/* 下载设置 */}
       {activeTab === "download" && <DownloadSettings />}

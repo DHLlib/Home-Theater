@@ -39,6 +39,7 @@ from app.models import (
     CleanupCandidate,
     RecommendedVideo,
     Site,
+    SiteCategoryLink,
     SystemCategory,
     VideoCache,
 )
@@ -66,16 +67,6 @@ from app.services.aggregator import (
     normalize_title,
     refresh_aggregated_view,
     release_operation_lock,
-)
-from app.services.category_alias import (
-    load_aliases,
-    normalize_category_name,
-    resolve_remote_names,
-)
-from app.services.smart_matcher import _is_adult, _match_one
-from app.services.category_mapping import (
-    get_site_category_mappings,
-    load_all_site_mappings,
 )
 from app.services import playback_guard
 from app.services.fill_status import fill_status_tracker
@@ -202,12 +193,12 @@ async def _load_category_filter_maps(db: AsyncSession) -> tuple[dict, dict, dict
     system_by_name: dict[str, dict] = {}
     system_by_id: dict[int, dict] = {}
     for c in result.scalars().all():
-        info = {"id": c.id, "enabled": c.enabled, "parent_id": c.parent_id}
+        info = {"id": c.id, "enabled": c.enabled, "parent_id": c.parent_id, "sort": c.sort}
         system_by_name[c.name] = info
         system_by_id[c.id] = info
 
-    # 站点分类映射（中间表优先，带 60 秒缓存）
-    site_mappings = await load_all_site_mappings(db)
+    # 站点级禁用映射已随手动挂载方案退役；保留空映射兼容现有过滤函数。
+    site_mappings: dict = {}
 
     _category_filter_cache = (system_by_name, system_by_id, site_mappings)
     _category_filter_cache_ts = now
@@ -342,14 +333,10 @@ async def _enrich_poster_urls(
 # 分类解析（复用现有逻辑）
 # ------------------------------------------------------------------
 
-async def _resolve_category_aliases(
+async def _resolve_system_category_names(
     db: AsyncSession, category: str, expand_children: bool = True
-) -> tuple[set[str], list[str]]:
-    """系统分类名 → (启用的系统分类名集合, 远程类名列表)。
-
-    与旧的 _resolve_remote_categories 不同：别名是**全局**的，不区分站点。
-    实测 98 个远程类名覆盖了 21 个站点的 805 条映射，新站点命中别名即自动生效。
-    """
+) -> set[str]:
+    """系统分类名 → 启用的系统分类名集合（父分类自动展开子类）。"""
     target = {category}
     if expand_children:
         parent_id = (
@@ -375,29 +362,22 @@ async def _resolve_category_aliases(
             SystemCategory.enabled.is_(True),
         )
     )
-    enabled = {row[0] for row in enabled_rows.all()}
-    if not enabled:
-        return set(), []
-
-    return enabled, await resolve_remote_names(db, enabled)
+    return {row[0] for row in enabled_rows.all()}
 
 
 async def _resolve_remote_categories(
     db: AsyncSession, site: Site, category: str | None, expand_children: bool = True
 ) -> list[str | int]:
-    """把统一分类名转回该站点的 remote_id 列表；找不到返回空列表。
-
-    跳过 enabled=False 的映射条目，优先读中间表。
-    如果 category 是父分类（如"电影"）且 expand_children=True，自动展开为其所有启用的子分类名进行匹配。
-    当 expand_children=False 时，即使 category 是父分类也只匹配其本身，不展开子分类。
-    """
+    """把系统分类名转回该站点已挂载的 remote_id 列表。"""
     if not category:
         return []
     target_names = {category}
-    # 若 category 是父分类且允许展开，展开为其所有启用的子分类名
     if expand_children:
         parent_result = await db.execute(
-            select(SystemCategory.id).where(SystemCategory.name == category, SystemCategory.parent_id.is_(None))
+            select(SystemCategory.id).where(
+                SystemCategory.name == category,
+                SystemCategory.parent_id.is_(None),
+            )
         )
         parent_id = parent_result.scalar_one_or_none()
         if parent_id is not None:
@@ -409,16 +389,21 @@ async def _resolve_remote_categories(
             )
             target_names.update({row[0] for row in child_result.all()})
 
-    results = []
-    mappings = await get_site_category_mappings(db, site.id)
-    for c in mappings:
-        if c.get("enabled") is False:
-            continue
-        if c.get("name") in target_names:
-            rid = c.get("remote_id")
-            if rid is not None:
-                results.append(rid)
-    return results
+    rows = (
+        await db.execute(
+            select(SiteCategoryLink.remote_id)
+            .join(
+                SystemCategory,
+                SystemCategory.id == SiteCategoryLink.system_category_id,
+            )
+            .where(
+                SiteCategoryLink.site_id == site.id,
+                SystemCategory.name.in_(target_names),
+                SystemCategory.enabled.is_(True),
+            )
+        )
+    ).all()
+    return [row[0] for row in rows]
 
 
 # ------------------------------------------------------------------
@@ -624,7 +609,6 @@ async def _query_aggregated_cache(
     site_id: int | None = None,
     sort: str = "updated",
     category: str | None = None,
-    fallback_category: str | None = None,
     sites: list[Site] | None = None,
     keyword: str | None = None,
     substring: bool = False,
@@ -667,27 +651,17 @@ async def _query_aggregated_cache(
             )
             base_query = base_query.where(AggregatedVideoV3.id.in_(subq))
 
-        # 分类过滤：视频级 system_category（聚合时按来源别名多数票算出）。
-        # 未分类 = 没有任何来源命中别名，system_category 为 NULL。
-        cat_sources: set[str] = set()
+        # 分类过滤：视频级 system_category（聚合时按站点挂载关系投票算出）。
+        # 未分类 = 没有任何来源命中挂载关系，system_category 为 NULL。
         if category:
             if category == UNCATEGORIZED_CATEGORY:
                 base_query = base_query.where(
                     AggregatedVideoV3.system_category.is_(None)
                 )
             else:
-                system_names, remote_names = await _resolve_category_aliases(
-                    db, category
-                )
-                # 该分类一个远程类名都没解析出来 → 回退父分类（不展开子分类）
-                if not remote_names and fallback_category:
-                    system_names, remote_names = await _resolve_category_aliases(
-                        db, fallback_category, expand_children=False
-                    )
-                # 该分类没有任何别名 → 空结果（不 fallback 到实时路径）
+                system_names = await _resolve_system_category_names(db, category)
                 if not system_names:
                     return AggregatedListResponse(items=[], failed_sources=[])
-                cat_sources = set(remote_names)
                 base_query = base_query.where(
                     AggregatedVideoV3.system_category.in_(system_names)
                 )
@@ -756,9 +730,7 @@ async def _query_aggregated_cache(
         )
         rows = result.scalars().all()
 
-        # 构建分类过滤集合，用于过滤 sources
-        cat_filter_set: set[str] = cat_sources if category else set()
-
+        # 构建分类过滤集合（已退役：视频级分类直接过滤，来源全部保留）
         items = []
         for r in rows:
             sources = [
@@ -774,13 +746,6 @@ async def _query_aggregated_cache(
                 )
                 for s in r.sources_rel
             ]
-
-            # 分类过滤：只保留符合当前分类的 sources
-            if cat_filter_set:
-                sources = [
-                    s for s in sources
-                    if s.type in cat_filter_set
-                ]
 
             # AC-031: 分类禁用过滤——所有 source 都被禁用时整体过滤
             if not _video_has_enabled_source(
@@ -832,44 +797,42 @@ def _filter_sources_by_site_id(sources: list[SourceRef], site_id: int | None) ->
 # 首页分类区块 API
 # ------------------------------------------------------------------
 
-HOME_CATEGORY_ORDER = ("电影", "连续剧", "综艺", "动漫", "短剧", "体育", "其他")
 HOME_SECTION_LIMIT = 8
 HOME_SECTION_SCAN_LIMIT = HOME_SECTION_LIMIT * 5
 
 
 @router.get("/home-sections")
 async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsResponse:
-    """按顶级分类返回最新视频，分类展开与来源禁用规则同列表查询。"""
+    """按顶级分类返回最新视频；顶级分类按系统分类排序动态生成。"""
     system_by_name, system_by_id, site_mappings = await _load_category_filter_maps(db)
 
     top_categories = {
-        info["id"]: name
+        name: info
         for name, info in system_by_name.items()
-        if name in HOME_CATEGORY_ORDER
-        and info["parent_id"] is None
-        and info["enabled"]
+        if info["parent_id"] is None and info["enabled"]
     }
+    top_by_id = {info["id"]: name for name, info in top_categories.items()}
+    home_order = [
+        name
+        for name, _info in sorted(
+            top_categories.items(),
+            key=lambda item: (item[1]["sort"], item[1]["id"]),
+        )
+    ]
     system_to_home: dict[str, str] = {}
     for name, info in system_by_name.items():
         if not info["enabled"]:
             continue
-        home_category = top_categories.get(info["parent_id"])
-        if name in HOME_CATEGORY_ORDER and info["id"] in top_categories:
-            home_category = name
+        if info["parent_id"] is None:
+            if name in top_categories:
+                system_to_home[name] = name
+            continue
+        home_category = top_by_id.get(info["parent_id"])
         if home_category is not None:
             system_to_home[name] = home_category
 
     if not system_to_home:
         return HomeSectionsResponse(sections=[])
-
-    home_remote_names: dict[str, set[str]] = {
-        category: set() for category in HOME_CATEGORY_ORDER
-    }
-    aliases = await load_aliases(db)
-    for info in aliases.values():
-        home_category = system_to_home.get(info["system_name"])
-        if home_category is not None and info["enabled"]:
-            home_remote_names[home_category].update(info["raw_names"] or [])
 
     category_values = values(
         column("system_name", String),
@@ -917,7 +880,7 @@ async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsRespo
         )
 
     rows = []
-    for category in HOME_CATEGORY_ORDER:
+    for category in home_order:
         category_rows = [row for row in candidate_rows if row.category == category]
         dated = sorted(
             (row for row in category_rows if row.latest_updated_at is not None),
@@ -956,7 +919,7 @@ async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsRespo
         )
 
     grouped: dict[str, list[AggregatedVideo]] = {
-        category: [] for category in HOME_CATEGORY_ORDER
+        category: [] for category in home_order
     }
     for row in rows:
         items = grouped[row.category]
@@ -964,9 +927,6 @@ async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsRespo
             continue
 
         sources = sources_by_video.get(row.id, [])
-        remote_names = home_remote_names[row.category]
-        if remote_names:
-            sources = [source for source in sources if source.type in remote_names]
         if not _video_has_enabled_source(
             sources, system_by_name, system_by_id, site_mappings
         ):
@@ -990,7 +950,7 @@ async def home_sections(db: AsyncSession = Depends(get_db)) -> HomeSectionsRespo
     return HomeSectionsResponse(
         sections=[
             HomeSection(category=category, items=grouped[category])
-            for category in HOME_CATEGORY_ORDER
+            for category in home_order
             if grouped[category]
         ]
     )
@@ -1026,25 +986,12 @@ async def list_videos(
     )
     sites = result.scalars().all()
 
-    # 分类回退：若子分类无映射，尝试查找其父分类的映射
-    fallback_category: str | None = None
-    if category:
-        parent_result = await db.execute(
-            select(SystemCategory.parent_id).where(SystemCategory.name == category)
-        )
-        parent_id = parent_result.scalar_one_or_none()
-        if parent_id:
-            parent_name_result = await db.execute(
-                select(SystemCategory.name).where(SystemCategory.id == parent_id)
-            )
-            fallback_category = parent_name_result.scalar_one_or_none()
-
     # 聚合模式 + 无 t：优先走预聚合缓存表（O(1) 查询），含分类场景。
     # 在"已聚合"的表上分页，从根上不重不漏；分类则按 (site_id, type_id) 过滤。
     if t is None and mode == "aggregated":
         agg_response = await _query_aggregated_cache(
             db, pg, per_page, site_id, sort=sort,
-            category=category, fallback_category=fallback_category, sites=sites,
+            category=category, sites=sites,
         )
         if agg_response is not None:
             # fields 字段过滤
@@ -1061,9 +1008,6 @@ async def list_videos(
     for site in sites:
         if category:
             remote_cats = await _resolve_remote_categories(db, site, category)
-            # 子分类无映射时回退到父分类，但不展开子分类避免匹配过宽
-            if not remote_cats and fallback_category:
-                remote_cats = await _resolve_remote_categories(db, site, fallback_category, expand_children=False)
             if not remote_cats:
                 continue
             for rid in remote_cats:
@@ -2566,99 +2510,3 @@ async def category_stats(db: AsyncSession = Depends(get_db)):
     _category_stats_cache = payload
     _category_stats_cache_ts = now
     return payload
-
-
-# 未分类归因：每个来源为什么没算进系统分类
-_UNCATEGORIZED_REASON = {
-    "no_type_name": "来源没有给分类名",
-    "no_alias": "这个类名还没有对应系统分类",
-    "adult_blocked": "类名命中成人词库，被自动归类跳过",
-    "alias_disabled": "类名的别名被停用了",
-    "alias_mismatch": "有别名但视频级分类为空（可重算一次）",
-}
-
-
-@router.get("/uncategorized")
-async def list_uncategorized(
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db),
-):
-    """未分类内容 + 归因。
-
-    对每条未分类视频逐个来源说明「为什么没归类」，并给出可一键采纳的候选
-    （来源类名 + 建议系统分类），前端点一下即可把类名补成别名并重算。
-    """
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(AggregatedVideoV3)
-            .where(AggregatedVideoV3.system_category.is_(None))
-        )
-    ).scalar_one()
-
-    rows = (
-        await db.execute(
-            select(AggregatedVideoV3)
-            .where(AggregatedVideoV3.system_category.is_(None))
-            .order_by(
-                AggregatedVideoV3.latest_updated_at.desc().nullslast(),
-                AggregatedVideoV3.id.desc(),
-            )
-            .limit(max(1, min(limit, 500)))
-            .options(selectinload(AggregatedVideoV3.sources_rel))
-        )
-    ).scalars().all()
-
-    aliases = await load_aliases(db)
-    items = []
-    for video in rows:
-        sources = []
-        name_votes: dict[str, int] = {}
-        for src in video.sources_rel:
-            raw = (src.type_name or "").strip()
-            key = normalize_category_name(raw)
-            info = aliases.get(key) if key else None
-            if not raw:
-                reason = "no_type_name"
-            elif info is not None and not info["enabled"]:
-                reason = "alias_disabled"
-            elif info is not None:
-                reason = "alias_mismatch"
-            elif _is_adult(raw):
-                reason = "adult_blocked"
-            else:
-                reason = "no_alias"
-
-            if raw:
-                name_votes[raw] = name_votes.get(raw, 0) + 1
-
-            sources.append(
-                {
-                    "site_id": src.site_id,
-                    "site_name": src.site_name,
-                    "type_name": raw or None,
-                    "reason": reason,
-                    "reason_text": _UNCATEGORIZED_REASON[reason],
-                    "alias_system": info["system_name"] if info else None,
-                }
-            )
-
-        candidate_name = None
-        candidate_system = None
-        if name_votes:
-            candidate_name = max(name_votes, key=lambda name: name_votes[name])
-            suggested, confidence = _match_one(candidate_name)
-            candidate_system = suggested if confidence >= 0.6 else None
-
-        items.append(
-            {
-                "title": video.title,
-                "year": video.year,
-                "poster_url": video.poster_url,
-                "sources": sources,
-                "candidate_name": candidate_name,
-                "candidate_system": candidate_system,
-            }
-        )
-
-    return {"total": total, "items": items}

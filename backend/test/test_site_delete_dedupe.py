@@ -145,14 +145,14 @@ def _stub_probe_and_side_effects(monkeypatch, sites_api):
             error=None, added=False,
         )
 
-    async def noop_auto_match(site, db):
+    async def noop_sync(site, db):
         return {}
 
     async def noop_lifecycle(new_sites):
         return None
 
     monkeypatch.setattr(sites_api, "_probe_one", fake_probe)
-    monkeypatch.setattr(sites_api, "_auto_match_and_save", noop_auto_match)
+    monkeypatch.setattr(sites_api, "_sync_site_remote_categories", noop_sync)
     monkeypatch.setattr(sites_api, "_submit_lifecycle_crawl", noop_lifecycle)
 
 

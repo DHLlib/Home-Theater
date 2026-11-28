@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listSystemCategories } from "../api/system-categories";
-import { getCategoryStats, type CategoryStats } from "../api/category-aliases";
+import { getCategoryStats, type CategoryStats } from "../api/category-stats";
 import type { SystemCategoryTreeItem } from "../types";
 
 /** 未分类伪分类：后端把 system_category 为空视为未分类 */
@@ -59,22 +59,20 @@ export default function CategoryBar({
     };
   }, []);
 
-  // 只展示有内容的分类：计数来自视频级分类（aggregated_videos.system_category）
+  // 展示所有启用的分类；0 内容的新分类也要能被找到
   const groups = useMemo(() => {
     if (!stats) return [];
-    const counts = stats.counts;
-    const result: { label: string; items: string[] }[] = [];
-    for (const parent of systemTree) {
-      if (parent.enabled === false) continue;
-      const visibleChildren = parent.children
-        .filter((c) => c.enabled !== false && (counts[c.name] || 0) > 0)
-        .map((c) => c.name);
-      const parentCount = counts[parent.name] || 0;
-      if (visibleChildren.length > 0 || parentCount > 0) {
-        result.push({ label: parent.name, items: visibleChildren });
-      }
-    }
-    return result;
+    return systemTree
+      .filter((parent) => parent.enabled !== false)
+      .map((parent) => {
+        const items = parent.children
+          .filter((child) => child.enabled !== false)
+          .map((child) => child.name);
+        const count =
+          (stats.counts[parent.name] ?? 0) +
+          items.reduce((sum, name) => sum + (stats.counts[name] ?? 0), 0);
+        return { label: parent.name, items, count };
+      });
   }, [systemTree, stats]);
 
   const uncategorizedCount = stats?.uncategorized ?? 0;
@@ -202,7 +200,7 @@ export default function CategoryBar({
               onMouseLeave={handleLeave}
             >
               <button
-                className="nav-link"
+                className={`nav-link${group.count === 0 ? " is-empty" : ""}`}
                 aria-haspopup="true"
                 aria-expanded={isOpen}
                 onClick={() => {
@@ -247,7 +245,7 @@ export default function CategoryBar({
                         key={name}
                         className={`category-pill${
                           activeCategory === name ? " active" : ""
-                        }`}
+                        }${(stats?.counts[name] ?? 0) === 0 ? " is-empty" : ""}`}
                         onClick={() => {
                           onSelect(name);
                           setMenuOpen(null);

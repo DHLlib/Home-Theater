@@ -1187,6 +1187,17 @@ textarea:focus {
   color: var(--text-primary);
 }
 
+/* 0 内容分类仍可点，但视觉上让位于有内容的分类 */
+.category-bar .nav-link.is-empty {
+  color: var(--text-muted);
+  opacity: 0.62;
+}
+
+.category-bar .nav-link.is-empty:hover {
+  color: var(--text-secondary);
+  opacity: 0.9;
+}
+
 .category-pill {
   padding: 6px 16px;
   border-radius: var(--radius-pill);
@@ -1212,6 +1223,14 @@ textarea:focus {
   background: var(--primary);
   color: var(--primary-ink);
   border-color: var(--primary);
+}
+
+.category-pill.is-empty {
+  opacity: 0.62;
+}
+
+.category-pill.is-empty:hover {
+  opacity: 0.9;
 }
 
 /* === 播放器布局（桌面端） === */

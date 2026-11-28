@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import CategoryBar from "../components/CategoryBar";
 import HomeCategorySections from "../components/HomeCategorySections";
+import { listSystemCategories } from "../api/system-categories";
 import VideoCard from "../components/VideoCard";
 import VirtualGrid from "../components/VirtualGrid";
 import MobileSearchBar from "../components/MobileSearchBar";
@@ -44,6 +45,21 @@ export default function Home() {
     refetch: refetchHomeSections,
   } = useHomeSections(isDefaultView);
   const homeSections = homeSectionsData?.sections ?? [];
+  const [categoriesTree, setCategoriesTree] = useState<
+    Awaited<ReturnType<typeof listSystemCategories>>
+  >([]);
+  useEffect(() => {
+    if (!isDefaultView) return;
+    let cancelled = false;
+    listSystemCategories()
+      .then((items) => {
+        if (!cancelled) setCategoriesTree(items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isDefaultView]);
   const { data: crawlerStatus } = useCrawlerStatusQuery();
   const {
     data,
@@ -225,7 +241,8 @@ export default function Home() {
     isSyncing &&
     !homeSectionsLoading &&
     !homeSectionsError &&
-    homeSections.length === 0;
+    homeSections.length === 0 &&
+    categoriesTree.length === 0;
 
   return (
     <div>
@@ -325,6 +342,7 @@ export default function Home() {
         ) : (
           <HomeCategorySections
             sections={homeSections}
+            categories={categoriesTree}
             isLoading={homeSectionsLoading}
             isError={homeSectionsError}
             onRetry={handleSectionsRetry}

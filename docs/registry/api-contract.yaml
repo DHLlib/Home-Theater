@@ -69,34 +69,6 @@ endpoints:
       默认端口 / 末尾斜杠 / 主机大小写）+ 名称（完全一致或去图标/标点后一致）。
       跳过时结果 added=false 且 error 为「已存在：<站点名>」；探测失败不入库。
 
-  - id: API-SITE-CATEGORIES-GET
-    path: /api/sites/{site_id}/categories
-    method: GET
-    summary: 获取站点分类映射
-    request_schema: null
-    response_schema: SiteCategoriesOut
-    consumers: [AC-002]
-
-  - id: API-SITE-CATEGORIES-UPDATE
-    path: /api/sites/{site_id}/categories
-    method: PUT
-    summary: 更新站点分类映射
-    request_schema: SiteCategoriesUpdate
-    response_schema: SiteCategoriesOut
-    consumers: [AC-002]
-    notes: |
-      [GAP-FIX-AC002] 后端需增加服务端互斥校验：
-      同一站点内，一个 remote_id 只能属于一个系统分类。
-      校验失败返回 HTTP 400，响应体为 ValidationErrorResponse。
-
-  - id: API-SITE-FETCH-CATEGORIES
-    path: /api/sites/{site_id}/fetch-categories
-    method: POST
-    summary: 从资源站拉取远程分类列表
-    request_schema: null
-    response_schema: SiteCategoriesOut
-    consumers: [AC-002]
-
   # ═══════════════════════════════════════════════════════════════
   # 视频列表与搜索 (AC-003, AC-004)
   # ═══════════════════════════════════════════════════════════════
@@ -583,10 +555,11 @@ endpoints:
   - id: API-SYSTEM-CATEGORY-DELETE
     path: /api/system-categories/{category_id}
     method: DELETE
-    summary: 删除系统分类（受保护分类不可删）
+    summary: 删除系统分类（含子类；不迁移，相关视频直接变未分类）
     request_schema: null
     response_schema: OkResponse
     consumers: [AC-002]
+    notes: 删除挂载关系 + 将相关视频 system_category 置 NULL，不重新投票；返回 links_removed/videos_reset
 
   # ═══════════════════════════════════════════════════════════════
   # 视频列表增强
@@ -603,11 +576,11 @@ endpoints:
   - id: API-VIDEO-CATEGORY-STATS
     path: /api/videos/categories/stats
     method: GET
-    summary: 分类计数（只返回非空分类）
+    summary: 分类计数（含 0 内容分类；另返回未分类数）
     request_schema: null
     response_schema: CategoryStat[]
     consumers: [AC-003]
-    notes: 60s 缓存；禁用站点内容不计入
+    notes: 60s 缓存；禁用站点内容不计入；前端分类栏据此弱化 0 内容分类
 
   # ═══════════════════════════════════════════════════════════════
   # 播放
@@ -707,29 +680,55 @@ endpoints:
     response_schema: SiteImportResult
     consumers: [AC-001]
 
-  - id: API-SITE-SMART-MATCH
-    path: /api/sites/{site_id}/smart-match
-    method: POST
-    summary: 智能匹配远程分类到系统分类
+  - id: API-CATEGORY-SETTINGS-OVERVIEW
+    path: /api/category-settings/overview
+    method: GET
+    summary: 系统分类树（videos/remotes 计数）与未挂载/未分类汇总
     request_schema: null
-    response_schema: SmartMatchResponse
+    response_schema: null
     consumers: [AC-002]
 
-  - id: API-SITE-TEMPLATES
-    path: /api/sites/templates
+  - id: API-CATEGORY-SETTINGS-REMOTES
+    path: /api/category-settings/remotes
     method: GET
-    summary: 分类模板列表
+    summary: 各站点远程分类快照（挂载状态、来源数、样例、stale）
     request_schema: null
-    response_schema: CategoryTemplate[]
-    consumers: [AC-028]
+    response_schema: null
+    consumers: [AC-002]
 
-  - id: API-SITE-APPLY-TEMPLATE
-    path: /api/sites/{site_id}/apply-template
+  - id: API-CATEGORY-SETTINGS-LINKS-CREATE
+    path: /api/category-settings/links
     method: POST
-    summary: 应用分类模板
-    request_schema: CategoryTemplate
-    response_schema: TemplateApplyResponse
-    consumers: [AC-028]
+    summary: 批量将 (site_id, remote_id) 手动挂到系统小类
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
+    notes: 只能挂小类；(site_id, remote_id) 唯一；命中则移动，返回 linked/affected_videos
+
+  - id: API-CATEGORY-SETTINGS-LINKS-DELETE
+    path: /api/category-settings/links
+    method: DELETE
+    summary: 批量解除远程分类挂载
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
+    notes: 删除后只重算受影响视频，不做全量回填
+
+  - id: API-CATEGORY-SETTINGS-REFRESH
+    path: /api/category-settings/refresh
+    method: POST
+    summary: 重新拉取所有站点的远程分类快照
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-SETTINGS-SITE-REFRESH
+    path: /api/category-settings/sites/{site_id}/refresh
+    method: POST
+    summary: 重新拉取单个站点的远程分类快照
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
 
   - id: API-FAVORITE-STATUS
     path: /api/favorites/status
@@ -740,44 +739,8 @@ endpoints:
     consumers: [AC-010]
 
   # ═══════════════════════════════════════════════════════════════
-  # 分类映射工作台 / 清除失效资源 / 播放加速（2026-11）
+  # 分类设置 / 清除失效资源 / 播放加速（2026-11）
   # ═══════════════════════════════════════════════════════════════
-  - id: API-SITE-CATEGORY-MAP-SUMMARY
-    path: /api/sites/category-map/summary
-    method: GET
-    summary: 各站点类名覆盖概况（用于默认选中问题最多的站点）
-    request_schema: null
-    response_schema: null
-    consumers: []
-    notes: 60 秒内存缓存
-
-  - id: API-SITE-CATEGORY-MAP-GET
-    path: /api/sites/{site_id}/category-map
-    method: GET
-    summary: 映射工作台数据（聚类、建议、样例标题、覆盖统计）
-    request_schema: null
-    response_schema: null
-    consumers: []
-    notes: 按站点缓存 2 分钟；写入/撤销后失效
-
-  - id: API-SITE-CATEGORY-MAP-SAVE
-    path: /api/sites/{site_id}/category-map
-    method: POST
-    summary: 批量写入别名 / 站点例外，可选 fill_rest
-    request_schema: null
-    response_schema: null
-    consumers: []
-    notes: 写入后重算受影响视频分类
-
-  - id: API-SITE-CATEGORY-MAP-UNDO
-    path: /api/sites/{site_id}/category-map/undo
-    method: POST
-    summary: 撤销最近一次映射写入
-    request_schema: null
-    response_schema: null
-    consumers: []
-    notes: 快照存进程内，重启后失效
-
   - id: API-VIDEOS-CLEANUP-START
     path: /api/videos/cleanup-expired
     method: POST

@@ -68,3 +68,5 @@ export const put = <T>(path: string, body?: unknown, timeoutMs?: number) =>
 export const patch = <T>(path: string, body?: unknown, timeoutMs?: number) =>
   request<T>("PATCH", path, body, timeoutMs);
 export const del = <T>(path: string, timeoutMs?: number) => request<T>("DELETE", path, undefined, timeoutMs);
+export const delWithBody = <T>(path: string, body?: unknown, timeoutMs?: number) =>
+  request<T>("DELETE", path, body, timeoutMs);

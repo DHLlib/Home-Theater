@@ -68,6 +68,17 @@
   transform: scaleX(1);
 }
 
+.home-category-sections__anchor--empty {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+  cursor: pointer;
+}
+.home-category-sections__anchor--empty:hover {
+  color: var(--text-secondary);
+}
+
 .home-category-sections__section {
   min-width: 0;
   padding: 24px 0 30px;

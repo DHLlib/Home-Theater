@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
-from app.api import category_aliases, category_map, favorites, downloads, maintenance, play, progress, settings_api, sites, sse, system_categories, videos
+from app.api import category_settings, favorites, downloads, maintenance, play, progress, settings_api, sites, sse, system_categories, videos
 from app.config import settings
 from app.db import async_session_factory, engine, init_db
 from app.errors import ApiError, api_error_handler, generic_exception_handler, http_exception_handler
@@ -23,7 +23,6 @@ from app.services.listen_manager import listen_manager
 from app.services.maintenance import maintenance_coordinator
 from app.services.source_client import close_shared_clients
 from app.services.tls import get_ssl_context
-from app.services.category_mapping import migrate_categories_to_mapping_table
 from app.services.aggregator import migrate_video_cache_norm_title, refresh_aggregated_view
 
 
@@ -100,71 +99,85 @@ async def check_db_connection() -> None:
 
 
 async def _init_default_categories():
-    """首次启动时自动创建默认系统分类（含后来补的体育/短剧）。"""
+    """首次建库播种出厂分类；播种后打标记，用户删掉的默认分类不再复活。"""
     from sqlalchemy import select
-    from app.models import SystemCategory
+
     from app.db import async_session_factory
+    from app.models import AppConfig, SystemCategory
 
     async with async_session_factory() as db:
-        result = await db.execute(select(SystemCategory).limit(1))
-        if result.scalar_one_or_none():
-            return  # 已有数据，跳过
+        marker = await db.get(AppConfig, "system_categories_seeded")
+        if marker is not None:
+            return
 
-        for parent_name, parent_sort, children in (
-            DEFAULT_SYSTEM_CATEGORIES + LATE_SYSTEM_CATEGORIES
-        ):
-            parent = SystemCategory(name=parent_name, sort=parent_sort)
-            db.add(parent)
-            await db.flush()  # 获取 parent.id
-            for child_name, child_sort in children:
-                db.add(SystemCategory(name=child_name, parent_id=parent.id, sort=child_sort))
+        result = await db.execute(select(SystemCategory).limit(1))
+        if result.scalar_one_or_none() is None:
+            for parent_name, parent_sort, children in (
+                DEFAULT_SYSTEM_CATEGORIES + LATE_SYSTEM_CATEGORIES
+            ):
+                parent = SystemCategory(name=parent_name, sort=parent_sort)
+                db.add(parent)
+                await db.flush()  # 获取 parent.id
+                for child_name, child_sort in children:
+                    db.add(
+                        SystemCategory(
+                            name=child_name,
+                            parent_id=parent.id,
+                            sort=child_sort,
+                        )
+                    )
+        db.add(AppConfig(key="system_categories_seeded", value="1"))
         await db.commit()
 
 
-async def _ensure_late_categories() -> int:
-    """幂等补齐后来新增的系统分类族（体育 / 短剧）。
+async def _reset_legacy_category_data() -> None:
+    """一次性清空旧的自动分类数据，切到「只按站点手动挂载」模型。
 
-    只补缺失项，不重建、不改名、不复活用户删掉的旧分类。
-    返回新增的分类数量（供调用方决定是否重跑别名播种）。
+    用 app_config 标记保证只执行一次；用户之后新增的挂载关系不会再被清掉。
+    这是破坏性迁移，启动前请先备份数据库。
     """
-    from sqlalchemy import select
-    from app.models import SystemCategory
-    from app.db import async_session_factory
+    from sqlalchemy import text
+
+    from app.db import engine
 
     log = logging.getLogger(__name__)
-    async with async_session_factory() as db:
-        rows = (await db.execute(select(SystemCategory))).scalars().all()
-        if not rows:
-            return 0  # 空库交给 _init_default_categories
-
-        added = 0
-        for parent_name, parent_sort, children in LATE_SYSTEM_CATEGORIES:
-            parent = next(
-                (r for r in rows if r.parent_id is None and r.name == parent_name),
-                None,
-            )
-            if parent is None:
-                parent = SystemCategory(name=parent_name, sort=parent_sort)
-                db.add(parent)
-                await db.flush()
-                rows.append(parent)
-                added += 1
-
-            existing_children = {r.name for r in rows if r.parent_id == parent.id}
-            for child_name, child_sort in children:
-                if child_name in existing_children:
-                    continue
-                db.add(
-                    SystemCategory(
-                        name=child_name, parent_id=parent.id, sort=child_sort
-                    )
+    try:
+        async with engine.begin() as conn:
+            marker = await conn.scalar(
+                text(
+                    "SELECT value FROM app_config "
+                    "WHERE key = 'manual_category_reset_v1'"
                 )
-                added += 1
-
-        if added:
-            await db.commit()
-            log.info("补全系统分类 %d 个（体育 / 短剧）", added)
-        return added
+            )
+            if marker is not None:
+                return
+            await conn.execute(text("DELETE FROM category_aliases"))
+            await conn.execute(text("DELETE FROM site_category_mappings"))
+            await conn.execute(text("DELETE FROM site_category_overrides"))
+            await conn.execute(text("UPDATE sites SET categories = NULL"))
+            # 直接重建列，避免对聚合大表逐行 UPDATE；索引由后续启动检查重建。
+            await conn.execute(
+                text(
+                    "ALTER TABLE aggregated_videos "
+                    "DROP COLUMN IF EXISTS system_category"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE aggregated_videos "
+                    "ADD COLUMN system_category VARCHAR"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO app_config (key, value, updated_at) "
+                    "VALUES ('manual_category_reset_v1', '1', now()) "
+                    "ON CONFLICT (key) DO NOTHING"
+                )
+            )
+        log.info("已清空历史分类映射，切换到手动挂载模型（只执行一次）")
+    except Exception as exc:
+        log.warning("清空历史分类映射失败: %s", exc)
 
 
 async def _fix_postgres_sequences() -> None:
@@ -385,11 +398,10 @@ async def _ensure_progress_unique_index() -> None:
 
 
 async def _ensure_aggregate_category_column() -> None:
-    """给 aggregated_videos 增加 system_category 列并回填（幂等）。"""
+    """确保 aggregated_videos.system_category 列与索引存在（不再启动回填）。"""
     from sqlalchemy import text
 
     from app.db import engine
-    from app.services.category_alias import backfill_video_categories
 
     log = logging.getLogger(__name__)
     try:
@@ -406,10 +418,6 @@ async def _ensure_aggregate_category_column() -> None:
                     "ON aggregated_videos (system_category)"
                 )
             )
-        async with async_session_factory() as db:
-            filled = await backfill_video_categories(db)
-        if filled:
-            log.info("视频级分类回填 %d 条", filled)
     except Exception as exc:
         log.warning(f"初始化视频级分类失败: {exc}")
 
@@ -447,32 +455,6 @@ async def _ensure_recommended_video_id_column() -> None:
             log.info("推荐表回填 aggregated_video_id %d 条", result.rowcount)
     except Exception as exc:
         log.warning(f"初始化推荐表 aggregated_video_id 失败: {exc}")
-
-
-async def _ensure_category_aliases(force: bool = False) -> None:
-    """首次启动时把现有「站点 × 远程分类」映射聚合成全局别名（幂等）。
-
-    之后新增站点命中别名即自动生效，无需再逐站点配置。
-    force=True 时即使已有别名也重跑（新增系统分类后需要）。
-    """
-    from sqlalchemy import func, select
-
-    from app.models import CategoryAlias
-    from app.services.category_alias import seed_aliases_from_data
-
-    log = logging.getLogger(__name__)
-    try:
-        async with async_session_factory() as db:
-            if not force:
-                count = (
-                    await db.execute(select(func.count()).select_from(CategoryAlias))
-                ).scalar_one()
-                if count > 0:
-                    return
-            summary = await seed_aliases_from_data(db)
-        log.info("首次生成分类别名: %s", summary)
-    except Exception as exc:
-        log.warning(f"生成分类别名失败: {exc}")
 
 
 def _maybe_enable_stack_dump() -> None:
@@ -520,19 +502,13 @@ async def lifespan(app: FastAPI):
     await maintenance_coordinator.recover_interrupted()
     await _fix_postgres_sequences()
     await _ensure_progress_unique_index()
-    await _ensure_category_aliases()
+    await _reset_legacy_category_data()
     await _ensure_aggregate_category_column()
     await _ensure_recommended_video_id_column()
     await _ensure_pg_trgm_indexes()
     async with async_session_factory() as db:
-        await migrate_categories_to_mapping_table(db)
         await migrate_video_cache_norm_title(db)
     await _init_default_categories()
-    added_categories = await _ensure_late_categories()
-    if added_categories:
-        # 新增了系统分类（体育/短剧）→ 立刻重跑一次别名播种，
-        # 让原本「目标分类不存在」而被跳过的远程类名能落到新分类上。
-        await _ensure_category_aliases(force=True)
 
     # Phase 2: 首次启动或表为空时，后台重建聚合中间表
     async def _bootstrap_aggregated_tables():
@@ -675,8 +651,7 @@ app.include_router(favorites.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")
 app.include_router(sse.router, prefix="/api")
 app.include_router(system_categories.router, prefix="/api")
-app.include_router(category_aliases.router, prefix="/api")
-app.include_router(category_map.router, prefix="/api")
+app.include_router(category_settings.router, prefix="/api")
 app.include_router(maintenance.router, prefix="/api")
 
 

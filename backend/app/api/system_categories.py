@@ -2,23 +2,22 @@ import logging
 
 from fastapi import APIRouter, Depends
 from app.errors import (
-    category_exists,
     category_cycle,
-    category_in_use,
+    category_exists,
     category_not_found,
     validation_error,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.videos import invalidate_category_filter_cache
 from app.db import get_db
-from app.models import SystemCategory
-from app.schemas import SystemCategoryCreate, SystemCategoryOut, SystemCategoryTreeItem, SystemCategoryUpdate
-from app.services.category_alias import (
-    category_reference_counts,
-    invalidate_alias_cache,
-    repoint_category,
+from app.models import AggregatedVideoV3, SiteCategoryLink, SystemCategory
+from app.schemas import (
+    SystemCategoryCreate,
+    SystemCategoryOut,
+    SystemCategoryTreeItem,
+    SystemCategoryUpdate,
 )
 
 router = APIRouter(prefix="/system-categories", tags=["system-categories"])
@@ -26,35 +25,30 @@ logger = logging.getLogger(__name__)
 
 
 def _invalidate_all() -> None:
-    """分类结构变化后，别名缓存与分类过滤缓存都要作废。"""
-    invalidate_alias_cache()
+    """分类结构变化后作废分类过滤/统计缓存。"""
     invalidate_category_filter_cache()
 
 
-async def _descendant_names(db: AsyncSession, cat: SystemCategory) -> list[str]:
-    """分类自身 + 所有子孙分类的名字（删父类时整棵子树一起处理）。"""
-    names = [cat.name]
+async def _descendants(db: AsyncSession, cat: SystemCategory) -> list[SystemCategory]:
+    """分类自身 + 所有子孙分类（按先子后父顺序返回）。"""
+    out: list[SystemCategory] = [cat]
     result = await db.execute(
         select(SystemCategory).where(SystemCategory.parent_id == cat.id)
     )
     for child in result.scalars().all():
-        names.extend(await _descendant_names(db, child))
-    return names
-
+        out.extend(await _descendants(db, child))
+    return out
 
 
 async def _would_form_cycle(
     db: AsyncSession, cat_id: int, parent_id: int | None
 ) -> bool:
-    """检查把 cat_id 的父设为 parent_id 是否会形成循环父子关系（含多层）。"""
     if parent_id is None:
         return False
     current_id = parent_id
     visited: set[int] = set()
     while current_id is not None:
-        if current_id == cat_id:
-            return True
-        if current_id in visited:
+        if current_id == cat_id or current_id in visited:
             return True
         visited.add(current_id)
         parent = await db.get(SystemCategory, current_id)
@@ -67,25 +61,28 @@ async def _would_form_cycle(
 @router.get("")
 async def list_system_categories(db: AsyncSession = Depends(get_db)):
     """列出所有系统分类（树形结构）。"""
-    result = await db.execute(select(SystemCategory).order_by(SystemCategory.sort, SystemCategory.id))
+    result = await db.execute(
+        select(SystemCategory).order_by(SystemCategory.sort, SystemCategory.id)
+    )
     rows = result.scalars().all()
 
-    # 构建 parent_id -> children 映射
     by_parent: dict[int | None, list[SystemCategory]] = {}
-    for r in rows:
-        by_parent.setdefault(r.parent_id, []).append(r)
+    for row in rows:
+        by_parent.setdefault(row.parent_id, []).append(row)
 
     def build_tree(parent_id: int | None) -> list[SystemCategoryTreeItem]:
         items = []
-        for r in by_parent.get(parent_id, []):
-            items.append(SystemCategoryTreeItem(
-                id=r.id,
-                parent_id=r.parent_id,
-                name=r.name,
-                sort=r.sort,
-                enabled=r.enabled,
-                children=build_tree(r.id),
-            ))
+        for row in by_parent.get(parent_id, []):
+            items.append(
+                SystemCategoryTreeItem(
+                    id=row.id,
+                    parent_id=row.parent_id,
+                    name=row.name,
+                    sort=row.sort,
+                    enabled=row.enabled,
+                    children=build_tree(row.id),
+                )
+            )
         return items
 
     return build_tree(None)
@@ -96,24 +93,43 @@ async def create_system_category(
     body: SystemCategoryCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """新增系统分类（大类或小类）。"""
-    # 检查名称是否已存在
-    existing = await db.execute(select(SystemCategory).where(SystemCategory.name == body.name))
-    if existing.scalar_one_or_none():
-        raise category_exists(body.name)
+    """新增系统分类；只支持大类（parent_id=None）和小类（父级必须是大类）。"""
+    name = (body.name or "").strip()
+    if not name:
+        raise validation_error("分类名不能为空")
 
-    # 如果指定了 parent_id，检查父分类是否存在
+    existing = await db.execute(
+        select(SystemCategory).where(SystemCategory.name == name)
+    )
+    if existing.scalar_one_or_none():
+        raise category_exists(name)
+
     if body.parent_id is not None:
         parent = await db.get(SystemCategory, body.parent_id)
         if not parent:
             raise category_not_found("父分类")
+        if parent.parent_id is not None:
+            raise validation_error("只支持两级分类：小类只能挂在大类下")
 
-    cat = SystemCategory(name=body.name, parent_id=body.parent_id, sort=body.sort)
+    cat = SystemCategory(name=name, parent_id=body.parent_id, sort=body.sort)
     db.add(cat)
     await db.commit()
     await db.refresh(cat)
-    logger.info("system_category_created id=%d name=%s parent_id=%s", cat.id, cat.name, cat.parent_id)
-    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, enabled=cat.enabled, created_at=str(cat.created_at))
+    _invalidate_all()
+    logger.info(
+        "system_category_created id=%d name=%s parent_id=%s",
+        cat.id,
+        cat.name,
+        cat.parent_id,
+    )
+    return SystemCategoryOut(
+        id=cat.id,
+        parent_id=cat.parent_id,
+        name=cat.name,
+        sort=cat.sort,
+        enabled=cat.enabled,
+        created_at=str(cat.created_at),
+    )
 
 
 @router.patch("/{cat_id}")
@@ -122,113 +138,136 @@ async def update_system_category(
     body: SystemCategoryUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """修改系统分类。"""
+    """改名 / 调序 / 启停。改名会同步视频级分类；挂载关系按 id 保留。"""
     cat = await db.get(SystemCategory, cat_id)
     if not cat:
         raise category_not_found(str(cat_id))
 
     data = body.model_dump(exclude_unset=True)
-
-    # 检查名称冲突
-    if "name" in data:
+    new_name = data.get("name")
+    if new_name is not None:
+        new_name = str(new_name).strip()
+        if not new_name:
+            raise validation_error("分类名不能为空")
         existing = await db.execute(
-            select(SystemCategory).where(SystemCategory.name == data["name"], SystemCategory.id != cat_id)
+            select(SystemCategory).where(
+                SystemCategory.name == new_name,
+                SystemCategory.id != cat_id,
+            )
         )
         if existing.scalar_one_or_none():
-            raise category_exists(data["name"])
+            raise category_exists(new_name)
+        data["name"] = new_name
 
-    # 检查 parent_id 是否形成循环
-    if "parent_id" in data and data["parent_id"] is not None:
-        if data["parent_id"] == cat_id:
-            raise category_cycle()
-        parent = await db.get(SystemCategory, data["parent_id"])
-        if not parent:
-            raise category_not_found("父分类")
-        if await _would_form_cycle(db, cat_id, data["parent_id"]):
-            raise category_cycle()
-
-    # 名称/父子关系/启用状态变更都会让分类过滤缓存的
-    # system_by_name / system_by_id / enabled 判定过期，立即作废
-    if data.keys() & {"enabled", "name", "parent_id"}:
-        _invalidate_all()
+    if "parent_id" in data:
+        parent_id = data["parent_id"]
+        if parent_id is not None:
+            if parent_id == cat_id:
+                raise category_cycle()
+            parent = await db.get(SystemCategory, parent_id)
+            if not parent:
+                raise category_not_found("父分类")
+            if parent.parent_id is not None:
+                raise validation_error("只支持两级分类：小类只能挂在大类下")
+            child_count = (
+                await db.execute(
+                    select(func.count())
+                    .select_from(SystemCategory)
+                    .where(SystemCategory.parent_id == cat_id)
+                )
+            ).scalar_one()
+            if child_count:
+                raise validation_error("该分类下还有小类，不能挂到其他分类下")
+            if await _would_form_cycle(db, cat_id, parent_id):
+                raise category_cycle()
 
     old_name = cat.name
     for key, value in data.items():
         setattr(cat, key, value)
 
-    # 改名：别名与视频级分类存的都是名字字符串，必须一起改指，否则引用悬空
-    if "name" in data and data["name"] and data["name"] != old_name:
-        aliases_moved, videos_moved = await repoint_category(db, old_name, data["name"])
-        logger.info(
-            "system_category_renamed id=%d %s -> %s (aliases=%d videos=%d)",
-            cat_id,
-            old_name,
-            data["name"],
-            aliases_moved,
-            videos_moved,
+    if new_name and new_name != old_name:
+        await db.execute(
+            update(AggregatedVideoV3)
+            .where(AggregatedVideoV3.system_category == old_name)
+            .values(system_category=new_name)
         )
 
     await db.commit()
     await db.refresh(cat)
-    return SystemCategoryOut(id=cat.id, parent_id=cat.parent_id, name=cat.name, sort=cat.sort, enabled=cat.enabled, created_at=str(cat.created_at))
+    _invalidate_all()
+    logger.info(
+        "system_category_updated id=%d name=%s parent_id=%s",
+        cat.id,
+        cat.name,
+        cat.parent_id,
+    )
+    return SystemCategoryOut(
+        id=cat.id,
+        parent_id=cat.parent_id,
+        name=cat.name,
+        sort=cat.sort,
+        enabled=cat.enabled,
+        created_at=str(cat.created_at),
+    )
 
 
 @router.delete("/{cat_id}")
 async def delete_system_category(
     cat_id: int,
-    remap_to: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """删除系统分类（会级联删除子分类）。
+    """删除分类（含子类）。
 
-    分类名被别名或视频引用时不能直接删，否则这些内容会挂在已不存在的分类上
-    从分类页消失。传 remap_to（目标分类名）可把这些引用整体迁移过去再删。
+    不做迁移：相关远程分类回到未挂载，相关视频直接置为未分类，不重新投票。
     """
     cat = await db.get(SystemCategory, cat_id)
     if not cat:
         raise category_not_found(str(cat_id))
 
-    names = await _descendant_names(db, cat)
-    counts = await category_reference_counts(db, names)
-    referenced = {
-        name: stat for name, stat in counts.items() if stat["aliases"] or stat["videos"]
-    }
+    descendants = await _descendants(db, cat)
+    ids = [row.id for row in descendants]
+    names = [row.name for row in descendants]
 
-    if referenced and not remap_to:
-        raise category_in_use(referenced)
-
-    if remap_to:
-        target = (
-            await db.execute(
-                select(SystemCategory).where(SystemCategory.name == remap_to)
+    videos_reset = (
+        await db.execute(
+            update(AggregatedVideoV3)
+            .where(AggregatedVideoV3.system_category.in_(names))
+            .values(system_category=None)
+        )
+    ).rowcount or 0
+    links_removed = (
+        await db.execute(
+            delete(SiteCategoryLink).where(
+                SiteCategoryLink.system_category_id.in_(ids)
             )
-        ).scalar_one_or_none()
-        if target is None:
-            raise category_not_found(f"目标分类 {remap_to}")
-        if target.id == cat_id or target.name in names:
-            raise validation_error("目标分类不能是正在删除的分类自身或子分类")
-        for name in names:
-            if name != remap_to:
-                await repoint_category(db, name, remap_to)
+        )
+    ).rowcount or 0
 
-    # 级联删除子分类
-    async def delete_children(parent_id: int):
-        result = await db.execute(select(SystemCategory).where(SystemCategory.parent_id == parent_id))
-        children = result.scalars().all()
+    # 先删子分类，再删父分类（外键自引用）
+    async def delete_subtree(node: SystemCategory) -> None:
+        children = (
+            await db.execute(
+                select(SystemCategory).where(SystemCategory.parent_id == node.id)
+            )
+        ).scalars().all()
         for child in children:
-            await delete_children(child.id)
-            await db.delete(child)
+            await delete_subtree(child)
+        await db.delete(node)
 
-    await delete_children(cat_id)
-    await db.delete(cat)
+    await delete_subtree(cat)
     await db.commit()
-    # 删除分类会让缓存的 system_by_name / system_by_id 过期，立即作废
     _invalidate_all()
     logger.info(
-        "system_category_deleted id=%d name=%s remap_to=%s names=%s",
+        "system_category_deleted id=%d name=%s names=%s links=%d videos=%d",
         cat_id,
         cat.name,
-        remap_to,
         names,
+        links_removed,
+        videos_reset,
     )
-    return {"ok": True, "remapped_to": remap_to, "names": names}
+    return {
+        "ok": True,
+        "names": names,
+        "links_removed": int(links_removed),
+        "videos_reset": int(videos_reset),
+    }

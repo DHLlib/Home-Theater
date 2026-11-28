@@ -7,11 +7,12 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import type { AggregatedVideo, HomeSection } from "../types";
+import type { AggregatedVideo, HomeSection, SystemCategoryTreeItem } from "../types";
 import "./HomeCategorySections.css";
 
 export interface HomeCategorySectionsProps {
   sections: HomeSection[];
+  categories?: SystemCategoryTreeItem[];
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
@@ -28,6 +29,7 @@ function itemKey(item: AggregatedVideo, index: number): string {
 
 function HomeCategorySections({
   sections,
+  categories = [],
   isLoading,
   isError,
   onRetry,
@@ -44,6 +46,16 @@ function HomeCategorySections({
     () => sections.filter((section) => section.items.length > 0),
     [sections]
   );
+  // 首页分类栏同时展示「0 内容」的启用大类：弱化显示，点击进入分类页空态。
+  const navCategories = useMemo(() => {
+    const names = categories
+      .filter((category) => category.enabled !== false)
+      .map((category) => category.name);
+    for (const section of visibleSections) {
+      if (!names.includes(section.category)) names.push(section.category);
+    }
+    return names;
+  }, [categories, visibleSections]);
 
   useEffect(() => {
     if (visibleSections.length === 0) return;
@@ -140,16 +152,6 @@ function HomeCategorySections({
     );
   }
 
-  if (visibleSections.length === 0) {
-    return (
-      <div className="home-category-sections">
-        <div className="home-category-sections__status">
-          <p>暂无视频，完成采集后再来看看。</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="home-category-sections" id={rootId} ref={rootRef}>
       <nav className="home-category-sections__nav" aria-label="首页分类" ref={navRef}>
@@ -161,8 +163,23 @@ function HomeCategorySections({
         >
           全部
         </a>
-        {visibleSections.map((section, index) => {
+        {navCategories.map((category) => {
+          const section = visibleSections.find((item) => item.category === category);
+          const index = section ? visibleSections.indexOf(section) : -1;
           const sectionId = `${instanceId}-home-section-${index}`;
+          if (!section) {
+            return (
+              <button
+                type="button"
+                className="home-category-sections__anchor home-category-sections__anchor--empty"
+                key={category}
+                title={`${category}暂无内容，进入分类页`}
+                onClick={() => onViewAll(category)}
+              >
+                {category}
+              </button>
+            );
+          }
           return (
             <a
               className="home-category-sections__anchor"
@@ -180,6 +197,11 @@ function HomeCategorySections({
       </nav>
 
       <div className="home-category-sections__content">
+        {visibleSections.length === 0 && (
+          <div className="home-category-sections__status">
+            <p>还没有已挂载的分类内容。到「设置 → 分类设置」把站点远程分类挂到小类后再来看。</p>
+          </div>
+        )}
         {visibleSections.map((section, index) => {
           const sectionId = `${instanceId}-home-section-${index}`;
           const headingId = `${sectionId}-heading`;

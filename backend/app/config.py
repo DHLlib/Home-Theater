@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     play_cache_ttl_seconds: int = 7 * 24 * 3600  # 7 天
 
     # 分类映射读路径：true 走数据库中间表，false 回退 JSON
-    use_category_mapping_table: bool = True
+    # 分类映射已改为按站点手动挂载，旧 USE_CATEGORY_MAPPING_TABLE 不再读取。
 
     @property
     def db_url(self) -> str:

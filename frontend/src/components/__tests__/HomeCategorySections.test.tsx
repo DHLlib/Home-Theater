@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import HomeCategorySections from "../HomeCategorySections";
-import type { AggregatedVideo, HomeSection } from "../../types";
+import type { AggregatedVideo, HomeSection, SystemCategoryTreeItem } from "../../types";
 
 const movie: AggregatedVideo = {
   id: 1,
@@ -65,6 +65,21 @@ describe("HomeCategorySections", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("测试电影")).toBeInTheDocument();
     expect(screen.getByText("测试剧集")).toBeInTheDocument();
+  });
+
+  it("0 内容分类也出现在分类栏，点击进入空态", async () => {
+    const user = userEvent.setup();
+    const categories: SystemCategoryTreeItem[] = [
+      { id: 1, parent_id: null, name: "电影", sort: 1, enabled: true, children: [] },
+      { id: 2, parent_id: null, name: "连续剧", sort: 2, enabled: true, children: [] },
+      { id: 3, parent_id: null, name: "体育", sort: 3, enabled: true, children: [] },
+    ];
+    const { props } = renderSections({ categories });
+    const empty = screen.getByRole("button", { name: "体育" });
+    expect(empty).toHaveClass("home-category-sections__anchor--empty");
+    await user.click(empty);
+    expect(props.onViewAll).toHaveBeenCalledWith("体育");
+    expect(screen.getByRole("link", { name: "电影" })).toBeInTheDocument();
   });
 
   it("进入对应分类的完整列表", async () => {
@@ -133,6 +148,6 @@ describe("HomeCategorySections", () => {
         isError={false}
       />
     );
-    expect(screen.getByText("暂无视频，完成采集后再来看看。")).toBeInTheDocument();
+    expect(screen.getByText(/还没有已挂载的分类内容/)).toBeInTheDocument();
   });
 });
