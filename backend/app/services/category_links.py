@@ -120,25 +120,57 @@ async def recompute_videos_for_site_remotes(
     site_id: int,
     remote_ids: list[str],
 ) -> int:
-    """只重算「该站点这些远程分类」涉及的视频，不扫全库。"""
+    """只重算「该站点这些远程分类」涉及的视频，不扫全库。
+
+    先用一次集合查询算出每个受影响视频的胜出分类，再一次性 UPDATE；
+    避免逐视频执行相关子查询（大分类会从几十秒降到秒级）。
+    """
     ids = [str(remote_id) for remote_id in remote_ids if remote_id is not None]
-    if not ids:
+    numeric_ids = sorted({int(remote_id) for remote_id in ids if remote_id.isdigit()})
+    if not numeric_ids:
         return 0
     result = await db.execute(
         text(
-            f"""
-            UPDATE aggregated_videos v
-            SET system_category = ({_VOTE_SUBQUERY})
-            WHERE v.id IN (
-                SELECT DISTINCT s.aggregated_video_id
+            """
+            WITH affected AS MATERIALIZED (
+                SELECT DISTINCT s.aggregated_video_id AS video_id
                 FROM aggregated_sources s
                 WHERE s.site_id = :site_id
-                  AND s.type_id IS NOT NULL
-                  AND s.type_id::text = ANY(CAST(:remote_ids AS text[]))
+                  AND s.type_id = ANY(CAST(:remote_ids AS integer[]))
+            ),
+            links AS (
+                SELECT site_id, remote_id::integer AS remote_id, system_category_id
+                FROM site_category_links
+                WHERE remote_id ~ '^[0-9]+$'
+            ),
+            votes AS (
+                SELECT s.aggregated_video_id AS video_id,
+                       sc.name AS name,
+                       sc.sort AS sort,
+                       count(*) AS vote_count
+                FROM affected a
+                JOIN aggregated_sources s
+                  ON s.aggregated_video_id = a.video_id
+                JOIN links l
+                  ON l.site_id = s.site_id
+                 AND l.remote_id = s.type_id
+                JOIN system_categories sc ON sc.id = l.system_category_id
+                GROUP BY s.aggregated_video_id, sc.id, sc.name, sc.sort
+            ),
+            picked AS MATERIALIZED (
+                SELECT DISTINCT ON (video_id) video_id, name
+                FROM votes
+                ORDER BY video_id, vote_count DESC, sort ASC, name ASC
             )
+            UPDATE aggregated_videos v
+            SET system_category = picked.name
+            FROM affected a
+            LEFT JOIN picked ON picked.video_id = a.video_id
+            WHERE v.id = a.video_id
+              AND v.system_category IS DISTINCT FROM picked.name
             """
         ),
-        {"site_id": site_id, "remote_ids": ids},
+        {"site_id": site_id, "remote_ids": numeric_ids},
     )
     return int(result.rowcount or 0)
 
