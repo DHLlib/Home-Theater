@@ -241,7 +241,7 @@ export function sortSites(
   sort: SiteSort,
   jobs: MaintenanceJob[] | undefined
 ): SiteMaintenanceStatus[] {
-  return [...sites].sort((a, b) => {
+  return sites.toSorted((a, b) => {
     if (sort === "name") return byName(a, b);
     if (sort === "pending") {
       return (

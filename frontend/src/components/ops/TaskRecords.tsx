@@ -296,8 +296,8 @@ export default function TaskRecords({
             </div>
             {scheduledOpen && (
               <div style={{ marginTop: 8 }}>
-                {[...scheduled]
-                  .sort(
+                {scheduled
+                  .toSorted(
                     (a, b) =>
                       new Date(b.created_at).getTime() -
                       new Date(a.created_at).getTime()

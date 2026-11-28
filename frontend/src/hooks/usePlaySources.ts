@@ -15,7 +15,7 @@ export function orderSourcesByQuality<T extends SourceRef>(
   const order = new Map(
     playSources.map((source, index) => [playSourceKey(source), index])
   );
-  return [...sources].sort((a, b) => {
+  return sources.toSorted((a, b) => {
     const aOrder = order.get(playSourceKey(a)) ?? Number.MAX_SAFE_INTEGER;
     const bOrder = order.get(playSourceKey(b)) ?? Number.MAX_SAFE_INTEGER;
     return aOrder - bOrder;

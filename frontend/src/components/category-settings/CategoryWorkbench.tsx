@@ -50,8 +50,8 @@ export default function CategoryWorkbench() {
     const savedSite = siteList.find((site) => site.id === saved);
     if (savedSite) return savedSite.id;
     if (counts) {
-      const broken = [...siteList]
-        .sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+      const broken = siteList
+        .toSorted((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
         .find((site) => (counts[site.id] ?? 0) > 0);
       if (broken) return broken.id;
     }
@@ -126,7 +126,7 @@ export default function CategoryWorkbench() {
           return;
         }
         setSites((prev) =>
-          [...prev].sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+          prev.toSorted((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
         );
         if (userPickedRef.current) return;
         setSiteId((prev) => {
@@ -360,7 +360,7 @@ export default function CategoryWorkbench() {
     const list = unmapped.filter(
       (group) => !keyword || group.names.some((name) => name.raw_name.toLowerCase().includes(keyword))
     );
-    return [...list].sort((a, b) =>
+    return list.toSorted((a, b) =>
       sort === "confidence" ? a.confidence - b.confidence : b.sources - a.sources
     );
   }, [unmapped, query, sort]);
