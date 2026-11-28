@@ -293,8 +293,11 @@ export default function CategoryBar({
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setSearchOpen(false);
-                  if (event.key === "Enter" && searchResults[0]) {
-                    pickCategory(searchResults[0].name);
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const native = event.nativeEvent;
+                    if (native.isComposing || native.keyCode === 229) return;
+                    if (searchResults[0]) pickCategory(searchResults[0].name);
                   }
                 }}
               />

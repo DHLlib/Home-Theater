@@ -358,7 +358,12 @@ export default function AliasSettings() {
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") addAlias();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const native = event.nativeEvent;
+                if (native.isComposing || native.keyCode === 229) return;
+                addAlias();
+              }
             }}
             aria-label="远程类名"
           />

@@ -85,7 +85,12 @@ export default function MobileSearch() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const native = e.nativeEvent;
+              if (native.isComposing || native.keyCode === 229) return;
+              handleSearch();
+            }
           }}
         />
         <button className="mobile-search-btn" onClick={handleSearch}>

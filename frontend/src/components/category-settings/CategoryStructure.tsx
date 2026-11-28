@@ -190,7 +190,12 @@ export default function CategoryStructure({ onChanged }: Props) {
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") add();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              const native = event.nativeEvent;
+              if (native.isComposing || native.keyCode === 229) return;
+              add();
+            }
           }}
           aria-label="新分类名"
         />

@@ -115,7 +115,12 @@ export default function CategoryCombobox({
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setOpen(false);
-                  if (event.key === "Enter" && filtered[0]) pick(filtered[0].name);
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const native = event.nativeEvent;
+                    if (native.isComposing || native.keyCode === 229) return;
+                    if (filtered[0]) pick(filtered[0].name);
+                  }
                 }}
               />
               {recentItems.length > 0 && !query && (
@@ -176,7 +181,12 @@ export default function CategoryCombobox({
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") submitCreate();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const native = event.nativeEvent;
+                    if (native.isComposing || native.keyCode === 229) return;
+                    submitCreate();
+                  }
                 }}
               />
               <select
