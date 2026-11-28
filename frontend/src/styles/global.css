@@ -5,6 +5,9 @@
    ============================================================ */
 
 :root {
+  /* === 内在尺寸插值：允许 block-size/inline-size 等属性从固定值动画到 auto 等关键字 === */
+  interpolate-size: allow-keywords;
+
   /* === 断点 Token === */
   --bp-mobile-max: 767px;
   --bp-tablet-min: 768px;
@@ -921,10 +924,10 @@ nav.top-nav.hidden + main {
   display: flex;
   gap: 8px;
   margin-top: 10px;
-  max-height: 0;
+  block-size: 0;
   overflow: hidden;
   opacity: 0;
-  transition: max-height var(--transition-base), opacity var(--transition-base);
+  transition: block-size var(--transition-base), opacity var(--transition-base);
   pointer-events: auto;
 }
 
@@ -1547,7 +1550,7 @@ textarea:focus {
   }
 
   .video-card:hover .card-info-actions {
-    max-height: 40px;
+    block-size: auto;
     opacity: 1;
   }
 
