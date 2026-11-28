@@ -115,7 +115,7 @@ function ProgressRow({
               width: `${pct}%`,
               borderRadius: 2,
               background: "var(--primary)",
-              transition: "width 0.4s ease",
+              transition: "width var(--dur-slow) var(--ease-standard)",
             }}
           />
         </div>

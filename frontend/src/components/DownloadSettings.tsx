@@ -101,7 +101,7 @@ const cardBase: React.CSSProperties = {
   border: "1px solid var(--glass-border)",
   borderRadius: 18,
   padding: "22px 24px",
-  transition: "transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease",
+  transition: "transform var(--dur-base) var(--ease-standard), border-color var(--dur-base) var(--ease-standard), box-shadow var(--dur-base) var(--ease-standard)",
 };
 
 const inputBase: React.CSSProperties = {
@@ -113,7 +113,7 @@ const inputBase: React.CSSProperties = {
   fontSize: 14,
   fontFamily: "inherit",
   outline: "none",
-  transition: "border-color 150ms ease, box-shadow 150ms ease",
+  transition: "border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard)",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -461,7 +461,7 @@ export default function DownloadSettings() {
                       background: "linear-gradient(90deg, var(--primary), #6ee79a)",
                       boxShadow: "0 0 10px var(--primary-glow)",
                       borderRadius: 2,
-                      transition: "width 200ms ease",
+                      transition: "width var(--dur-base) var(--ease-standard)",
                     }}
                   />
                 </div>
@@ -548,7 +548,7 @@ export default function DownloadSettings() {
                     border: `1px solid ${
                       adFilter ? "var(--primary)" : "var(--glass-border-bright)"
                     }`,
-                    transition: "background 150ms ease, border-color 150ms ease",
+                    transition: "background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard)",
                     boxShadow: adFilter ? "0 0 12px var(--primary-glow)" : "none",
                   }}
                 >
@@ -561,7 +561,7 @@ export default function DownloadSettings() {
                       height: 20,
                       borderRadius: "50%",
                       background: "#000",
-                      transition: "left 150ms ease",
+                      transition: "left var(--dur-fast) var(--ease-standard)",
                     }}
                   />
                 </span>
@@ -570,7 +570,7 @@ export default function DownloadSettings() {
                     fontSize: 14,
                     color: adFilter ? "var(--primary)" : "var(--text-secondary)",
                     fontWeight: 500,
-                    transition: "color 150ms ease",
+                    transition: "color var(--dur-fast) var(--ease-standard)",
                   }}
                 >
                   {adFilter ? "已启用" : "已关闭"}
@@ -636,7 +636,7 @@ export default function DownloadSettings() {
                     border: `1px solid ${
                       accelEnabled ? "var(--primary)" : "var(--glass-border-bright)"
                     }`,
-                    transition: "background 150ms ease, border-color 150ms ease",
+                    transition: "background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard)",
                     boxShadow: accelEnabled ? "0 0 12px var(--primary-glow)" : "none",
                   }}
                 >
@@ -649,7 +649,7 @@ export default function DownloadSettings() {
                       height: 20,
                       borderRadius: "50%",
                       background: "#000",
-                      transition: "left 150ms ease",
+                      transition: "left var(--dur-fast) var(--ease-standard)",
                     }}
                   />
                 </span>

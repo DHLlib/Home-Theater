@@ -124,7 +124,7 @@ function TaskRow({
               width: `${progress}%`,
               borderRadius: 2,
               background: statusColor[t.status] || "var(--primary)",
-              transition: "width 0.4s ease",
+              transition: "width var(--dur-slow) var(--ease-standard)",
             }}
           />
         </div>

@@ -11,8 +11,9 @@ const pageVariants = {
 
 const pageTransition = {
   type: "tween" as const,
+  // 与 DESIGN.md §6.1 同一刻度：0.15 / 0.2 / 0.3 秒（framer-motion 只吃数字，读不到 CSS 变量）
   ease: [0.4, 0, 0.2, 1] as [number, number, number, number],
-  duration: 0.25,
+  duration: 0.2,
 };
 
 export default function MobileLayout() {

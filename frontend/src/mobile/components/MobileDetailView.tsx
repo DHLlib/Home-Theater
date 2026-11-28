@@ -68,7 +68,7 @@ function ChevronIcon({ open }: { open: boolean }) {
       strokeLinejoin="round"
       style={{
         transform: open ? "rotate(180deg)" : "rotate(0deg)",
-        transition: "transform 200ms ease",
+        transition: "transform var(--dur-base) var(--ease-out)",
       }}
       aria-hidden="true"
     >

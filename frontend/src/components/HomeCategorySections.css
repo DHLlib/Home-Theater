@@ -29,8 +29,11 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   min-height: 48px;
+  /* 命中区域 ≥ 44×44（DESIGN.md §8.1）；两字标签本体只有约 30 宽，靠 min-width 补足 */
+  min-width: var(--touch-target);
   padding: 0 1px;
   color: var(--text-secondary);
   font-size: 14px;

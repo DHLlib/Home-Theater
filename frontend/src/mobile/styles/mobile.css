@@ -93,7 +93,7 @@
   color: var(--text-primary);
   font-size: 13px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  animation: mobileToastIn 0.25s ease-out;
+  animation: mobileToastIn var(--dur-base) var(--ease-out);
 }
 
 @keyframes mobileToastIn {
@@ -182,8 +182,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target);
+  height: var(--touch-target);
   padding: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);

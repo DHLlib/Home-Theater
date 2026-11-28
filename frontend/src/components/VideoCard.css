@@ -40,7 +40,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 600ms var(--ease-out);
+  transition: transform var(--dur-zoom) var(--ease-out);
 }
 
 @media (hover: hover) {
@@ -115,7 +115,7 @@
 
 .vc-play {
   flex: 1;
-  min-height: 36px;
+  min-height: var(--touch-target);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -138,8 +138,8 @@
 }
 
 .vc-fav {
-  width: 36px;
-  min-height: 36px;
+  width: var(--touch-target);
+  min-height: var(--touch-target);
   display: inline-flex;
   align-items: center;
   justify-content: center;

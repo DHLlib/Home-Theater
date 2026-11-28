@@ -291,7 +291,7 @@
   top: 0;
   left: 0;
   width: 30%;
-  animation: opsIndeterminate 1.6s var(--ease-out) infinite alternate;
+  animation: opsIndeterminate var(--dur-indeterminate) var(--ease-out) infinite alternate;
 }
 @keyframes opsIndeterminate {
   from {
@@ -670,7 +670,7 @@
     var(--tint-soft) 63%
   );
   background-size: 400% 100%;
-  animation: opsShimmer 1.5s ease infinite;
+  animation: opsShimmer var(--dur-shimmer) var(--ease-in-out) infinite;
 }
 @keyframes opsShimmer {
   0% {
@@ -833,7 +833,7 @@
   top: 0;
   left: 0;
   width: 30%;
-  animation: opsIndeterminate 1.6s var(--ease-out) infinite alternate;
+  animation: opsIndeterminate var(--dur-indeterminate) var(--ease-out) infinite alternate;
 }
 .ops-task-active-meta {
   display: flex;
@@ -1091,7 +1091,7 @@
   border-radius: 16px 0 0 16px;
   background: var(--bg-elevated);
   box-shadow: -24px 0 70px rgba(0, 0, 0, 0.5);
-  animation: opsSheetIn 200ms var(--ease-out);
+  animation: opsSheetIn var(--dur-base) var(--ease-out);
 }
 @keyframes opsSheetIn {
   from {
@@ -1542,7 +1542,7 @@
     height: 90vh;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.5);
-    animation: opsSheetUp 200ms var(--ease-out);
+    animation: opsSheetUp var(--dur-base) var(--ease-out);
   }
   @keyframes opsSheetUp {
     from {

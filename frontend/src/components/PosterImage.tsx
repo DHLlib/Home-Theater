@@ -122,7 +122,7 @@ export default function PosterImage({
             position: "absolute",
             inset: 0,
             opacity: loaded ? 0 : 1,
-            transition: "opacity 0.25s ease",
+            transition: "opacity var(--dur-base) var(--ease-standard)",
             pointerEvents: "none",
           }}
         >
@@ -144,7 +144,7 @@ export default function PosterImage({
           objectFit: "cover",
           display: "block",
           opacity: loaded ? 1 : 0,
-          transition: "opacity 0.25s ease",
+          transition: "opacity var(--dur-base) var(--ease-standard)",
         }}
       />
     </div>

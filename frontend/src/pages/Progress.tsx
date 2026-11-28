@@ -214,7 +214,7 @@ function ProgressCard({
               width: `${pct}%`,
               borderRadius: 2,
               background: "var(--primary)",
-              transition: "width 0.6s ease",
+              transition: "width var(--dur-slow) var(--ease-standard)",
             }}
           />
         </div>
