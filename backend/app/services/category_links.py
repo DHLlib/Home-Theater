@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from sqlalchemy import delete, exists, func, select, text
+from sqlalchemy import delete, exists, func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -249,32 +249,40 @@ async def category_summary(db: AsyncSession) -> dict:
 
 
 async def _sample_titles(
-    db: AsyncSession, site_id: int, type_names: list[str], per_name: int = 3
+    db: AsyncSession, site_id: int, remote_ids: list[str], per_name: int = 3
 ) -> dict[str, list[str]]:
-    if not type_names:
+    # 按远程分类的 type_id 走 (site_id, type_id) 索引；旧的 type_name 匹配会
+    # 对每个类名扫一遍该站全部来源，站点多时列表要 3-4 秒。
+    numeric_ids = [str(rid) for rid in remote_ids if str(rid).isdigit()]
+    if not numeric_ids:
         return {}
     rows = (
         await db.execute(
             text(
                 """
-                SELECT n.type_name, v.title
-                FROM unnest(CAST(:names AS text[])) AS n(type_name)
+                SELECT n.remote_id, v.title
+                FROM unnest(CAST(:remote_ids AS text[])) AS n(remote_id)
                 CROSS JOIN LATERAL (
                     SELECT av.title
                     FROM aggregated_sources s
                     JOIN aggregated_videos av ON av.id = s.aggregated_video_id
-                    WHERE s.site_id = :site_id AND s.type_name = n.type_name
+                    WHERE s.site_id = :site_id
+                      AND s.type_id = CAST(n.remote_id AS integer)
                     ORDER BY s.id DESC
                     LIMIT :per_name
                 ) v
                 """
             ),
-            {"names": type_names, "site_id": site_id, "per_name": per_name},
+            {
+                "remote_ids": numeric_ids,
+                "site_id": site_id,
+                "per_name": per_name,
+            },
         )
     ).all()
     out: dict[str, list[str]] = {}
-    for type_name, title in rows:
-        out.setdefault((type_name or "").strip(), []).append(title)
+    for remote_id, title in rows:
+        out.setdefault(str(remote_id), []).append(title)
     return out
 
 
@@ -316,34 +324,51 @@ async def list_remote_categories(db: AsyncSession) -> list[dict]:
     ).all()
     latest = {site_id: seen for site_id, seen in latest_rows}
 
+    # 只统计快照里出现的 (site_id, type_id)，避免对 1800 万来源全表 GROUP BY。
+    usage_pairs = sorted(
+        {
+            (remote.site_id, int(remote.remote_id))
+            for remote, *_ in rows
+            if str(remote.remote_id).isdigit()
+        }
+    )
     usage_rows = (
         await db.execute(
             select(
                 AggregatedSource.site_id,
                 AggregatedSource.type_id,
                 func.count(),
-                func.count(func.distinct(AggregatedSource.aggregated_video_id)),
             )
-            .where(AggregatedSource.type_id.isnot(None))
+            .where(
+                AggregatedSource.type_id.isnot(None),
+                tuple_(
+                    AggregatedSource.site_id,
+                    AggregatedSource.type_id,
+                ).in_(usage_pairs),
+            )
             .group_by(AggregatedSource.site_id, AggregatedSource.type_id)
         )
-    ).all()
+    ).all() if usage_pairs else []
     usage = {
-        (site_id, str(type_id)): (int(sources or 0), int(videos or 0))
-        for site_id, type_id, sources, videos in usage_rows
+        (site_id, str(type_id)): int(sources or 0)
+        for site_id, type_id, sources in usage_rows
     }
 
-    names_by_site: dict[int, list[str]] = {}
-    for remote, *_ in rows:
-        names_by_site.setdefault(remote.site_id, []).append(remote.name)
+    # 样例标题只对「已挂载」行按需查；远程分类多时逐个类名取样例会拖慢整页。
+    # 数据量小的站点仍全量取，保留可读性。
+    sample_ids_by_site: dict[int, list[str]] = {}
+    sample_all = len(rows) <= 200
+    for remote, _site_name, _site_enabled, category_id, _category_name in rows:
+        if sample_all or category_id is not None:
+            sample_ids_by_site.setdefault(remote.site_id, []).append(remote.remote_id)
     samples_by_site: dict[int, dict[str, list[str]]] = {}
-    for site_id, names in names_by_site.items():
-        samples_by_site[site_id] = await _sample_titles(db, site_id, names)
+    for site_id, remote_ids in sample_ids_by_site.items():
+        samples_by_site[site_id] = await _sample_titles(db, site_id, remote_ids)
 
     items: list[dict] = []
     for remote, site_name, site_enabled, category_id, category_name in rows:
-        sources, videos = usage.get((remote.site_id, str(remote.remote_id)), (0, 0))
-        samples = samples_by_site.get(remote.site_id, {}).get(remote.name, [])
+        sources = usage.get((remote.site_id, str(remote.remote_id)), 0)
+        samples = samples_by_site.get(remote.site_id, {}).get(remote.remote_id, [])
         items.append(
             {
                 "site_id": remote.site_id,
@@ -359,7 +384,6 @@ async def list_remote_categories(db: AsyncSession) -> list[dict]:
                 "attached_category_id": category_id,
                 "attached_category_name": category_name,
                 "sources": sources,
-                "videos": videos,
                 "samples": samples,
             }
         )

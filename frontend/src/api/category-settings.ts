@@ -37,7 +37,6 @@ export interface RemoteCategoryItem {
   attached_category_id: number | null;
   attached_category_name: string | null;
   sources: number;
-  videos: number;
   samples: string[];
 }
 
