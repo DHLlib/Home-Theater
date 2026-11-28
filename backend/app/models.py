@@ -181,6 +181,26 @@ class SiteCategoryLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class CategoryLinkJob(Base):
+    """后端分类挂载队列：HTTP 只入队，工作协程串行执行并定向重算视频。"""
+
+    __tablename__ = "category_link_jobs"
+    __table_args__ = (
+        Index("ix_category_link_jobs_state_created", "state", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False, default="")
+    items: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    state: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    affected_videos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (UniqueConstraint("title", "year", name="uix_favorite_title_year"),)

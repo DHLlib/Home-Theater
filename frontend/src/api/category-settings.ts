@@ -53,6 +53,19 @@ export interface CategoryActionResult {
   affected_videos: number;
 }
 
+export interface CategoryLinkJob {
+  ok?: boolean;
+  id: string;
+  action: "attach" | "detach";
+  label: string;
+  state: "queued" | "running" | "done" | "failed";
+  affected_videos: number;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 export interface RefreshResult {
   ok: boolean;
   sites: number;
@@ -67,8 +80,21 @@ export const getCategoryOverview = () =>
 export const getCategoryRemotes = () =>
   get<{ items: RemoteCategoryItem[] }>("/api/category-settings/remotes", 60000);
 
-export const attachCategoryLinks = (items: CategoryLinkInput[]) =>
-  post<CategoryActionResult>("/api/category-settings/links", { items }, 120000);
+export const attachCategoryLinks = (
+  items: CategoryLinkInput[],
+  label: string
+) =>
+  post<CategoryLinkJob>(
+    "/api/category-settings/links",
+    { items, label },
+    15000
+  );
+
+export const getCategoryLinkJob = (jobId: string) =>
+  get<CategoryLinkJob>(
+    `/api/category-settings/jobs/${encodeURIComponent(jobId)}`,
+    15000
+  );
 
 export const detachCategoryLinks = (items: { site_id: number; remote_id: string }[]) =>
   delWithBody<CategoryActionResult>("/api/category-settings/links", { items }, 120000);

@@ -9,6 +9,7 @@ import {
 import {
   attachCategoryLinks,
   detachCategoryLinks,
+  getCategoryLinkJob,
   getCategoryOverview,
   getCategoryRemotes,
   refreshRemoteCategories,
@@ -26,10 +27,9 @@ import "./CategorySettings.css";
 
 type Adding = { kind: "big" | "child"; parentId?: number } | null;
 type DeleteTarget = { kind: "big" | "child"; id: number } | null;
-interface MountJob {
-  categoryId: number;
-  categoryName: string;
-  remotes: RemoteCategoryItem[];
+interface PendingJob {
+  id: string;
+  label: string;
 }
 
 const fmt = (n: number) => Number(n || 0).toLocaleString("zh-CN");
@@ -161,9 +161,8 @@ export default function CategorySettings() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busy, setBusy] = useState(false);
-  const [queueCount, setQueueCount] = useState(0);
-  const mountQueueRef = useRef<MountJob[]>([]);
-  const mountingRef = useRef(false);
+  const [pendingJobs, setPendingJobs] = useState<PendingJob[]>([]);
+  const hadPendingJobsRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -536,45 +535,66 @@ export default function CategorySettings() {
     }
   };
 
-  const processMountQueue = async () => {
-    if (mountingRef.current) return;
-    mountingRef.current = true;
-    try {
-      while (mountQueueRef.current.length > 0) {
-        const job = mountQueueRef.current[0];
-        try {
-          const result = await attachCategoryLinks(
-            job.remotes.map((item) => ({
-              site_id: item.site_id,
-              remote_id: item.remote_id,
-              system_category_id: job.categoryId,
-            }))
-          );
+  useEffect(() => {
+    if (pendingJobs.length === 0) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      const results = await Promise.all(
+        pendingJobs.map(async (job) => {
+          try {
+            return { job, status: await getCategoryLinkJob(job.id) };
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (stopped) return;
+
+      const finished = new Set<string>();
+      for (const item of results) {
+        if (!item) continue;
+        const { job, status } = item;
+        if (status.state === "done") {
+          finished.add(job.id);
           toastSuccess(
-            `已挂载 ${result.linked ?? job.remotes.length} 个远程分类到「${job.categoryName}」· 重算 ${fmt(result.affected_videos)} 个视频`
+            `「${job.label}」挂载完成 · 重算 ${fmt(status.affected_videos)} 个视频`
           );
-        } catch {
-          // client 已统一 toast；继续处理队列中的下一项
-        } finally {
-          mountQueueRef.current.shift();
-          setQueueCount(mountQueueRef.current.length);
+        } else if (status.state === "failed") {
+          finished.add(job.id);
+          toastError(
+            `挂载「${job.label}」失败：${status.error ?? "未知错误"}`
+          );
         }
       }
-    } finally {
-      await load(true);
-      mountingRef.current = false;
-      // 刷新期间新加入的队列项要接着处理，不能被 finally 漏掉
-      if (mountQueueRef.current.length > 0) {
-        void processMountQueue();
+      if (finished.size > 0) {
+        setPendingJobs((prev) =>
+          prev.filter((job) => !finished.has(job.id))
+        );
       }
-    }
-  };
+      if (!stopped) timer = setTimeout(poll, 700);
+    };
 
-  const attachSelected = () => {
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [pendingJobs, load]);
+
+  useEffect(() => {
+    if (pendingJobs.length === 0 && hadPendingJobsRef.current) {
+      hadPendingJobsRef.current = false;
+      void load(true);
+    }
+  }, [pendingJobs, load]);
+
+  const attachSelected = async () => {
     if (!selectedCategory || checkedRemotes.length === 0 || busy) return;
     const targets = checkedRemotes;
     const targetKeys = new Set(targets.map(remoteKey));
-    // 先本地落位并清空勾选，用户可立刻切到下一个小类继续加入队列
+    // 先本地落位并清空勾选，用户可立刻切到下一个小类继续提交
     setRemotes((prev) =>
       prev.map((item) =>
         targetKeys.has(remoteKey(item))
@@ -588,13 +608,24 @@ export default function CategorySettings() {
     );
     setChecked(new Set());
     scrollDetailTop();
-    mountQueueRef.current.push({
-      categoryId: selectedCategory.id,
-      categoryName: selectedCategory.name,
-      remotes: targets,
-    });
-    setQueueCount(mountQueueRef.current.length);
-    void processMountQueue();
+    try {
+      const job = await attachCategoryLinks(
+        targets.map((item) => ({
+          site_id: item.site_id,
+          remote_id: item.remote_id,
+          system_category_id: selectedCategory.id,
+        })),
+        selectedCategory.name
+      );
+      setPendingJobs((prev) => [
+        ...prev,
+        { id: job.id, label: selectedCategory.name },
+      ]);
+      hadPendingJobsRef.current = true;
+    } catch {
+      // 入队失败：恢复本地状态；服务端错误已由 client toast
+      void load(true);
+    }
   };
 
   const detachOne = async (item: RemoteCategoryItem) => {
@@ -1361,9 +1392,9 @@ export default function CategorySettings() {
                         : ""}
                     </span>
                   )}
-                  {queueCount > 0 && (
+                  {pendingJobs.length > 0 && (
                     <span className="cat-queue-status" role="status">
-                      挂载中 · 队列 {queueCount} 项
+                      后端队列 {pendingJobs.length} 项
                     </span>
                   )}
                 </div>

@@ -41,6 +41,17 @@ Feature: AC-002 分类映射（手动挂载）
     And 这 610 个视频直接变为未分类，不重新投票
     And 确认弹窗显示「610 个视频变为未分类」
 
+  Scenario: 挂载请求由后端队列异步执行
+    When 向 POST /api/category-settings/links 提交一批挂载
+    Then 立即返回 202 与 job_id，不在 HTTP 请求里重算视频
+    And 后台工作协程按顺序执行，用户可继续提交下一个小类
+    And 前端轮询 GET /api/category-settings/jobs/{job_id} 直到 done/failed
+
+  Scenario: 上一项未完成时继续挂载下一个分类
+    Given 第一个挂载任务仍在 queued/running
+    When 用户切换到另一个小类并提交挂载
+    Then 新请求同样立即入队，旧任务不会被阻塞或取消
+
   Scenario: 新增小类即使 0 内容也可见
     When 在「电影」下新增小类「测试分类」
     Then 系统树立即出现该小类

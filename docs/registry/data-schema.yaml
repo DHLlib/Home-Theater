@@ -635,6 +635,48 @@ db_models:
       - name: ix_site_category_links_category
         fields: [system_category_id]
 
+  - name: CategoryLinkJob
+    table: category_link_jobs
+    owner: backend
+    description: 分类挂载后端队列；HTTP 入队，单工作协程串行执行
+    fields:
+      - name: id
+        type: String(36)
+        pk: true
+      - name: action
+        type: String
+        nullable: false
+      - name: label
+        type: String
+        nullable: false
+      - name: items
+        type: JSON
+        nullable: false
+      - name: state
+        type: String
+        default: queued
+        nullable: false
+        description: queued / running / done / failed
+      - name: affected_videos
+        type: Integer
+        default: 0
+        nullable: false
+      - name: error
+        type: Text
+        nullable: true
+      - name: created_at
+        type: DateTime
+        default: datetime.utcnow
+      - name: started_at
+        type: DateTime
+        nullable: true
+      - name: finished_at
+        type: DateTime
+        nullable: true
+    indexes:
+      - name: ix_category_link_jobs_state_created
+        fields: [state, created_at]
+
   - name: MaintenanceJob
     table: maintenance_jobs
     owner: backend

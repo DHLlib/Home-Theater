@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.errors import site_not_found, validation_error
-from app.models import Site
+from app.models import CategoryLinkJob, Site
+from app.services.category_link_queue import (
+    enqueue_job,
+    job_payload,
+    queue_counts,
+)
 from app.services.category_links import (
     attach_affected_videos,
-    attach_links,
     category_counts,
     category_summary,
     detach_links,
@@ -33,6 +37,7 @@ class LinkItem(BaseModel):
 
 class LinkBatch(BaseModel):
     items: list[LinkItem]
+    label: str = Field(default="", max_length=100)
 
 
 class DetachItem(BaseModel):
@@ -78,22 +83,35 @@ async def category_remotes(db: AsyncSession = Depends(get_db)):
     return {"items": await list_remote_categories(db)}
 
 
-@router.post("/links")
+@router.post("/links", status_code=202)
 async def create_links(body: LinkBatch, db: AsyncSession = Depends(get_db)):
-    try:
-        touched = await attach_links(
-            db, [item.model_dump() for item in body.items]
-        )
-    except ValueError as exc:
-        raise validation_error(str(exc))
-    if not touched:
-        return {"ok": True, "linked": 0, "affected_videos": 0}
-    await db.commit()
-    affected = await attach_affected_videos(db, touched)
-    await db.commit()
-    _invalidate_category_caches()
-    logger.info("category_links_linked count=%d videos=%d", len(touched), affected)
-    return {"ok": True, "linked": len(touched), "affected_videos": affected}
+    """只入队，不在 HTTP 请求里重算；由后台工作协程串行消费。"""
+    job = await enqueue_job(
+        db,
+        action="attach",
+        items=[item.model_dump() for item in body.items],
+        label=body.label or "分类挂载",
+    )
+    logger.info(
+        "category_link_job_enqueued id=%s label=%s count=%d",
+        job.id,
+        job.label,
+        len(body.items),
+    )
+    return {"ok": True, **job_payload(job)}
+
+
+@router.get("/jobs/{job_id}")
+async def get_category_link_job(job_id: str, db: AsyncSession = Depends(get_db)):
+    job = await db.get(CategoryLinkJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="分类任务不存在")
+    return job_payload(job)
+
+
+@router.get("/queue")
+async def get_category_link_queue(db: AsyncSession = Depends(get_db)):
+    return await queue_counts(db)
 
 
 @router.delete("/links")

@@ -699,11 +699,30 @@ endpoints:
   - id: API-CATEGORY-SETTINGS-LINKS-CREATE
     path: /api/category-settings/links
     method: POST
-    summary: 批量将 (site_id, remote_id) 手动挂到系统小类
+    summary: 批量挂载入队（立即返回 202，由后端队列串行执行）
     request_schema: null
     response_schema: null
     consumers: [AC-002]
-    notes: 只能挂小类；(site_id, remote_id) 唯一；命中则移动，返回 linked/affected_videos
+    notes: |
+      只写入 category_link_jobs，不在 HTTP 请求里重算；返回 job_id/state。
+      后台工作协程串行执行，支持 GET /jobs/{job_id} 轮询。
+      只能挂小类；(site_id, remote_id) 唯一；校验/执行失败写入 job.error。
+
+  - id: API-CATEGORY-SETTINGS-JOB
+    path: /api/category-settings/jobs/{job_id}
+    method: GET
+    summary: 查询分类挂载队列任务状态
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
+
+  - id: API-CATEGORY-SETTINGS-QUEUE
+    path: /api/category-settings/queue
+    method: GET
+    summary: 后端分类挂载队列 queued/running 计数
+    request_schema: null
+    response_schema: null
+    consumers: [AC-002]
 
   - id: API-CATEGORY-SETTINGS-LINKS-DELETE
     path: /api/category-settings/links

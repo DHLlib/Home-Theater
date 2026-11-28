@@ -531,6 +531,17 @@ async def lifespan(app: FastAPI):
     _maybe_enable_stack_dump()
     loop_lag_task = asyncio.create_task(_loop_lag_watchdog())
 
+    from app.services.category_link_queue import (
+        recover_jobs,
+        run_category_link_worker,
+    )
+
+    async with async_session_factory() as db:
+        await recover_jobs(db)
+    category_queue_task = asyncio.create_task(
+        run_category_link_worker(async_session_factory)
+    )
+
     await listen_manager.start()
     sse.reset_streams()
     worker_task = asyncio.create_task(download_coordinator())
@@ -540,6 +551,7 @@ async def lifespan(app: FastAPI):
     sse.shutdown_streams()
     worker_task.cancel()
     scheduler_task.cancel()
+    category_queue_task.cancel()
     loop_lag_task.cancel()
     try:
         await worker_task
@@ -547,6 +559,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await category_queue_task
     except asyncio.CancelledError:
         pass
     try:

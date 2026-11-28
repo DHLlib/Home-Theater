@@ -10,6 +10,8 @@ from app.api.system_categories import (
     update_system_category,
 )
 from app.db import get_db
+from app.models import CategoryLinkJob
+from app.services.category_link_queue import enqueue_job, process_next_job
 from app.models import (
     AggregatedSource,
     AggregatedVideoV3,
@@ -297,6 +299,31 @@ async def test_refresh_snapshot_uses_ac_list(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_async_queue_marks_invalid_big_category_failed(db_session):
+    await _site(db_session)
+    parent, _action, _scifi = await _categories(db_session)
+    await db_session.commit()
+
+    job = await enqueue_job(
+        db_session,
+        action="attach",
+        items=[{"site_id": 1, "remote_id": "6", "system_category_id": parent.id}],
+        label="非法挂载",
+    )
+    assert job.state == "queued"
+    assert await process_next_job(db_session) is True
+
+    refreshed = await db_session.get(CategoryLinkJob, job.id)
+    assert refreshed is not None
+    assert refreshed.state == "failed"
+    assert "小类" in (refreshed.error or "")
+    links = (
+        await db_session.execute(select(SiteCategoryLink))
+    ).scalars().all()
+    assert links == []
+
+
+@pytest.mark.asyncio
 async def test_category_settings_api_overview_attach_and_detach(db_session):
     await _site(db_session)
     _parent, action, _scifi = await _categories(db_session)
@@ -331,13 +358,24 @@ async def test_category_settings_api_overview_attach_and_detach(db_session):
             json={
                 "items": [
                     {"site_id": 1, "remote_id": "6", "system_category_id": action.id}
-                ]
+                ],
+                "label": "动作片",
             },
         )
-        assert linked.status_code == 200, linked.text
-        assert linked.json()["linked"] == 1
+        assert linked.status_code == 202, linked.text
+        job = linked.json()
+        assert job["state"] == "queued"
+        assert job["label"] == "动作片"
+        job_id = job["id"]
+
+        assert await process_next_job(db_session) is True
         await db_session.refresh(video)
         assert video.system_category == "动作片"
+
+        job_status = await client.get(f"/api/category-settings/jobs/{job_id}")
+        assert job_status.status_code == 200
+        assert job_status.json()["state"] == "done"
+        assert job_status.json()["affected_videos"] == 1
 
         after = (await client.get("/api/category-settings/remotes")).json()["items"]
         assert next(item for item in after if item["remote_id"] == "6")[

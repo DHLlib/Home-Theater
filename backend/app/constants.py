@@ -88,6 +88,7 @@ MAINTENANCE_LIST_LIMIT_MAX = 100            # list_jobs limit 上限
 MAINTENANCE_SHUTDOWN_TIMEOUT_SECONDS = 10.0  # 关闭时等待任务合作取消的总预算
 FULL_CRAWL_LOCK_TIMEOUT = 5.0                 # 全量刮削等待全局操作锁的上限（秒）
 CLEANUP_PROGRESS_REPORT_SECONDS = 1.0         # 清理任务向协调器回报进度的间隔（秒）
+CATEGORY_QUEUE_POLL_SECONDS = 0.35           # 分类挂载后端队列空闲轮询间隔（秒）
 CLEANUP_LOCK_TIMEOUT = 5.0                    # 清理任务等待全局操作锁的上限（秒）
 
 # ------------------------------------------------------------------

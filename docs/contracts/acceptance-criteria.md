@@ -24,6 +24,8 @@
 
 **And** 历史 `category_aliases`、旧 `site_category_mappings`、`site_category_overrides`、`sites.categories` 在升级时一次性清空；之后不再自动匹配、不再全量回填
 
+**And** 挂载请求写入后端 `category_link_jobs` 队列并立即返回 202；单个工作协程按顺序执行，用户无需等待上一项完成即可继续提交；前端轮询任务状态
+
 ---
 
 ## AC-003 首页视频聚合列表

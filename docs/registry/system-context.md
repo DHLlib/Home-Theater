@@ -39,6 +39,7 @@
 | 能力 | 关键实现 | 说明 |
 |---|---|---|
 | 手动分类挂载 | `services/category_links.py`, `api/category_settings.py` | 站点远程分类 → 小类；按站点唯一，一远程只挂一个小类，一小类可挂多个 |
+| 后端挂载队列 | `services/category_link_queue.py`, `category_link_jobs` | POST 只入队返回 202，单工作协程串行挂载/重算；前端轮询任务状态 |
 | 远程分类快照 | `site_remote_categories` + `/api/category-settings/refresh` | 从 `ac=list` 拉取全部分类；爬虫用最新快照抓取，映射不影响抓取范围 |
 | 视频级分类 | `aggregated_videos.system_category` | 按来源挂载关系投票；NULL = 「未分类」；不再全量回填 |
 | 分类删除 | `api/system_categories.py` | 解挂载 + 视频置 NULL + 删分类，不迁移、不重新投票 |
@@ -51,7 +52,7 @@
 | 高清 / 稳定双推荐 | `source_media_info`、`media_metadata.py`、`source_quality.py` | 每片每源区分声明/检测/实测；高清看媒体参数，稳定看本机播放证据；不自动选源 |
 | 按需媒体分析 | `media_analysis.py`、`useAutoMediaAnalysis` | 打开详情自动逐批分析，每批最多 2 源；关闭详情停止后续，不全库采样、不下载未选源分片 |
 | 播放保护与轻量增强 | `playback_guard.py`、`playback_enhancement.py` | 播放时后台任务退让；可选 Lanczos + Unsharp，单 ffmpeg 进程、失败回退原源 |
-| 分类设置单页 | `components/category-settings/CategorySettings.tsx` | 左系统树 + 右已挂载/可挂载（按站点分组）；新增/改名/删除、手动勾选挂载、0 内容分类保留 |
+| 分类设置单页 | `components/category-settings/CategorySettings.tsx` | 左系统树 + 右已挂载/可挂载（按站点分组）；新增/改名/删除、手动勾选挂载、搜索结果全选、后端队列状态、0 内容分类保留 |
 | 清除失效资源 | `videos.cleanup_expired` + `cleanup_candidates` 表 | 全站游标分页后台任务，连续两轮缺失才删；四档限速；可停止续跑 |
 | 播放加速 | `services/stream_accel.py`, `api/play.py` | m3u8 分片经后端并发预取 + LRU 缓存，绕过 CDN 单连接限速；默认关闭 |
 | 聚合并发保护 | `aggregator.py` advisory lock + upsert | 跨进程串行重建；增量写入 upsert，避免唯一键冲突整批失败 |
@@ -106,8 +107,10 @@
 ### Category Settings (`/api/category-settings`)
 - `GET    /api/category-settings/overview` → 系统分类树（含 videos/remotes 计数）+ 汇总
 - `GET    /api/category-settings/remotes` → 远程分类快照（按站点、挂载状态、样例、stale）
-- `POST   /api/category-settings/links` → 批量挂载（只能挂小类；定向重算受影响视频）
-- `DELETE /api/category-settings/links` → 批量解除挂载（定向重算受影响视频）
+- `POST   /api/category-settings/links` → 批量挂载入队（立即返回 202 + job_id；后台串行执行）
+- `GET    /api/category-settings/jobs/{job_id}` → 挂载任务状态（queued/running/done/failed、affected_videos、error）
+- `GET    /api/category-settings/queue` → 后端队列 queued/running 计数
+- `DELETE /api/category-settings/links` → 批量解除挂载（同步定向重算）
 - `POST   /api/category-settings/refresh` → 重新拉取所有站点远程分类快照
 - `POST   /api/category-settings/sites/{site_id}/refresh` → 单站刷新
 
